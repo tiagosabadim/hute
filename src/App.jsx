@@ -195,16 +195,31 @@ function AdminClients() {
   );
 }
 
+function gerarHorarios(inicio, fim, intervalo) {
+  const slots = [];
+  let [h, m] = inicio.split(':').map(Number);
+  const [hf, mf] = fim.split(':').map(Number);
+  while (h < hf || (h === hf && m < mf)) {
+    slots.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+    m += intervalo;
+    if (m >= 60) { h += Math.floor(m/60); m = m % 60; }
+  }
+  return slots;
+}
+
 function AdminSettings({ user, db, appId, profile }) {
   const [nome, setNome] = useState(profile.nome || '');
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
   const [slug, setSlug] = useState(profile.slug || '');
+  const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
+  const [horaFim, setHoraFim] = useState(profile.horaFim || '18:00');
+  const [intervalo, setIntervalo] = useState(profile.intervalo || 60);
 
   const saveProfile = async (e) => {
     e.preventDefault();
     const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { nome, subtitulo, slug: cleanSlug }, { merge: true });
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { nome, subtitulo, slug: cleanSlug, horaInicio, horaFim, intervalo: Number(intervalo) }, { merge: true });
       if (cleanSlug) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'slugs', cleanSlug), { uid: user.uid, nome });
       alert('Perfil Guardado!');
       setSlug(cleanSlug);
@@ -275,6 +290,29 @@ function AdminSettings({ user, db, appId, profile }) {
           <div className="flex">
             <span className="p-3 bg-slate-100 text-slate-400 rounded-l-lg border border-slate-200 border-r-0">/#</span>
             <input className="w-full p-3 bg-slate-50 rounded-r-lg outline-none border border-slate-200 border-l-0" value={slug} onChange={e=>setSlug(e.target.value)} placeholder="seusalao" required />
+          </div>
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Horário de Funcionamento</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-slate-400">Abertura</label>
+                <input type="time" className="w-full p-2 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm" value={horaInicio} onChange={e=>setHoraInicio(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400">Fecho</label>
+                <input type="time" className="w-full p-2 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm" value={horaFim} onChange={e=>setHoraFim(e.target.value)} />
+              </div>
+            </div>
+            <div className="mt-2">
+              <label className="text-xs text-slate-400">Duração de cada serviço</label>
+              <select className="w-full p-2 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm mt-1" value={intervalo} onChange={e=>setIntervalo(e.target.value)}>
+                <option value={30}>30 minutos</option>
+                <option value={45}>45 minutos</option>
+                <option value={60}>1 hora</option>
+                <option value={90}>1h30</option>
+                <option value={120}>2 horas</option>
+              </select>
+            </div>
           </div>
           <button type="submit" className="w-full bg-slate-900 text-white p-3 rounded-lg font-semibold">Guardar</button>
         </form>
@@ -395,7 +433,7 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
               <button type="button" onClick={nextDay} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-500">›</button>
             </div>
             <div className="grid grid-cols-3 gap-2 mb-6">
-              {["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"].map(h => (
+              {gerarHorarios(profile.horaInicio || '09:00', profile.horaFim || '18:00', profile.intervalo || 60).map(h => (
                 <button type="button" key={h} onClick={() => setHora(h)} className={`py-2 rounded-lg border font-medium text-sm transition-colors ${hora === h ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200'}`}>{h}</button>
               ))}
             </div>
