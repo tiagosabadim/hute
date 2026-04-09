@@ -13,9 +13,8 @@ function getDb() {
 exports.handler = async (event) => {
   const APP_ID = 'hutex-saas';
 
-  const redirectUri = process.env.URL
-    ? `${process.env.URL}/.netlify/functions/googleAuthCallback`
-    : `http://localhost:8888/.netlify/functions/googleAuthCallback`;
+  const siteUrl = process.env.URL || process.env.DEPLOY_URL || 'https://hute.netlify.app';
+  const redirectUri = `${siteUrl}/.netlify/functions/googleAuthCallback`;
 
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
