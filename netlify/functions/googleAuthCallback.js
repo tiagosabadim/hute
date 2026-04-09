@@ -12,9 +12,7 @@ function getDb() {
 
 exports.handler = async (event) => {
   const APP_ID = 'hutex-saas';
-
-  const siteUrl = process.env.URL || process.env.DEPLOY_URL || 'https://hute.netlify.app';
-  const redirectUri = `${siteUrl}/.netlify/functions/googleAuthCallback`;
+  const redirectUri = 'https://hute.netlify.app/.netlify/functions/googleAuthCallback';
 
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
@@ -22,23 +20,11 @@ exports.handler = async (event) => {
     redirectUri
   );
 
-  if (event.queryStringParameters && event.queryStringParameters.login) {
-    const uid = event.queryStringParameters.uid;
-    const authUrl = oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: ['https://www.googleapis.com/auth/calendar.events'],
-      prompt: 'consent',
-      state: uid,
-      redirect_uri: redirectUri
-    });
-    return { statusCode: 302, headers: { Location: authUrl } };
-  }
-
   const code = event.queryStringParameters && event.queryStringParameters.code;
   const adminUid = event.queryStringParameters && event.queryStringParameters.state;
 
   if (!code || !adminUid) {
-    return { statusCode: 400, body: 'Missing code or state.' };
+    return { statusCode: 400, body: 'Parâmetros em falta.' };
   }
 
   try {
@@ -54,8 +40,7 @@ exports.handler = async (event) => {
       googleCalendarConnected: true
     }, { merge: true });
 
-    const frontendUrl = process.env.URL || "http://localhost:5173";
-    return { statusCode: 302, headers: { Location: `${frontendUrl}?success=1` } };
+    return { statusCode: 302, headers: { Location: 'https://hute.netlify.app?success=1' } };
 
   } catch (error) {
     console.error(error);

@@ -202,7 +202,18 @@ function AdminSettings({ user, db, appId, profile }) {
   };
 
   const loginGoogle = () => {
-    window.location.href = `${BACKEND_URL}/googleAuthCallback?login=true&uid=${user.uid}`;
+    const GOOGLE_CLIENT_ID = '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com';
+    const redirectUri = 'https://hute.netlify.app/.netlify/functions/googleAuthCallback';
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/calendar.events',
+      access_type: 'offline',
+      prompt: 'consent',
+      state: user.uid,
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   };
 
   const desligarGoogle = async () => {
