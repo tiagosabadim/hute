@@ -128,7 +128,7 @@ export default function App() {
           <Users className="w-6 h-6 mb-1" /><span className="text-[10px] font-medium uppercase">Clientes</span>
         </button>
         <button onClick={() => setView('settings')} className={`flex flex-col items-center transition-colors ${view === 'settings' ? 'text-slate-900' : 'text-slate-400'}`}>
-          <Settings className="w-6 h-6 mb-1" /><span className="text-[10px] font-medium uppercase">Sistema</span>
+          <Settings className="w-6 h-6 mb-1" /><span className="text-[10px] font-medium uppercase">Estabelecimento</span>
         </button>
       </nav>
     </div>
@@ -205,10 +205,49 @@ function AdminSettings({ user, db, appId, profile }) {
     window.location.href = `${BACKEND_URL}/googleAuthCallback?login=true&uid=${user.uid}`;
   };
 
+  const desligarGoogle = async () => {
+    if (!window.confirm('Desligar o Google Agenda?')) return;
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { googleCalendarConnected: false }, { merge: true });
+      alert('Google Agenda desligado.');
+    } catch (e) { alert('Erro ao desligar.'); }
+  };
+
   return (
     <div className="space-y-6">
+
+      {/* Google Calendar — elemento principal da aba */}
+      <div className={`p-5 rounded-2xl shadow-sm border ${profile.googleCalendarConnected ? 'bg-green-50 border-green-200' : 'bg-white border-blue-100'}`}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-bold text-slate-800">Google Agenda</h3>
+          {profile.googleCalendarConnected && (
+            <span className="text-[10px] font-bold uppercase tracking-wide text-green-600 bg-green-100 px-2 py-1 rounded-full">Ativo</span>
+          )}
+        </div>
+        <p className="text-xs text-slate-500 mb-4">
+          {profile.googleCalendarConnected
+            ? 'Os agendamentos dos clientes são sincronizados automaticamente.'
+            : 'Ligue para sincronizar agendamentos automaticamente na sua agenda.'}
+        </p>
+        {profile.googleCalendarConnected ? (
+          <div className="space-y-2">
+            <div className="bg-green-100 text-green-800 p-3 rounded-lg text-sm flex items-center font-semibold">
+              <CheckCircle className="w-5 h-5 mr-2 flex-shrink-0" /> Integração ativa — agendamentos sincronizados
+            </div>
+            <button onClick={desligarGoogle} className="w-full text-red-500 text-sm py-2 font-medium">
+              Desligar integração
+            </button>
+          </div>
+        ) : (
+          <button onClick={loginGoogle} className="w-full bg-blue-600 text-white p-3 rounded-lg font-semibold flex justify-center items-center">
+            <Calendar className="w-5 h-5 mr-2" /> Ligar Google Agenda
+          </button>
+        )}
+      </div>
+
+      {/* Dados do estabelecimento */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-        <h3 className="font-bold text-slate-800 mb-4">A Sua Marca</h3>
+        <h3 className="font-bold text-slate-800 mb-4">Dados do Estabelecimento</h3>
         <form onSubmit={saveProfile} className="space-y-3">
           <input className="w-full p-3 bg-slate-50 rounded-lg outline-none border border-slate-200" value={nome} onChange={e=>setNome(e.target.value)} placeholder="Nome do Salão" required />
           <input className="w-full p-3 bg-slate-50 rounded-lg outline-none border border-slate-200" value={subtitulo} onChange={e=>setSubtitulo(e.target.value)} placeholder="Especialidade" />
@@ -216,24 +255,19 @@ function AdminSettings({ user, db, appId, profile }) {
             <span className="p-3 bg-slate-100 text-slate-400 rounded-l-lg border border-slate-200 border-r-0">/#</span>
             <input className="w-full p-3 bg-slate-50 rounded-r-lg outline-none border border-slate-200 border-l-0" value={slug} onChange={e=>setSlug(e.target.value)} placeholder="seusalao" required />
           </div>
-          <button type="submit" className="w-full bg-slate-900 text-white p-3 rounded-lg font-semibold">Atualizar Perfil</button>
+          <button type="submit" className="w-full bg-slate-900 text-white p-3 rounded-lg font-semibold">Guardar</button>
         </form>
       </div>
 
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-blue-100">
-        <h3 className="font-bold text-slate-800 mb-1">Google Agenda</h3>
-        <p className="text-xs text-slate-500 mb-4">Sincronização em tempo real.</p>
-        {profile.googleCalendarConnected ? (
-           <div className="bg-green-50 text-green-700 p-3 rounded-lg text-sm flex items-center font-semibold"><CheckCircle className="w-5 h-5 mr-2" /> Agenda Ativa</div>
-        ) : (
-          <button onClick={loginGoogle} className="w-full bg-blue-600 text-white p-3 rounded-lg font-semibold flex justify-center items-center"><Calendar className="w-5 h-5 mr-2" /> Ligar Google</button>
-        )}
-      </div>
-      
+      {/* Link de partilha */}
       <div className="bg-emerald-50 p-5 rounded-2xl shadow-sm border border-emerald-100">
-         <h3 className="font-bold text-emerald-900 mb-1">Link para Clientes</h3>
-         <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/#${slug}`); alert('Copiado!'); }} className="w-full bg-emerald-600 text-white p-3 rounded-lg font-semibold mt-2 flex justify-center items-center"><Copy className="w-5 h-5 mr-2"/> Copiar Link</button>
+        <h3 className="font-bold text-emerald-900 mb-1">Link para Clientes</h3>
+        <p className="text-xs text-emerald-700 mb-3">Partilhe este link para receber marcações online.</p>
+        <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/#${slug}`); alert('Copiado!'); }} className="w-full bg-emerald-600 text-white p-3 rounded-lg font-semibold flex justify-center items-center">
+          <Copy className="w-5 h-5 mr-2"/> Copiar Link
+        </button>
       </div>
+
     </div>
   );
 }
@@ -245,19 +279,6 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
   const [loading, setLoading] = useState(false);
   const [confirmado, setConfirmado] = useState(null); // { hora, dataIso, calendarUrl }
   const dataIso = new Date().toISOString().split('T')[0];
-
-  const buildGoogleCalendarUrl = (nomeCliente, nomeServico, dataStr, horaStr) => {
-    const inicio = new Date(`${dataStr}T${horaStr}:00`);
-    const fim = new Date(inicio.getTime() + 60 * 60 * 1000);
-    const fmt = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-    const params = new URLSearchParams({
-      action: 'TEMPLATE',
-      text: `${nomeServico} - ${profile.nome || 'Salão'}`,
-      dates: `${fmt(inicio)}/${fmt(fim)}`,
-      details: `Marcação para ${nomeCliente}\nWhatsApp: ${whats}`,
-    });
-    return `https://calendar.google.com/calendar/render?${params.toString()}`;
-  };
 
   const handleBooking = async (e) => {
     e.preventDefault();
@@ -285,11 +306,7 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
         headers: { 'Content-Type': 'application/json' }
       });
 
-      setConfirmado({
-        hora,
-        dataIso,
-        calendarUrl: buildGoogleCalendarUrl(nome, "Marcação", dataIso, hora),
-      });
+      setConfirmado({ hora, dataIso });
     } catch (e) {
       console.error(e);
       alert("Erro ao processar agendamento.");
@@ -307,16 +324,7 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
           <h2 className="text-xl font-bold text-slate-800 mb-1">Marcação Confirmada!</h2>
           <p className="text-slate-500 text-sm mb-1">{confirmado.dataIso.split('-').reverse().join('/')} às {confirmado.hora}</p>
           <p className="text-slate-500 text-sm mb-6">{profile.nome}</p>
-
-          <a
-            href={confirmado.calendarUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full bg-blue-600 text-white py-3 px-4 rounded-xl font-semibold flex items-center justify-center mb-3"
-          >
-            <Calendar className="w-5 h-5 mr-2" />
-            Adicionar ao Google Agenda
-          </a>
+          <p className="text-slate-400 text-xs mb-6">O salão foi notificado e o agendamento foi registado.</p>
 
           <button
             onClick={() => { setConfirmado(null); setNome(''); setWhats(''); setHora(''); }}
