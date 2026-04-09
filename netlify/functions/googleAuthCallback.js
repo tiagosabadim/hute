@@ -29,7 +29,20 @@ exports.handler = async (event) => {
 
   try {
     const db = getDb();
-    const { tokens } = await oauth2Client.getToken(code);
+
+    let tokens;
+    try {
+      const result = await oauth2Client.getToken(code);
+      tokens = result.tokens;
+    } catch (tokenError) {
+      console.error('ERRO ao trocar code por tokens:', tokenError.message);
+      return { statusCode: 302, headers: { Location: `https://hute.netlify.app?error=token&msg=${encodeURIComponent(tokenError.message)}` } };
+    }
+
+    if (!tokens.refresh_token) {
+      console.error('ERRO: refresh_token não recebido. Tokens:', JSON.stringify(tokens));
+      return { statusCode: 302, headers: { Location: 'https://hute.netlify.app?error=no_refresh_token' } };
+    }
 
     await db.doc(`artifacts/${APP_ID}/users/${adminUid}/secrets/google`).set({
       refresh_token: tokens.refresh_token,
@@ -43,7 +56,7 @@ exports.handler = async (event) => {
     return { statusCode: 302, headers: { Location: 'https://hute.netlify.app?success=1' } };
 
   } catch (error) {
-    console.error(error);
-    return { statusCode: 500, body: 'Erro ao conectar Google Calendar.' };
+    console.error('ERRO GERAL na function:', error.message);
+    return { statusCode: 302, headers: { Location: `https://hute.netlify.app?error=geral&msg=${encodeURIComponent(error.message)}` } };
   }
 };

@@ -46,7 +46,17 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      if (currentUser) await checkRoute(currentUser.uid);
+      if (currentUser) {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('error')) {
+          alert(`Erro ao ligar Google Agenda: ${params.get('msg') || params.get('error')}`);
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+        if (params.get('success')) {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+        await checkRoute(currentUser.uid);
+      }
     });
     return () => unsubscribe();
   }, []);
