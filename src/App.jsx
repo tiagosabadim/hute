@@ -243,7 +243,21 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
   const [whats, setWhats] = useState('');
   const [hora, setHora] = useState('');
   const [loading, setLoading] = useState(false);
+  const [confirmado, setConfirmado] = useState(null); // { hora, dataIso, calendarUrl }
   const dataIso = new Date().toISOString().split('T')[0];
+
+  const buildGoogleCalendarUrl = (nomeCliente, nomeServico, dataStr, horaStr) => {
+    const inicio = new Date(`${dataStr}T${horaStr}:00`);
+    const fim = new Date(inicio.getTime() + 60 * 60 * 1000);
+    const fmt = (d) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: `${nomeServico} - ${profile.nome || 'Salão'}`,
+      dates: `${fmt(inicio)}/${fmt(fim)}`,
+      details: `Marcação para ${nomeCliente}\nWhatsApp: ${whats}`,
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  };
 
   const handleBooking = async (e) => {
     e.preventDefault();
@@ -261,26 +275,59 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
     };
 
     try {
-      // 1. Guarda na BD local
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', `appointments_${lojaUid}`), {
          ...payload, createdAt: new Date().toISOString(), origem: 'portal_cliente'
       });
 
-      // 2. Tenta enviar para o Backend (Google Agenda)
       await fetch(`${BACKEND_URL}/createAppointment`, {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 'Content-Type': 'application/json' }
       });
-      
-      alert("Sucesso! Agendamento recebido.");
-      setNome(''); setWhats(''); setHora('');
+
+      setConfirmado({
+        hora,
+        dataIso,
+        calendarUrl: buildGoogleCalendarUrl(nome, "Marcação", dataIso, hora),
+      });
     } catch (e) {
       console.error(e);
       alert("Erro ao processar agendamento.");
     }
     setLoading(false);
   };
+
+  if (confirmado) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-5 max-w-[480px] mx-auto shadow-xl">
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-slate-100 text-center w-full">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-9 h-9 text-green-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-1">Marcação Confirmada!</h2>
+          <p className="text-slate-500 text-sm mb-1">{confirmado.dataIso.split('-').reverse().join('/')} às {confirmado.hora}</p>
+          <p className="text-slate-500 text-sm mb-6">{profile.nome}</p>
+
+          <a
+            href={confirmado.calendarUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full bg-blue-600 text-white py-3 px-4 rounded-xl font-semibold flex items-center justify-center mb-3"
+          >
+            <Calendar className="w-5 h-5 mr-2" />
+            Adicionar ao Google Agenda
+          </a>
+
+          <button
+            onClick={() => { setConfirmado(null); setNome(''); setWhats(''); setHora(''); }}
+            className="w-full text-slate-500 text-sm py-2"
+          >
+            Fazer nova marcação
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 relative pb-10 max-w-[480px] mx-auto shadow-xl">
@@ -294,14 +341,14 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
           <form onSubmit={handleBooking}>
             <input className="w-full p-3 bg-slate-50 rounded-lg mb-3 border border-slate-200 outline-none" value={nome} onChange={e=>setNome(e.target.value)} required placeholder="Seu Nome Completo" />
             <input className="w-full p-3 bg-slate-50 rounded-lg mb-4 border border-slate-200 outline-none" value={whats} onChange={e=>setWhats(e.target.value)} required placeholder="WhatsApp" type="tel" />
-            
+
             <h3 className="font-bold text-slate-800 mb-3 mt-4 text-sm">Escolha a Hora (Hoje, {dataIso.split('-').reverse().join('/')})</h3>
             <div className="grid grid-cols-3 gap-2 mb-6">
               {["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"].map(h => (
                 <button type="button" key={h} onClick={() => setHora(h)} className={`py-2 rounded-lg border font-medium text-sm transition-colors ${hora === h ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200'}`}>{h}</button>
               ))}
             </div>
-            
+
             <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-md shadow-slate-900/20">{loading ? 'A processar...' : 'Confirmar Marcação'}</button>
           </form>
         </div>
