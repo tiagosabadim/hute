@@ -38,15 +38,10 @@ exports.handler = async (event) => {
 
     const db = getDb();
 
-    await setDoc(
-      doc(db, 'artifacts', APP_ID, 'users', adminUid, 'secrets', 'google'),
-      { refresh_token: tokens.refresh_token, connectedAt: new Date().toISOString() },
-      { merge: true }
-    );
-
+    // Guarda no perfil público (acessível pela function createAppointment)
     await setDoc(
       doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', adminUid),
-      { googleCalendarConnected: true },
+      { googleCalendarConnected: true, googleRefreshToken: tokens.refresh_token },
       { merge: true }
     );
 

@@ -298,8 +298,22 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
   const [whats, setWhats] = useState('');
   const [hora, setHora] = useState('');
   const [loading, setLoading] = useState(false);
-  const [confirmado, setConfirmado] = useState(null); // { hora, dataIso, calendarUrl }
-  const dataIso = new Date().toISOString().split('T')[0];
+  const [confirmado, setConfirmado] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const dataIso = selectedDate.toISOString().split('T')[0];
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  const prevDay = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 1);
+    if (d >= today) { setSelectedDate(d); setHora(''); }
+  };
+  const nextDay = () => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + 1);
+    setSelectedDate(d); setHora('');
+  };
 
   const handleBooking = async (e) => {
     e.preventDefault();
@@ -311,26 +325,30 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
       clienteNome: nome,
       clienteWhats: whats,
       servico: "Marcação",
-      dataStr: dataIso,
-      horaStr: hora,
+      data: dataIso,
+      hora: hora,
       dataHoraInternacional: new Date(`${dataIso}T${hora}:00`).toISOString(),
     };
 
     try {
+      // 1. Guarda na Firestore (campos corretos: data, hora)
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', `appointments_${lojaUid}`), {
-         ...payload, createdAt: new Date().toISOString(), origem: 'portal_cliente'
+        ...payload, createdAt: new Date().toISOString(), origem: 'portal_cliente'
       });
 
-      await fetch(`${BACKEND_URL}/createAppointment`, {
+      // 2. Mostra confirmação imediatamente
+      setConfirmado({ hora, dataIso });
+
+      // 3. Sincroniza Google Calendar em background (não bloqueia UI)
+      fetch(`${BACKEND_URL}/createAppointment`, {
         method: 'POST',
         body: JSON.stringify(payload),
         headers: { 'Content-Type': 'application/json' }
-      });
+      }).catch(err => console.error('Google sync falhou:', err));
 
-      setConfirmado({ hora, dataIso });
     } catch (e) {
       console.error(e);
-      alert("Erro ao processar agendamento.");
+      alert("Erro ao guardar agendamento. Tente novamente.");
     }
     setLoading(false);
   };
@@ -371,7 +389,11 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
             <input className="w-full p-3 bg-slate-50 rounded-lg mb-3 border border-slate-200 outline-none" value={nome} onChange={e=>setNome(e.target.value)} required placeholder="Seu Nome Completo" />
             <input className="w-full p-3 bg-slate-50 rounded-lg mb-4 border border-slate-200 outline-none" value={whats} onChange={e=>setWhats(e.target.value)} required placeholder="WhatsApp" type="tel" />
 
-            <h3 className="font-bold text-slate-800 mb-3 mt-4 text-sm">Escolha a Hora (Hoje, {dataIso.split('-').reverse().join('/')})</h3>
+            <div className="flex items-center justify-between mb-3 mt-4">
+              <button type="button" onClick={prevDay} disabled={dataIso === new Date().toISOString().split('T')[0]} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-500 disabled:opacity-30">‹</button>
+              <h3 className="font-bold text-slate-800 text-sm">{dataIso.split('-').reverse().join('/')}</h3>
+              <button type="button" onClick={nextDay} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-500">›</button>
+            </div>
             <div className="grid grid-cols-3 gap-2 mb-6">
               {["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"].map(h => (
                 <button type="button" key={h} onClick={() => setHora(h)} className={`py-2 rounded-lg border font-medium text-sm transition-colors ${hora === h ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200'}`}>{h}</button>

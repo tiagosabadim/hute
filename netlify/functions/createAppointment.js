@@ -24,16 +24,17 @@ exports.handler = async (event) => {
     const { lojaId, clienteNome, clienteWhats, servico, dataHoraInternacional } = data;
 
     const db = getDb();
-    const secretsDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'users', lojaId, 'secrets', 'google'));
+    // Lê do perfil público (allow read: if true nas Firestore rules)
+    const profileDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', lojaId));
 
-    if (!secretsDoc.exists()) {
+    if (!profileDoc.exists() || !profileDoc.data().googleRefreshToken) {
       return {
         statusCode: 200,
         body: JSON.stringify({ success: true, googleSync: false })
       };
     }
 
-    const { refresh_token } = secretsDoc.data();
+    const refresh_token = profileDoc.data().googleRefreshToken;
 
     const clientId = process.env.GOOGLE_CLIENT_ID || '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com';
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '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';
