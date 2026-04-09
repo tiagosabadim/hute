@@ -1,6 +1,6 @@
-import { google } from 'googleapis';
-import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, getDoc } from 'firebase/firestore/lite';
+const { google } = require('googleapis');
+const { initializeApp, getApps } = require('firebase/app');
+const { getFirestore, doc, getDoc } = require('firebase/firestore/lite');
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -14,7 +14,7 @@ function getDb() {
 
 const APP_ID = 'hutex-saas';
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Método não permitido' };
   }

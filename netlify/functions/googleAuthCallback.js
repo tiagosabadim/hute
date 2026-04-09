@@ -1,6 +1,6 @@
-import { google } from 'googleapis';
-import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, setDoc } from 'firebase/firestore/lite';
+const { google } = require('googleapis');
+const { initializeApp, getApps } = require('firebase/app');
+const { getFirestore, doc, setDoc } = require('firebase/firestore/lite');
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -15,15 +15,15 @@ function getDb() {
 const REDIRECT_URI = 'https://hute.netlify.app/.netlify/functions/googleAuthCallback';
 const APP_ID = 'hutex-saas';
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
     REDIRECT_URI
   );
 
-  const code = event.queryStringParameters?.code;
-  const adminUid = event.queryStringParameters?.state;
+  const code = event.queryStringParameters && event.queryStringParameters.code;
+  const adminUid = event.queryStringParameters && event.queryStringParameters.state;
 
   if (!code || !adminUid) {
     return { statusCode: 400, body: 'Parâmetros em falta.' };
