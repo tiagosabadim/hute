@@ -28,7 +28,8 @@ exports.handler = async (event) => {
       access_type: 'offline',
       scope: ['https://www.googleapis.com/auth/calendar.events'],
       prompt: 'consent',
-      state: uid
+      state: uid,
+      redirect_uri: redirectUri
     });
     return { statusCode: 302, headers: { Location: authUrl } };
   }
