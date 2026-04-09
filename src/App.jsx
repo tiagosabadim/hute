@@ -336,21 +336,35 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
   const [whats, setWhats] = useState('');
   const [hora, setHora] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [confirmado, setConfirmado] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [slotsDisponiveis, setSlotsDisponiveis] = useState(null);
 
   const dataIso = selectedDate.toISOString().split('T')[0];
   const today = new Date(); today.setHours(0,0,0,0);
 
+  // Busca slots disponíveis sempre que a data muda
+  useEffect(() => {
+    if (!lojaUid) return;
+    setLoadingSlots(true);
+    setHora('');
+    fetch(`${BACKEND_URL}/getSlots?lojaId=${lojaUid}&data=${dataIso}`)
+      .then(r => r.json())
+      .then(d => setSlotsDisponiveis(d.slots || []))
+      .catch(() => setSlotsDisponiveis(gerarHorarios(profile.horaInicio || '09:00', profile.horaFim || '18:00', profile.intervalo || 60)))
+      .finally(() => setLoadingSlots(false));
+  }, [dataIso, lojaUid]);
+
   const prevDay = () => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() - 1);
-    if (d >= today) { setSelectedDate(d); setHora(''); }
+    if (d >= today) setSelectedDate(d);
   };
   const nextDay = () => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + 1);
-    setSelectedDate(d); setHora('');
+    setSelectedDate(d);
   };
 
   const handleBooking = async (e) => {
@@ -432,11 +446,17 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
               <h3 className="font-bold text-slate-800 text-sm">{dataIso.split('-').reverse().join('/')}</h3>
               <button type="button" onClick={nextDay} className="w-9 h-9 rounded-full border border-slate-200 flex items-center justify-center text-slate-500">›</button>
             </div>
-            <div className="grid grid-cols-3 gap-2 mb-6">
-              {gerarHorarios(profile.horaInicio || '09:00', profile.horaFim || '18:00', profile.intervalo || 60).map(h => (
-                <button type="button" key={h} onClick={() => setHora(h)} className={`py-2 rounded-lg border font-medium text-sm transition-colors ${hora === h ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200'}`}>{h}</button>
-              ))}
-            </div>
+            {loadingSlots ? (
+              <div className="flex justify-center py-6 mb-6"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 mb-6">
+                {(slotsDisponiveis || []).length === 0 ? (
+                  <p className="col-span-3 text-center text-slate-400 text-sm py-4">Sem disponibilidade para este dia.</p>
+                ) : (slotsDisponiveis || []).map(h => (
+                  <button type="button" key={h} onClick={() => setHora(h)} className={`py-2 rounded-lg border font-medium text-sm transition-colors ${hora === h ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200'}`}>{h}</button>
+                ))}
+              </div>
+            )}
 
             <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-md shadow-slate-900/20">{loading ? 'A processar...' : 'Confirmar Marcação'}</button>
           </form>
