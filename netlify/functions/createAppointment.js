@@ -1,12 +1,14 @@
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
-  });
+function getDb() {
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
+    });
+  }
+  return admin.firestore();
 }
-const db = admin.firestore();
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -14,6 +16,7 @@ exports.handler = async (event) => {
   }
 
   try {
+    const db = getDb();
     const data = JSON.parse(event.body);
     const { lojaId, clienteNome, clienteWhats, servico, dataHoraInternacional } = data;
     const APP_ID = 'hutex-saas';
@@ -44,7 +47,7 @@ exports.handler = async (event) => {
       calendarId: "primary",
       resource: {
         summary: `${servico} - ${clienteNome}`,
-        description: `WhatsApp: ${clienteWhats}\nServiço: ${servico}\n\nMarcação agendada automaticamente via Hutex SaaS`,
+        description: `WhatsApp: ${clienteWhats}\nServiço: ${servico}\n\nMarcação via Hutex SaaS`,
         start: { dateTime: inicio.toISOString() },
         end: { dateTime: fim.toISOString() },
       },

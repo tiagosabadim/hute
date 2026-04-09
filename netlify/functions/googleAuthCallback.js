@@ -1,12 +1,14 @@
 const { google } = require('googleapis');
 const admin = require('firebase-admin');
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
-  });
+function getDb() {
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
+    });
+  }
+  return admin.firestore();
 }
-const db = admin.firestore();
 
 exports.handler = async (event) => {
   const APP_ID = 'hutex-saas';
@@ -21,7 +23,7 @@ exports.handler = async (event) => {
     redirectUri
   );
 
-  if (event.queryStringParameters.login) {
+  if (event.queryStringParameters && event.queryStringParameters.login) {
     const uid = event.queryStringParameters.uid;
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
@@ -32,14 +34,15 @@ exports.handler = async (event) => {
     return { statusCode: 302, headers: { Location: authUrl } };
   }
 
-  const code = event.queryStringParameters.code;
-  const adminUid = event.queryStringParameters.state;
+  const code = event.queryStringParameters && event.queryStringParameters.code;
+  const adminUid = event.queryStringParameters && event.queryStringParameters.state;
 
   if (!code || !adminUid) {
     return { statusCode: 400, body: 'Missing code or state.' };
   }
 
   try {
+    const db = getDb();
     const { tokens } = await oauth2Client.getToken(code);
 
     await db.doc(`artifacts/${APP_ID}/users/${adminUid}/secrets/google`).set({
