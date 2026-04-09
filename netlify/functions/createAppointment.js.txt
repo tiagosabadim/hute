@@ -1,0 +1,74 @@
+const { google } = require('googleapis');
+const admin = require('firebase-admin');
+
+// Inicializa Firebase Admin de forma segura (verifica se já não está inicializado)
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
+  });
+}
+const db = admin.firestore();
+
+exports.handler = async (event, context) => {
+  // Aceitar apenas pedidos POST (segurança)
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Método não permitido' };
+  }
+
+  try {
+    const data = JSON.parse(event.body);
+    const { lojaId, clienteNome, clienteWhats, servico, dataHoraInternacional } = data;
+    const APP_ID = 'hutex-saas';
+
+    // 1. Vai buscar as credenciais seguras deste salão específico
+    const secretsDoc = await db.doc(`artifacts/${APP_ID}/users/${lojaId}/secrets/google`).get();
+    
+    // Se o salão não ligou a agenda, dizemos ao Frontend que guardámos apenas no Firebase
+    if (!secretsDoc.exists) {
+      return { 
+        statusCode: 200, 
+        body: JSON.stringify({ success: true, googleSync: false, message: "Apenas guardado na plataforma local." }) 
+      };
+    }
+
+    const tokens = secretsDoc.data();
+
+    // 2. Configura o cliente da Google com o segredo do salão
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET
+    );
+    oauth2Client.setCredentials({ refresh_token: tokens.refresh_token });
+
+    // 3. Inicia a API do Google Calendar
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+    // 4. Prepara as datas do evento (1 hora de duração padrão)
+    const inicio = new Date(dataHoraInternacional);
+    const fim = new Date(inicio.getTime() + 60 * 60 * 1000);
+
+    // 5. Cria o evento oficial na agenda do cabeleireiro/esteticista
+    const eventResponse = await calendar.events.insert({
+      calendarId: "primary",
+      resource: {
+        summary: `${servico} - ${clienteNome}`,
+        description: `WhatsApp: ${clienteWhats}\nServiço: ${servico}\n\nMarcação agendada automaticamente via Hutex SaaS`,
+        start: { dateTime: inicio.toISOString() },
+        end: { dateTime: fim.toISOString() },
+      },
+    });
+
+    // 6. Responde com sucesso
+    return { 
+      statusCode: 200, 
+      body: JSON.stringify({ success: true, googleSync: true, eventId: eventResponse.data.id }) 
+    };
+
+  } catch (error) {
+    console.error("Erro na criação do evento no calendário:", error);
+    return { 
+      statusCode: 500, 
+      body: JSON.stringify({ error: "Erro ao sincronizar com Google Agenda." }) 
+    };
+  }
+};
