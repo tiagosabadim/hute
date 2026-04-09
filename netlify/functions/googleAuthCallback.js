@@ -30,7 +30,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { tokens } = await oauth2Client.getToken(code);
+    const { tokens } = await oauth2Client.getToken({ code, redirect_uri: REDIRECT_URI });
 
     if (!tokens.refresh_token) {
       console.error('refresh_token não recebido:', JSON.stringify(tokens));
