@@ -1,50 +1,52 @@
-const { google } = require('googleapis');
-const admin = require('firebase-admin');
+import { google } from 'googleapis';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore, doc, getDoc } from 'firebase/firestore/lite';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
+  projectId: "hutex-2026",
+};
 
 function getDb() {
-  if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))
-    });
-  }
-  return admin.firestore();
+  if (!getApps().length) initializeApp(firebaseConfig);
+  return getFirestore();
 }
 
-exports.handler = async (event) => {
+const APP_ID = 'hutex-saas';
+
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Método não permitido' };
   }
 
   try {
-    const db = getDb();
     const data = JSON.parse(event.body);
     const { lojaId, clienteNome, clienteWhats, servico, dataHoraInternacional } = data;
-    const APP_ID = 'hutex-saas';
 
-    const secretsDoc = await db.doc(`artifacts/${APP_ID}/users/${lojaId}/secrets/google`).get();
+    const db = getDb();
+    const secretsDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'users', lojaId, 'secrets', 'google'));
 
-    if (!secretsDoc.exists) {
+    if (!secretsDoc.exists()) {
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: true, googleSync: false, message: "Apenas guardado na plataforma local." })
+        body: JSON.stringify({ success: true, googleSync: false })
       };
     }
 
-    const tokens = secretsDoc.data();
+    const { refresh_token } = secretsDoc.data();
 
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET
     );
-    oauth2Client.setCredentials({ refresh_token: tokens.refresh_token });
+    oauth2Client.setCredentials({ refresh_token });
 
-    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
-
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     const inicio = new Date(dataHoraInternacional);
     const fim = new Date(inicio.getTime() + 60 * 60 * 1000);
 
     const eventResponse = await calendar.events.insert({
-      calendarId: "primary",
+      calendarId: 'primary',
       resource: {
         summary: `${servico} - ${clienteNome}`,
         description: `WhatsApp: ${clienteWhats}\nServiço: ${servico}\n\nMarcação via Hutex SaaS`,
@@ -59,10 +61,10 @@ exports.handler = async (event) => {
     };
 
   } catch (error) {
-    console.error("Erro na criação do evento:", error);
+    console.error('Erro createAppointment:', error.message);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Erro ao sincronizar com Google Agenda." })
+      body: JSON.stringify({ error: error.message })
     };
   }
 };
