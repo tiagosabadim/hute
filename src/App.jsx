@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -12,7 +12,7 @@ import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
-  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff
+  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -30,6 +30,133 @@ const db = getFirestore(app);
 const APP_ID = 'hutex-saas';
 const BACKEND_URL = "/.netlify/functions";
 const PROF_COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#db2777','#0891b2','#64748b'];
+
+// ── Cloudinary config ─────────────────────────────────────
+const CLOUDINARY_CLOUD  = import.meta.env.VITE_CLOUDINARY_CLOUD  || '';
+const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_PRESET || '';
+
+async function uploadToCloudinary(file) {
+  if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET) {
+    throw new Error('Configure VITE_CLOUDINARY_CLOUD e VITE_CLOUDINARY_PRESET nas variáveis de ambiente do Netlify.');
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('upload_preset', CLOUDINARY_PRESET);
+  fd.append('folder', 'hute');
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {
+    method: 'POST', body: fd,
+  });
+  if (!res.ok) throw new Error('Falha no upload da imagem.');
+  const data = await res.json();
+  return data.secure_url;
+}
+
+// ── ImageUpload component ─────────────────────────────────
+function ImageUpload({ value, onChange, aspect = 'cover', label = '' }) {
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadToCloudinary(file);
+      onChange(url);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  if (aspect === 'cover') {
+    return (
+      <div
+        onClick={() => !uploading && inputRef.current?.click()}
+        className="relative w-full h-44 rounded-2xl overflow-hidden cursor-pointer group bg-gradient-to-br from-slate-100 to-slate-200 border-2 border-dashed border-slate-200 hover:border-violet-300 transition-colors"
+      >
+        {value
+          ? <img src={value} alt="Capa" className="w-full h-full object-cover" />
+          : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400 group-hover:text-violet-500 transition-colors">
+              <Camera className="w-8 h-8" />
+              <span className="text-xs font-semibold">Adicionar foto de capa</span>
+              <span className="text-[10px]">JPG, PNG · recomendado 1200×400px</span>
+            </div>
+          )
+        }
+        {uploading && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <Loader2 className="w-8 h-8 text-white animate-spin" />
+          </div>
+        )}
+        {value && !uploading && (
+          <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="bg-black/60 text-white text-[10px] font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+              <Camera className="w-3 h-3" />Alterar
+            </div>
+          </div>
+        )}
+        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      </div>
+    );
+  }
+
+  if (aspect === 'logo') {
+    return (
+      <div
+        onClick={() => !uploading && inputRef.current?.click()}
+        className="relative w-20 h-20 rounded-2xl overflow-hidden cursor-pointer group bg-gradient-to-br from-violet-50 to-slate-100 border-2 border-dashed border-slate-200 hover:border-violet-300 transition-colors flex-shrink-0"
+      >
+        {value
+          ? <img src={value} alt="Logo" className="w-full h-full object-cover" />
+          : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 group-hover:text-violet-500 transition-colors gap-1">
+              <Image className="w-6 h-6" />
+              <span className="text-[9px] font-semibold text-center leading-tight px-1">Logo</span>
+            </div>
+          )
+        }
+        {uploading && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 text-white animate-spin" />
+          </div>
+        )}
+        {value && !uploading && (
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <Camera className="w-5 h-5 text-white" />
+          </div>
+        )}
+        <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      </div>
+    );
+  }
+
+  // Square thumbnail (for services)
+  return (
+    <div
+      onClick={() => !uploading && inputRef.current?.click()}
+      className="relative w-16 h-16 rounded-xl overflow-hidden cursor-pointer group bg-violet-50 border-2 border-dashed border-slate-200 hover:border-violet-300 transition-colors flex-shrink-0"
+    >
+      {value
+        ? <img src={value} alt="" className="w-full h-full object-cover" />
+        : (
+          <div className="absolute inset-0 flex items-center justify-center text-slate-300 group-hover:text-violet-400 transition-colors">
+            <Camera className="w-5 h-5" />
+          </div>
+        )
+      }
+      {uploading && (
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+          <Loader2 className="w-4 h-4 text-white animate-spin" />
+        </div>
+      )}
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+    </div>
+  );
+}
 
 // ── helpers ──────────────────────────────────────────────
 function fmtData(iso) { return iso ? iso.split('-').reverse().join('/') : ''; }
@@ -1741,7 +1868,10 @@ function AdminServicos({ user, profile, setProfile }) {
   const [nome, setNome] = useState('');
   const [preco, setPreco] = useState('');
   const [duracao, setDuracao] = useState(60);
+  const [novaFoto, setNovaFoto] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [editIdx, setEditIdx] = useState(null);
+  const [editData, setEditData] = useState({});
 
   const saveServicos = async (list) => {
     setSaving(true);
@@ -1756,12 +1886,24 @@ function AdminServicos({ user, profile, setProfile }) {
 
   const addServico = async () => {
     if (!nome.trim()) return;
-    await saveServicos([...servicos, { nome: nome.trim(), preco: preco ? Number(preco) : null, duracao: Number(duracao) }]);
-    setNome(''); setPreco(''); setDuracao(60);
+    await saveServicos([...servicos, { nome: nome.trim(), preco: preco ? Number(preco) : null, duracao: Number(duracao), foto: novaFoto || null }]);
+    setNome(''); setPreco(''); setDuracao(60); setNovaFoto(null);
   };
 
   const removeServico = async (i) => {
+    if (!window.confirm('Remover este serviço?')) return;
     await saveServicos(servicos.filter((_, idx) => idx !== i));
+  };
+
+  const startEdit = (i) => {
+    setEditIdx(i);
+    setEditData({ ...servicos[i] });
+  };
+
+  const saveEdit = async () => {
+    const updated = servicos.map((s, i) => i === editIdx ? { ...editData } : s);
+    await saveServicos(updated);
+    setEditIdx(null);
   };
 
   return (
@@ -1773,42 +1915,101 @@ function AdminServicos({ user, profile, setProfile }) {
 
       <div className="space-y-3 mb-5">
         {servicos.map((s, i) => (
-          <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3">
-            <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center flex-shrink-0">
-              <Scissors className="w-5 h-5 text-violet-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-slate-900">{s.nome}</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                {s.preco && <span className="text-xs text-emerald-600 font-semibold">R$ {Number(s.preco).toFixed(2)}</span>}
-                {s.duracao && <span className="text-xs text-slate-400">{fmtDuracao(s.duracao)}</span>}
+          <div key={i} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            {editIdx === i ? (
+              <div className="p-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <ImageUpload value={editData.foto || null} onChange={v => setEditData(p => ({ ...p, foto: v }))} aspect="thumb" />
+                  <div className="flex-1 space-y-2">
+                    <input value={editData.nome || ''} onChange={e => setEditData(p => ({ ...p, nome: e.target.value }))}
+                      placeholder="Nome do serviço"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="number" value={editData.preco || ''} onChange={e => setEditData(p => ({ ...p, preco: e.target.value ? Number(e.target.value) : null }))}
+                        placeholder="Preço R$"
+                        className="px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                      <select value={editData.duracao || 60} onChange={e => setEditData(p => ({ ...p, duracao: Number(e.target.value) }))}
+                        className="px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                        {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
+                          <option key={v} value={v}>{fmtDuracao(v)}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={saveEdit} disabled={saving}
+                    className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}Guardar
+                  </button>
+                  <button onClick={() => setEditIdx(null)}
+                    className="px-4 py-2.5 border border-slate-200 text-slate-500 rounded-xl text-sm hover:bg-slate-50">
+                    Cancelar
+                  </button>
+                </div>
               </div>
-            </div>
-            <button onClick={() => removeServico(i)} className="p-1.5 text-slate-200 hover:text-red-400 transition-colors">
-              <Trash2 className="w-4 h-4" />
-            </button>
+            ) : (
+              <div className="flex items-center gap-3 p-4">
+                {s.foto
+                  ? <img src={s.foto} alt={s.nome} className="w-14 h-14 rounded-xl object-cover flex-shrink-0 shadow-sm" />
+                  : (
+                    <div className="w-14 h-14 bg-gradient-to-br from-violet-100 to-violet-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <Scissors className="w-6 h-6 text-violet-500" />
+                    </div>
+                  )
+                }
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-900 truncate">{s.nome}</p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {s.preco && <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">R$ {Number(s.preco).toFixed(2)}</span>}
+                    {s.duracao && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button onClick={() => startEdit(i)} className="p-2 text-slate-300 hover:text-violet-500 transition-colors">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => removeServico(i)} className="p-2 text-slate-300 hover:text-red-400 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ))}
       </div>
 
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+      {/* Add form */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-4">
         <h3 className="font-bold text-slate-900 text-sm">Adicionar serviço</h3>
-        <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do serviço"
-          className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-        <div className="grid grid-cols-2 gap-2">
-          <input type="number" value={preco} onChange={e => setPreco(e.target.value)} placeholder="Preço (R$)"
-            className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-          <select value={duracao} onChange={e => setDuracao(e.target.value)}
-            className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-            {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
-              <option key={v} value={v}>{fmtDuracao(v)}</option>
-            ))}
-          </select>
+        <div className="flex items-start gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Foto</label>
+            <ImageUpload value={novaFoto} onChange={setNovaFoto} aspect="thumb" />
+          </div>
+          <div className="flex-1 space-y-3">
+            <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do serviço"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+            <div className="grid grid-cols-2 gap-2">
+              <input type="number" value={preco} onChange={e => setPreco(e.target.value)} placeholder="Preço (R$)"
+                className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              <select value={duracao} onChange={e => setDuracao(e.target.value)}
+                className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
+                  <option key={v} value={v}>{fmtDuracao(v)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
         <button onClick={addServico} disabled={!nome.trim() || saving}
-          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition-colors">
+          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition-colors">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Adicionar
+          Adicionar serviço
         </button>
       </div>
     </div>
@@ -1823,23 +2024,25 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
   const [horaFim, setHoraFim] = useState(profile.horaFim || '19:00');
   const [intervalo, setIntervalo] = useState(profile.intervalo || 30);
+  const [coverFoto, setCoverFoto] = useState(profile.coverFoto || null);
+  const [logo, setLogo] = useState(profile.logo || null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const link = `https://hute.netlify.app/#${profile.slug || ''}`;
 
-  const saveSettings = async () => {
+  const saveAll = async () => {
     setSaving(true);
     try {
-      const data = { nome, subtitulo, slug, horaInicio, horaFim, intervalo: Number(intervalo) };
+      const data = { nome, subtitulo, slug, horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), data, { merge: true });
       if (slug !== profile.slug) {
         await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slug), { uid: user.uid, nome });
       }
       setProfile(prev => ({ ...prev, ...data }));
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 2500);
     } finally {
       setSaving(false);
     }
@@ -1859,30 +2062,81 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-4">
       <div>
         <h2 className="text-xl font-black text-slate-900">Configurações</h2>
-        <p className="text-xs text-slate-400">Dados do estabelecimento</p>
+        <p className="text-xs text-slate-400">Personalize o seu espaço</p>
       </div>
 
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
-        <h3 className="font-bold text-slate-900 text-sm">Informações</h3>
+      {/* ── Identidade Visual ── */}
+      <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+        <div className="px-5 pt-5 pb-3">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identidade Visual</p>
+
+          {/* Cover photo */}
+          <div className="mb-4">
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Foto de capa</label>
+            <ImageUpload value={coverFoto} onChange={setCoverFoto} aspect="cover" />
+          </div>
+
+          {/* Logo + preview */}
+          <div className="flex items-center gap-4 mb-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Logótipo</label>
+              <ImageUpload value={logo} onChange={setLogo} aspect="logo" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-slate-400 mb-1">Pré-visualização no portal do cliente:</p>
+              <div className="rounded-2xl overflow-hidden border border-slate-100 bg-slate-50">
+                <div className="relative h-20 bg-gradient-to-br from-violet-700 to-violet-900">
+                  {coverFoto && <img src={coverFoto} alt="" className="w-full h-full object-cover absolute inset-0" />}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                  <div className="absolute bottom-2 left-3 flex items-center gap-2">
+                    {logo
+                      ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-cover border-2 border-white/80 shadow" />
+                      : <div className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/60 flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+                    }
+                    <div>
+                      <p className="font-black text-white text-xs leading-tight">{nome || 'Nome do espaço'}</p>
+                      {subtitulo && <p className="text-white/70 text-[10px] leading-tight">{subtitulo}</p>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Informações ── */}
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Informações</p>
         <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome</label>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do estabelecimento</label>
           <input value={nome} onChange={e => setNome(e.target.value)}
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+            placeholder="Ex: Studio da Ana"
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Especialidade</label>
           <input value={subtitulo} onChange={e => setSubtitulo(e.target.value)}
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+            placeholder="Ex: Cabeleireiro & Estética"
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
         </div>
         <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Slug do link</label>
-          <input value={slug} onChange={e => setSlug(e.target.value)}
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Link do portal (slug)</label>
+          <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
+            <span className="pl-3 pr-1 text-slate-400 text-xs whitespace-nowrap">hute.app/#</span>
+            <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="studio-da-ana"
+              className="flex-1 px-2 py-3 text-slate-800 outline-none text-sm bg-transparent" />
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+      </div>
+
+      {/* ── Horário ── */}
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário de funcionamento</p>
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Abertura</label>
             <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
@@ -1895,7 +2149,7 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
           </div>
         </div>
         <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base</label>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
           <select value={intervalo} onChange={e => setIntervalo(e.target.value)}
             className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
             {[15, 20, 30, 45, 60, 90, 120].map(v => (
@@ -1903,42 +2157,58 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
             ))}
           </select>
         </div>
-        <button onClick={saveSettings} disabled={saving}
-          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
-          {saved ? 'Guardado!' : 'Guardar alterações'}
+      </div>
+
+      {/* Save button */}
+      <button onClick={saveAll} disabled={saving}
+        className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors shadow-lg shadow-violet-200">
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
+        {saved ? 'Guardado!' : 'Guardar alterações'}
+      </button>
+
+      {/* ── Link de reservas ── */}
+      <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-3xl p-5 shadow-lg shadow-violet-200">
+        <div className="flex items-center gap-2 mb-3">
+          <Link className="w-4 h-4 text-violet-200" />
+          <p className="text-xs font-bold text-violet-200 uppercase tracking-widest">Link de reservas</p>
+        </div>
+        <p className="text-white/90 text-sm font-semibold break-all mb-3">{link}</p>
+        <button
+          onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+          className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
+          {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+          {copied ? 'Copiado!' : 'Copiar link'}
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-        <h3 className="font-bold text-slate-900 text-sm mb-3">Link de reservas</h3>
-        <div className="bg-slate-50 rounded-xl p-3 flex items-center gap-2">
-          <p className="text-xs text-slate-600 flex-1 break-all">{link}</p>
-          <button onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-            className="p-1.5 text-slate-400 hover:text-violet-600 transition-colors">
-            {copied ? <CheckCircle className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-          </button>
+      {/* ── Google Agenda ── */}
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <p className="font-bold text-slate-900 text-sm">Google Agenda</p>
+            <p className="text-xs text-slate-400 mt-0.5">Sincronização geral do estabelecimento</p>
+          </div>
+          {profile.googleCalendarConnected && (
+            <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-1 rounded-full">Ligado ✓</span>
+          )}
         </div>
-      </div>
-
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-        <h3 className="font-bold text-slate-900 text-sm mb-1">Google Agenda (estabelecimento)</h3>
-        <p className="text-xs text-slate-400 mb-3">Sincronização geral da loja</p>
         {profile.googleCalendarConnected ? (
-          <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
+          <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
             <CheckCircle className="w-4 h-4" />
-            Google Agenda ligado
+            Sincronização ativa — marcações vão para o Google Agenda
           </div>
         ) : (
           <button onClick={startGoogleAuth}
-            className="w-full py-3 bg-blue-50 text-blue-600 font-semibold rounded-xl text-sm hover:bg-blue-100 transition-colors">
+            className="w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
+            <Calendar className="w-4 h-4" />
             Ligar Google Agenda
           </button>
         )}
       </div>
 
+      {/* ── Logout ── */}
       <button onClick={onLogout}
-        className="w-full flex items-center justify-center gap-2 py-3.5 border border-slate-200 text-slate-500 font-semibold rounded-2xl hover:bg-slate-100 transition-colors text-sm">
+        className="w-full flex items-center justify-center gap-2 py-3.5 border border-slate-200 text-slate-400 font-semibold rounded-2xl hover:bg-slate-50 transition-colors text-sm">
         <LogOut className="w-4 h-4" />
         Terminar sessão
       </button>
@@ -2116,25 +2386,50 @@ function ClientPortal({ lojaUid, profile }) {
   return (
     <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-slate-100 px-5 py-4 sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          {canGoBack && (
-            <button onClick={handleBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="font-black text-slate-900 truncate">{profile.nome || 'Agendamento'}</p>
-            {profile.subtitulo && <p className="text-xs text-slate-400 truncate">{profile.subtitulo}</p>}
-          </div>
-        </div>
-        {step !== 'confirmed' && (
-          <div className="flex gap-1.5 mt-3">
-            {Array.from({ length: totalSteps }).map((_, i) => (
-              <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
-            ))}
+      <header className="bg-white border-b border-slate-100 sticky top-0 z-10">
+        {/* Cover photo hero (only on first step) */}
+        {step === 'service' && (profile.coverFoto || profile.logo) && (
+          <div className="relative h-36 overflow-hidden">
+            {profile.coverFoto
+              ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
+              : <div className="w-full h-full bg-gradient-to-br from-violet-600 to-violet-900" />
+            }
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+            <div className="absolute bottom-4 left-5 flex items-center gap-3">
+              {profile.logo
+                ? <img src={profile.logo} alt="" className="w-12 h-12 rounded-xl object-cover border-2 border-white/80 shadow-lg" />
+                : <div className="w-12 h-12 rounded-xl bg-violet-600 border-2 border-white/80 shadow-lg flex items-center justify-center"><Sparkles className="w-6 h-6 text-white" /></div>
+              }
+              <div>
+                <p className="font-black text-white text-lg leading-tight">{profile.nome || 'Agendamento'}</p>
+                {profile.subtitulo && <p className="text-white/75 text-xs">{profile.subtitulo}</p>}
+              </div>
+            </div>
           </div>
         )}
+        <div className="px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            {canGoBack && (
+              <button onClick={handleBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            {!(step === 'service' && (profile.coverFoto || profile.logo)) && (
+              <div className="flex-1 min-w-0">
+                <p className="font-black text-slate-900 truncate">{profile.nome || 'Agendamento'}</p>
+                {profile.subtitulo && <p className="text-xs text-slate-400 truncate">{profile.subtitulo}</p>}
+              </div>
+            )}
+            {canGoBack && <div className="flex-1" />}
+          </div>
+          {step !== 'confirmed' && (
+            <div className="flex gap-1.5 mt-3">
+              {Array.from({ length: totalSteps }).map((_, i) => (
+                <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
+              ))}
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="flex-1 p-5 pb-8">
@@ -2149,23 +2444,30 @@ function ClientPortal({ lojaUid, profile }) {
               <div className="space-y-3">
                 {servicos.map((s, i) => (
                   <button key={i} onClick={() => selectService(s)}
-                    className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
-                    <div className="w-12 h-12 bg-violet-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                      <Scissors className="w-6 h-6 text-violet-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
+                    className="w-full bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-0">
+                    {/* Service photo */}
+                    {s.foto
+                      ? <img src={s.foto} alt={s.nome} className="w-20 h-20 object-cover flex-shrink-0" />
+                      : (
+                        <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0">
+                          <Scissors className="w-7 h-7 text-violet-400" />
+                        </div>
+                      )
+                    }
+                    <div className="flex-1 min-w-0 px-4 py-3">
                       <p className="font-bold text-slate-900">{s.nome}</p>
-                      <div className="flex items-center gap-3 mt-0.5">
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
                         {s.duracao && (
                           <span className="text-xs text-slate-400 flex items-center gap-1">
                             <Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}
                           </span>
                         )}
+                        {s.preco && (
+                          <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span>
+                        )}
                       </div>
                     </div>
-                    {s.preco && (
-                      <span className="text-sm font-black text-violet-600 flex-shrink-0">R$ {Number(s.preco).toFixed(2)}</span>
-                    )}
+                    <ChevronRight className="w-4 h-4 text-slate-300 mr-4 flex-shrink-0" />
                   </button>
                 ))}
               </div>
