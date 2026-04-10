@@ -757,65 +757,59 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
   const effStart = customHours ? customHours.horaInicio : (profile?.horaInicio || '09:00');
   const effEnd   = customHours ? customHours.horaFim    : (profile?.horaFim    || '18:00');
   const intervalo = profile?.intervalo || 60;
-  // Use the smallest service duration as timeline step so sub-interval slots are visible.
-  // e.g. if interval=60 but a 30-min service exists, the timeline shows 09:00, 09:30, 10:00…
-  const serviceDurations = (profile?.servicos || []).map(s => Number(s.duracao)).filter(d => d > 0);
-  const timelineStep = serviceDurations.length > 0 ? Math.min(...serviceDurations, intervalo) : intervalo;
-  const allSlots = isDayOff ? [] : gerarHorarios(effStart, effEnd, timelineStep);
 
   const dayAppts = appointments.filter(a =>
     a.data === dateISO && (!selectedProfId || a.profissionalId === selectedProfId)
   );
 
-  // Helper: find Google Calendar event overlapping a slot
-  const findGoogleEvent = (hora) => {
-    const slotTime = new Date(`${dateISO}T${hora}:00`);
-    return googleEvents.find(e => {
-      if (e.allDay) return true;
-      const eStart = new Date(e.start);
-      const eEnd   = new Date(e.end);
-      return slotTime >= eStart && slotTime < eEnd;
-    }) || null;
-  };
+  // ── Sequential timeline ──────────────────────────────────
+  // Instead of a fixed grid, appointments stack one after the other.
+  // Free gaps appear exactly where the previous appointment ended.
+  const toMin = s => { const [h,m] = s.split(':').map(Number); return h*60+m; };
+  const toStr = n => `${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')}`;
+  const nowMin = dateISO === todayISO ? new Date().getHours() * 60 + new Date().getMinutes() : -1;
 
-  // For each slot determine state
-  const timeline = allSlots.map((hora, idx) => {
-    const block = slotBlocks.find(b => b.hora === hora);
-    if (block) return { hora, state: 'blocked', block };
+  // Collect all events (appointments, blocks, Google Calendar) sorted by start time
+  const rawEvents = [
+    ...dayAppts.map(a => ({ tipo:'appt', hora:a.hora, duracao:Number(a.duracao)||intervalo, appt:a })),
+    ...slotBlocks.map(b => ({ tipo:'block', hora:b.hora, duracao:Number(b.duracao)||60, block:b })),
+    ...(googleFreeSlots !== null
+      ? googleEvents.filter(e => !e.allDay).map(e => {
+          const s = new Date(e.start); const en = new Date(e.end);
+          return { tipo:'google', hora:`${String(s.getHours()).padStart(2,'0')}:${String(s.getMinutes()).padStart(2,'0')}`, duracao:(en-s)/60000, googleEvent:e };
+        })
+      : [])
+  ].sort((a,b) => a.hora.localeCompare(b.hora));
 
-    const appt = dayAppts.find(a => a.hora === hora);
-    if (appt) return { hora, state: 'booked', appt };
+  const timeline = [];
+  if (!isDayOff) {
+    let cursor = toMin(effStart);
+    const fimMin = toMin(effEnd);
 
-    // Continuation of an earlier appointment
-    const covered = dayAppts.find(a => {
-      if (a.hora === hora) return false;
-      const s = new Date(`${dateISO}T${a.hora}:00`);
-      const e = new Date(s.getTime() + (a.duracao || intervalo) * 60000);
-      const t = new Date(`${dateISO}T${hora}:00`);
-      return t > s && t < e;
-    });
-    if (covered) return { hora, state: 'continuation', appt: covered };
+    const addGap = (gStart, gEnd) => {
+      if (gStart >= gEnd) return;
+      if (nowMin >= 0 && gEnd <= nowMin) {
+        timeline.push({ tipo:'past', hora:toStr(gStart), endHora:toStr(gEnd) });
+      } else if (nowMin >= 0 && gStart < nowMin) {
+        timeline.push({ tipo:'past', hora:toStr(gStart), endHora:toStr(nowMin) });
+        if (nowMin < gEnd) timeline.push({ tipo:'free', hora:toStr(nowMin), endHora:toStr(gEnd) });
+      } else {
+        timeline.push({ tipo:'free', hora:toStr(gStart), endHora:toStr(gEnd) });
+      }
+    };
 
-    if (googleFreeSlots !== null && !googleFreeSlots.includes(hora)) {
-      const googleEvent = findGoogleEvent(hora);
-      // Is this the first slot of this google event in the timeline?
-      const prevHora = idx > 0 ? allSlots[idx - 1] : null;
-      const isFirst = !googleEvent || googleEvent.allDay || !prevHora ||
-        new Date(googleEvent.start) > new Date(`${dateISO}T${prevHora}:00`);
-      return { hora, state: 'google_busy', googleEvent, isFirstGoogleSlot: isFirst };
-    }
-
-    // Past slot on today — no longer bookable
-    if (dateISO === todayISO) {
-      const [h, m] = hora.split(':').map(Number);
-      const now = new Date();
-      if (h * 60 + m <= now.getHours() * 60 + now.getMinutes()) {
-        return { hora, state: 'past' };
+    for (const ev of rawEvents) {
+      const evStart = toMin(ev.hora);
+      const evEnd = evStart + Math.round(ev.duracao);
+      if (evStart < cursor) continue; // already past cursor (overlapping events)
+      addGap(cursor, Math.min(evStart, fimMin));
+      if (evStart < fimMin) {
+        timeline.push({ ...ev, endHora: toStr(Math.min(evEnd, fimMin)) });
+        cursor = evEnd;
       }
     }
-
-    return { hora, state: 'free' };
-  });
+    addGap(cursor, fimMin);
+  }
 
   const cancelar = async (id) => {
     if (!window.confirm('Cancelar este agendamento?')) return;
@@ -921,149 +915,142 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
         );
       })()}
 
-      {/* Timeline */}
+      {/* Sequential Timeline */}
       {!isDayOff && (
         <div className="space-y-1.5">
-          {allSlots.length === 0 && (
+          {timeline.length === 0 && (
             <p className="text-center text-slate-400 text-sm py-10">Sem horários configurados.</p>
           )}
-          {timeline.map(({ hora, state, appt, block, googleEvent, isFirstGoogleSlot }) => {
+          {timeline.map((item, idx) => {
+            const key = `${item.tipo}-${item.hora}-${idx}`;
 
-            if (state === 'booked') return (
-              <div key={hora} className="bg-white rounded-2xl overflow-hidden border border-violet-100 shadow-sm">
-                <div className="flex items-stretch">
-                  <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-3"
-                    style={{ backgroundColor: selectedProf?.cor || '#7c3aed' }}>
-                    <span className="text-xs font-black text-white leading-tight">{hora}</span>
-                    {appt.duracao && <span className="text-[9px] text-white/60 mt-0.5">{fmtDuracao(appt.duracao)}</span>}
-                  </div>
-                  <div className="flex-1 px-4 py-3 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-bold text-slate-900 text-sm truncate">{appt.clienteNome}</p>
-                        <p className="text-xs text-slate-500 truncate">{appt.servico}</p>
-                        {appt.profissionalNome && !selectedProfId && (
-                          <p className="text-[10px] text-violet-500 mt-0.5">com {appt.profissionalNome}</p>
-                        )}
-                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                          {appt.valor && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {Number(appt.valor).toFixed(2)}</span>}
-                          {appt.clienteWhats && (
-                            <a href={`https://wa.me/${appt.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${appt.clienteNome}! Lembrete: ${appt.servico} às ${appt.hora}. Até breve!`)}`}
-                              target="_blank" rel="noopener noreferrer"
-                              className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold">
-                              <MessageCircle className="w-3 h-3" />{appt.clienteWhats}
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                      <button onClick={() => cancelar(appt.id)} className="p-1 text-slate-200 hover:text-red-400 transition-colors flex-shrink-0">
-                        <Trash2 className="w-3.5 h-3.5" />
+            // ── Horário perdido ───────────────────────────
+            if (item.tipo === 'past') return (
+              <div key={key} className="flex items-center rounded-xl border border-dashed border-slate-100 bg-slate-50/50 opacity-40">
+                <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-2.5">
+                  <span className="text-[10px] font-semibold text-slate-300">{item.hora}</span>
+                </div>
+                <p className="flex-1 text-left px-3 text-[11px] text-slate-300 font-medium">Horário perdido</p>
+                <span className="text-[10px] text-slate-200 mr-3">{item.endHora}</span>
+              </div>
+            );
+
+            // ── Livre ─────────────────────────────────────
+            if (item.tipo === 'free') {
+              const isActive = activeSlot === item.hora;
+              return (
+                <div key={key}>
+                  <button onClick={() => setActiveSlot(isActive ? null : item.hora)}
+                    className={`w-full flex items-center rounded-xl border-2 border-dashed transition-all ${
+                      isActive ? 'border-violet-400 bg-violet-50' : 'border-slate-100 bg-white/60 hover:border-violet-200 hover:bg-violet-50/40'
+                    }`}>
+                    <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-2.5">
+                      <span className="text-xs font-semibold text-slate-400">{item.hora}</span>
+                    </div>
+                    <p className="flex-1 text-left px-3 text-[11px] text-slate-300 font-medium">Disponível até {item.endHora}</p>
+                    {isActive && <ChevronRight className="w-3.5 h-3.5 text-violet-400 mr-3" />}
+                  </button>
+                  {isActive && (
+                    <div className="flex gap-2 mt-1 mb-0.5">
+                      <button onClick={() => openNewAppt(item.hora)}
+                        className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors">
+                        <Plus className="w-3.5 h-3.5" />Agendar
                       </button>
+                      <button onClick={() => openBlock(item.hora)}
+                        className="flex-1 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-red-100 transition-colors">
+                        <Clock className="w-3.5 h-3.5" />Bloquear
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            // ── Agendamento ───────────────────────────────
+            if (item.tipo === 'appt') {
+              const a = item.appt;
+              return (
+                <div key={key} className="bg-white rounded-2xl overflow-hidden border border-violet-100 shadow-sm">
+                  <div className="flex items-stretch">
+                    <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-3"
+                      style={{ backgroundColor: selectedProf?.cor || '#7c3aed' }}>
+                      <span className="text-xs font-black text-white leading-tight">{a.hora}</span>
+                      {a.duracao && <span className="text-[9px] text-white/60 mt-0.5">{fmtDuracao(a.duracao)}</span>}
+                    </div>
+                    <div className="flex-1 px-4 py-3 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
+                          <p className="text-xs text-slate-500 truncate">{a.servico}</p>
+                          {a.profissionalNome && !selectedProfId && (
+                            <p className="text-[10px] text-violet-500 mt-0.5">com {a.profissionalNome}</p>
+                          )}
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            {a.valor && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {Number(a.valor).toFixed(2)}</span>}
+                            {a.clienteWhats && (
+                              <a href={`https://wa.me/${a.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.clienteNome}! Lembrete: ${a.servico} às ${a.hora}. Até breve!`)}`}
+                                target="_blank" rel="noopener noreferrer"
+                                className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold">
+                                <MessageCircle className="w-3 h-3" />{a.clienteWhats}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <button onClick={() => cancelar(a.id)} className="p-1 text-slate-200 hover:text-red-400 transition-colors flex-shrink-0">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
+              );
+            }
 
-            if (state === 'continuation') return (
-              <div key={hora} className="flex items-center rounded-xl overflow-hidden border border-violet-50 bg-violet-50/50 opacity-60">
-                <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-2"
-                  style={{ backgroundColor: (selectedProf?.cor || '#7c3aed') + '30' }}>
-                  <span className="text-[10px] font-semibold text-slate-400">{hora}</span>
+            // ── Bloqueio ──────────────────────────────────
+            if (item.tipo === 'block') {
+              const b = item.block;
+              return (
+                <div key={key} className="bg-red-50 rounded-xl overflow-hidden border border-red-100 flex items-center">
+                  <div className="w-[60px] bg-red-100 flex-shrink-0 flex flex-col items-center justify-center py-3">
+                    <span className="text-xs font-black text-red-600">{b.hora}</span>
+                    {b.duracao && <span className="text-[9px] text-red-400 mt-0.5">{fmtDuracao(b.duracao)}</span>}
+                  </div>
+                  <div className="flex-1 px-3 py-2">
+                    <p className="text-xs font-bold text-red-700">Bloqueado</p>
+                    {b.motivo && <p className="text-[10px] text-red-400">{b.motivo}</p>}
+                  </div>
+                  <button onClick={() => removeBlock(b.id)} className="p-3 text-red-300 hover:text-red-500 transition-colors flex-shrink-0">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="px-4 py-2">
-                  <p className="text-[10px] text-violet-400 font-semibold">↳ {appt.servico} em curso</p>
-                </div>
-              </div>
-            );
+              );
+            }
 
-            if (state === 'blocked') return (
-              <div key={hora} className="bg-red-50 rounded-xl overflow-hidden border border-red-100 flex items-center">
-                <div className="w-[60px] bg-red-100 flex-shrink-0 flex flex-col items-center justify-center py-3">
-                  <span className="text-xs font-black text-red-600">{hora}</span>
-                  {block.duracao && <span className="text-[9px] text-red-400 mt-0.5">{fmtDuracao(block.duracao)}</span>}
-                </div>
-                <div className="flex-1 px-3 py-2">
-                  <p className="text-xs font-bold text-red-700">Bloqueado</p>
-                  {block.motivo && <p className="text-[10px] text-red-400">{block.motivo}</p>}
-                </div>
-                <button onClick={() => removeBlock(block.id)} className="p-3 text-red-300 hover:text-red-500 transition-colors flex-shrink-0">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            );
-
-            if (state === 'google_busy') {
-              if (isFirstGoogleSlot) return (
-                <div key={hora} className="bg-blue-50 rounded-2xl overflow-hidden border border-blue-100 shadow-sm">
+            // ── Google Calendar ───────────────────────────
+            if (item.tipo === 'google') {
+              const e = item.googleEvent;
+              return (
+                <div key={key} className="bg-blue-50 rounded-2xl overflow-hidden border border-blue-100 shadow-sm">
                   <div className="flex items-stretch">
                     <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-3 bg-blue-500">
-                      <span className="text-xs font-black text-white leading-tight">{hora}</span>
+                      <span className="text-xs font-black text-white leading-tight">{item.hora}</span>
                       <Calendar className="w-3 h-3 text-white/60 mt-0.5" />
                     </div>
                     <div className="flex-1 px-4 py-3 min-w-0">
-                      <p className="font-bold text-blue-800 text-sm truncate">{googleEvent?.summary || 'Evento'}</p>
-                      {googleEvent && !googleEvent.allDay && (
-                        <p className="text-xs text-blue-500 mt-0.5">
-                          {new Date(googleEvent.start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                          {' – '}
-                          {new Date(googleEvent.end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      )}
-                      {googleEvent?.allDay && <p className="text-xs text-blue-400 mt-0.5">Dia inteiro</p>}
+                      <p className="font-bold text-blue-800 text-sm truncate">{e.summary || 'Evento'}</p>
+                      <p className="text-xs text-blue-500 mt-0.5">
+                        {new Date(e.start).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
+                        {' – '}
+                        {new Date(e.end).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })}
+                      </p>
                       <p className="text-[10px] text-blue-400 mt-1">Google Calendar</p>
                     </div>
                   </div>
                 </div>
               );
-              return (
-                <div key={hora} className="flex items-center rounded-xl overflow-hidden border border-blue-50 bg-blue-50/40 opacity-60">
-                  <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-2 bg-blue-100/50">
-                    <span className="text-[10px] font-semibold text-blue-400">{hora}</span>
-                  </div>
-                  <p className="px-3 text-[10px] text-blue-500 font-semibold">↳ {googleEvent?.summary || 'Evento'} em curso</p>
-                </div>
-              );
             }
 
-            // Past slot — show as disabled/lost
-            if (state === 'past') return (
-              <div key={hora} className="flex items-center rounded-xl border border-dashed border-slate-100 bg-slate-50/50 opacity-50">
-                <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-3">
-                  <span className="text-xs font-semibold text-slate-300">{hora}</span>
-                </div>
-                <p className="flex-1 text-left px-3 text-[11px] text-slate-300 font-medium">Horário perdido</p>
-              </div>
-            );
-
-            // Free
-            const isActive = activeSlot === hora;
-            return (
-              <div key={hora}>
-                <button onClick={() => setActiveSlot(isActive ? null : hora)}
-                  className={`w-full flex items-center rounded-xl border-2 border-dashed transition-all ${
-                    isActive ? 'border-violet-400 bg-violet-50' : 'border-slate-100 bg-white/60 hover:border-violet-200 hover:bg-violet-50/40'
-                  }`}>
-                  <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-3">
-                    <span className="text-xs font-semibold text-slate-400">{hora}</span>
-                  </div>
-                  <p className="flex-1 text-left px-3 text-[11px] text-slate-300 font-medium">Disponível</p>
-                  {isActive && <ChevronRight className="w-3.5 h-3.5 text-violet-400 mr-3" />}
-                </button>
-                {isActive && (
-                  <div className="flex gap-2 mt-1 mb-0.5">
-                    <button onClick={() => openNewAppt(hora)}
-                      className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors">
-                      <Plus className="w-3.5 h-3.5" />Agendar
-                    </button>
-                    <button onClick={() => openBlock(hora)}
-                      className="flex-1 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-red-100 transition-colors">
-                      <Clock className="w-3.5 h-3.5" />Bloquear
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
+            return null;
           })}
         </div>
       )}

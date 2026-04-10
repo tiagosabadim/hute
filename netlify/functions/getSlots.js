@@ -17,47 +17,50 @@ function getDb() {
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com';
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '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';
 
-function gerarSlots(horaInicio, horaFim, intervaloMin) {
+const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+const toStr = n => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+
+/**
+ * Generates available slots sequentially, jumping past busy intervals.
+ * busyIntervals: [{ start: number, end: number }] in minutes from midnight
+ */
+function gerarSlotsDisponiveis(horaInicio, horaFim, duracaoMin, busyIntervals) {
+  const busy = busyIntervals.slice().sort((a, b) => a.start - b.start);
   const slots = [];
-  let [h, m] = horaInicio.split(':').map(Number);
-  const [hf, mf] = horaFim.split(':').map(Number);
-  while (h < hf || (h === hf && m < mf)) {
-    slots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-    m += intervaloMin;
-    if (m >= 60) { h += Math.floor(m / 60); m = m % 60; }
+  let cur = toMin(horaInicio);
+  const fim = toMin(horaFim);
+  while (cur + duracaoMin <= fim) {
+    const overlap = busy.find(b => cur < b.end && cur + duracaoMin > b.start);
+    if (overlap) {
+      cur = overlap.end;
+    } else {
+      slots.push(toStr(cur));
+      cur += duracaoMin;
+    }
   }
   return slots;
 }
 
-function slotOcupado(slotStr, dataStr, duracaoMin, eventos) {
-  const slotInicio = new Date(`${dataStr}T${slotStr}:00`);
-  const slotFim = new Date(slotInicio.getTime() + duracaoMin * 60 * 1000);
-  return eventos.some(evento => {
-    const eventoInicio = new Date(evento.start.dateTime || `${evento.start.date}T00:00:00`);
-    const eventoFim = new Date(evento.end.dateTime || `${evento.end.date}T23:59:59`);
-    return slotInicio < eventoFim && slotFim > eventoInicio;
+function busyFromGoogleEvents(eventos) {
+  return eventos.map(e => {
+    const s = new Date(e.start.dateTime || `${e.start.date}T00:00:00`);
+    const en = new Date(e.end.dateTime || `${e.end.date}T23:59:59`);
+    return { start: s.getHours() * 60 + s.getMinutes(), end: en.getHours() * 60 + en.getMinutes() };
   });
 }
 
-function slotOcupadoNativo(slotStr, dataStr, duracaoMin, marcacoes) {
-  const slotInicio = new Date(`${dataStr}T${slotStr}:00`);
-  const slotFim = new Date(slotInicio.getTime() + duracaoMin * 60 * 1000);
-  return marcacoes.some(m => {
-    if (m.data !== dataStr) return false;
-    const mInicio = new Date(`${dataStr}T${m.hora}:00`);
-    const mDuracao = m.duracao ? Number(m.duracao) : duracaoMin;
-    const mFim = new Date(mInicio.getTime() + mDuracao * 60 * 1000);
-    return slotInicio < mFim && slotFim > mInicio;
+function busyFromMarcacoes(marcacoes, duracaoDefault) {
+  return marcacoes.map(m => {
+    const start = toMin(m.hora);
+    const dur = m.duracao ? Number(m.duracao) : duracaoDefault;
+    return { start, end: start + dur };
   });
 }
 
-function slotBloqueado(slotStr, dataStr, duracaoMin, blockedSlots) {
-  const slotInicio = new Date(`${dataStr}T${slotStr}:00`);
-  const slotFim = new Date(slotInicio.getTime() + duracaoMin * 60 * 1000);
-  return blockedSlots.some(b => {
-    const bInicio = new Date(`${dataStr}T${b.hora}:00`);
-    const bFim = new Date(bInicio.getTime() + (b.duracao || 60) * 60 * 1000);
-    return slotInicio < bFim && slotFim > bInicio;
+function busyFromBlocks(blocks, duracaoDefault) {
+  return blocks.map(b => {
+    const start = toMin(b.hora);
+    return { start, end: start + (b.duracao || duracaoDefault) };
   });
 }
 
@@ -105,9 +108,7 @@ exports.handler = async (event) => {
     const horaFim    = customHours ? customHours.horaFim    : (profile.horaFim    || '18:00');
 
     const slotBlockList = relevantBlocks.filter(b => b.type === 'slot');
-    // Use the requested service duration as the step so a 30-min service
-    // generates slots at 09:00, 09:30, 10:00… instead of just 09:00, 10:00…
-    const todosSlots = gerarSlots(horaInicio, horaFim, duracaoServico);
+    const busyBlocks = busyFromBlocks(slotBlockList, duracaoServico);
 
     // ── Per-professional logic ──────────────────────────────
     if (profissionalId) {
@@ -133,10 +134,8 @@ exports.handler = async (event) => {
         });
 
         const eventos = resposta.data.items || [];
-        const slotsLivres = todosSlots.filter(slot =>
-          !slotOcupado(slot, data, duracaoServico, eventos) &&
-          !slotBloqueado(slot, data, duracaoServico, slotBlockList)
-        );
+        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+        const slotsLivres = gerarSlotsDisponiveis(horaInicio, horaFim, duracaoServico, busy);
 
         return { statusCode: 200, headers, body: JSON.stringify({ slots: slotsLivres, googleSync: true }) };
       } else {
@@ -146,10 +145,8 @@ exports.handler = async (event) => {
           .map(d => d.data())
           .filter(a => a.profissionalId === profissionalId && a.data === data);
 
-        const slotsLivres = todosSlots.filter(slot =>
-          !slotOcupadoNativo(slot, data, duracaoServico, marcacoes) &&
-          !slotBloqueado(slot, data, duracaoServico, slotBlockList)
-        );
+        const busy = [...busyFromMarcacoes(marcacoes, duracaoServico), ...busyBlocks];
+        const slotsLivres = gerarSlotsDisponiveis(horaInicio, horaFim, duracaoServico, busy);
 
         return { statusCode: 200, headers, body: JSON.stringify({ slots: slotsLivres, googleSync: false, nativa: true }) };
       }
@@ -157,9 +154,12 @@ exports.handler = async (event) => {
 
     // ── Establishment-level logic ───────────────────────────
     if (!profile.googleRefreshToken) {
-      const slotsLivres = todosSlots.filter(slot =>
-        !slotBloqueado(slot, data, duracaoServico, slotBlockList)
-      );
+      const apptCollection = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`);
+      const apptSnap = await getDocs(apptCollection);
+      const marcacoes = apptSnap.docs.map(d => d.data()).filter(a => a.data === data);
+
+      const busy = [...busyFromMarcacoes(marcacoes, duracaoServico), ...busyBlocks];
+      const slotsLivres = gerarSlotsDisponiveis(horaInicio, horaFim, duracaoServico, busy);
       return { statusCode: 200, headers, body: JSON.stringify({ slots: slotsLivres, googleSync: false }) };
     }
 
@@ -179,10 +179,8 @@ exports.handler = async (event) => {
     });
 
     const eventos = resposta.data.items || [];
-    const slotsLivres = todosSlots.filter(slot =>
-      !slotOcupado(slot, data, duracaoServico, eventos) &&
-      !slotBloqueado(slot, data, duracaoServico, slotBlockList)
-    );
+    const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+    const slotsLivres = gerarSlotsDisponiveis(horaInicio, horaFim, duracaoServico, busy);
 
     return { statusCode: 200, headers, body: JSON.stringify({ slots: slotsLivres, googleSync: true }) };
 
