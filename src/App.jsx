@@ -757,7 +757,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
   const effStart = customHours ? customHours.horaInicio : (profile?.horaInicio || '09:00');
   const effEnd   = customHours ? customHours.horaFim    : (profile?.horaFim    || '18:00');
   const intervalo = profile?.intervalo || 60;
-  const allSlots = isDayOff ? [] : gerarHorarios(effStart, effEnd, intervalo);
+  // Use the smallest service duration as timeline step so sub-interval slots are visible.
+  // e.g. if interval=60 but a 30-min service exists, the timeline shows 09:00, 09:30, 10:00…
+  const serviceDurations = (profile?.servicos || []).map(s => Number(s.duracao)).filter(d => d > 0);
+  const timelineStep = serviceDurations.length > 0 ? Math.min(...serviceDurations, intervalo) : intervalo;
+  const allSlots = isDayOff ? [] : gerarHorarios(effStart, effEnd, timelineStep);
 
   const dayAppts = appointments.filter(a =>
     a.data === dateISO && (!selectedProfId || a.profissionalId === selectedProfId)

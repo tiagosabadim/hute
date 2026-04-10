@@ -105,7 +105,9 @@ exports.handler = async (event) => {
     const horaFim    = customHours ? customHours.horaFim    : (profile.horaFim    || '18:00');
 
     const slotBlockList = relevantBlocks.filter(b => b.type === 'slot');
-    const todosSlots = gerarSlots(horaInicio, horaFim, intervalo);
+    // Use the requested service duration as the step so a 30-min service
+    // generates slots at 09:00, 09:30, 10:00… instead of just 09:00, 10:00…
+    const todosSlots = gerarSlots(horaInicio, horaFim, duracaoServico);
 
     // ── Per-professional logic ──────────────────────────────
     if (profissionalId) {
