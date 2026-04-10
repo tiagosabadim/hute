@@ -345,13 +345,15 @@ function AdminServicos({ user, db, appId, profile, onProfileSaved }) {
   const [servicos, setServicos] = useState(profile.servicos || []);
   const [novoServico, setNovoServico] = useState('');
   const [novoPreco, setNovoPreco] = useState('');
+  const [novaDuracao, setNovaDuracao] = useState(60);
   const [saving, setSaving] = useState(false);
 
   const addServico = () => {
     if (!novoServico.trim()) return;
-    setServicos(prev => [...prev, { nome: novoServico.trim(), preco: novoPreco.trim() }]);
+    setServicos(prev => [...prev, { nome: novoServico.trim(), preco: novoPreco.trim(), duracao: Number(novaDuracao) }]);
     setNovoServico('');
     setNovoPreco('');
+    setNovaDuracao(60);
   };
 
   const removeServico = (idx) => {
@@ -381,8 +383,11 @@ function AdminServicos({ user, db, appId, profile, onProfileSaved }) {
           {servicos.map((s, i) => (
             <div key={i} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-3">
               <div>
-                <span className="text-sm font-medium text-slate-800">{s.nome}</span>
-                {s.preco && <span className="text-xs text-green-600 ml-2 font-semibold">R$ {s.preco}</span>}
+                <p className="text-sm font-medium text-slate-800">{s.nome}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  {s.preco && <span className="text-xs text-green-600 font-semibold">R$ {s.preco}</span>}
+                  <span className="text-xs text-slate-400">{s.duracao || 60} min</span>
+                </div>
               </div>
               <button onClick={() => removeServico(i)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
                 <X className="w-4 h-4" />
@@ -393,25 +398,41 @@ function AdminServicos({ user, db, appId, profile, onProfileSaved }) {
 
         <div className="border-t border-slate-100 pt-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Adicionar serviço</p>
-          <div className="flex gap-2 mb-3">
+          <div className="space-y-2 mb-3">
             <input
-              className="flex-1 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
+              className="w-full p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
               value={novoServico}
               onChange={e => setNovoServico(e.target.value)}
-              placeholder="Nome do serviço"
+              placeholder="Nome do serviço (ex: Corte, Escova, Coloração)"
               onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addServico())}
             />
-            <input
-              className="w-28 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
-              value={novoPreco}
-              onChange={e => setNovoPreco(e.target.value)}
-              placeholder="Preço R$"
-              type="number"
-              min="0"
-            />
-            <button onClick={addServico} className="bg-slate-800 text-white px-3 rounded-lg flex-shrink-0">
-              <Plus className="w-4 h-4" />
-            </button>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
+                value={novoPreco}
+                onChange={e => setNovoPreco(e.target.value)}
+                placeholder="Preço R$"
+                type="number"
+                min="0"
+              />
+              <select
+                className="flex-1 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
+                value={novaDuracao}
+                onChange={e => setNovaDuracao(e.target.value)}
+              >
+                <option value={15}>15 min</option>
+                <option value={30}>30 min</option>
+                <option value={45}>45 min</option>
+                <option value={60}>1 hora</option>
+                <option value={90}>1h30</option>
+                <option value={120}>2 horas</option>
+                <option value={150}>2h30</option>
+                <option value={180}>3 horas</option>
+              </select>
+              <button onClick={addServico} className="bg-slate-800 text-white px-3 rounded-lg flex-shrink-0">
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
           </div>
           <button
             onClick={saveServicos}
@@ -581,12 +602,17 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
   const dataIso = selectedDate.toISOString().split('T')[0];
   const servicos = profile.servicos || [];
 
-  const fetchSlots = (date) => {
+  // Serviço ativo: objeto completo
+  const servicoAtivo = servicos.find(s => s.nome === servico) || servicos[0] || null;
+  const duracaoAtiva = servicoAtivo?.duracao || profile.intervalo || 60;
+
+  const fetchSlots = (date, duracao) => {
     if (!lojaUid) return;
     const iso = date.toISOString().split('T')[0];
+    const dur = duracao || duracaoAtiva;
     setLoadingSlots(true);
     setHora('');
-    fetch(`${BACKEND_URL}/getSlots?lojaId=${lojaUid}&data=${iso}`)
+    fetch(`${BACKEND_URL}/getSlots?lojaId=${lojaUid}&data=${iso}&duracao=${dur}`)
       .then(r => r.json())
       .then(d => setSlotsDisponiveis(d.slots || []))
       .catch(() => setSlotsDisponiveis(
@@ -595,21 +621,22 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
       .finally(() => setLoadingSlots(false));
   };
 
+  // Re-fetch quando muda data ou serviço
   useEffect(() => {
-    fetchSlots(selectedDate);
-  }, [lojaUid]);
+    if (!lojaUid) return;
+    fetchSlots(selectedDate, duracaoAtiva);
+  }, [lojaUid, dataIso, duracaoAtiva]);
 
   const prevDay = () => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() - 1);
-    if (d >= todayDate) { setSelectedDate(d); fetchSlots(d); }
+    if (d >= todayDate) setSelectedDate(d);
   };
 
   const nextDay = () => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + 1);
     setSelectedDate(d);
-    fetchSlots(d);
   };
 
   const handleBooking = async (e) => {
@@ -617,9 +644,9 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
     if (!hora) { alert('Escolha uma hora!'); return; }
     setLoading(true);
 
-    const servicoSelecionado = servico || (servicos.length > 0 ? servicos[0].nome : 'Marcação');
-    const servicoObj = servicos.find(s => s.nome === servicoSelecionado);
-    const valor = servicoObj?.preco || '';
+    const servicoSelecionado = servicoAtivo?.nome || 'Marcação';
+    const valor = servicoAtivo?.preco || '';
+    const duracao = duracaoAtiva;
 
     const payload = {
       lojaId: lojaUid,
@@ -627,6 +654,7 @@ function ClientPortal({ lojaUid, profile, user, db, appId }) {
       clienteWhats: whats,
       servico: servicoSelecionado,
       valor,
+      duracao,
       data: dataIso,
       hora,
       dataHoraInternacional: new Date(`${dataIso}T${hora}:00`).toISOString(),

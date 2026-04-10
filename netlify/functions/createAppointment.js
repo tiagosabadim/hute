@@ -21,7 +21,7 @@ exports.handler = async (event) => {
 
   try {
     const data = JSON.parse(event.body);
-    const { lojaId, clienteNome, clienteWhats, servico, dataHoraInternacional } = data;
+    const { lojaId, clienteNome, clienteWhats, servico, valor, duracao, dataHoraInternacional } = data;
 
     const db = getDb();
     // Lê do perfil público (allow read: if true nas Firestore rules)
@@ -44,13 +44,14 @@ exports.handler = async (event) => {
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     const inicio = new Date(dataHoraInternacional);
-    const fim = new Date(inicio.getTime() + 60 * 60 * 1000);
+    const duracaoMin = duracao ? Number(duracao) : 60;
+    const fim = new Date(inicio.getTime() + duracaoMin * 60 * 1000);
 
     const eventResponse = await calendar.events.insert({
       calendarId: 'primary',
       resource: {
         summary: `${servico} - ${clienteNome}`,
-        description: `WhatsApp: ${clienteWhats}\nServiço: ${servico}\n\nMarcação via Hutex SaaS`,
+        description: `WhatsApp: ${clienteWhats}\nServiço: ${servico}${valor ? `\nPreço: R$ ${valor}` : ''}\nDuração: ${duracaoMin} min\n\nMarcação via Hutex SaaS`,
         start: { dateTime: inicio.toISOString() },
         end: { dateTime: fim.toISOString() },
       },

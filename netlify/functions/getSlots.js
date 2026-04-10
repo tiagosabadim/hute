@@ -47,7 +47,7 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json',
   };
 
-  const { lojaId, data } = event.queryStringParameters || {};
+  const { lojaId, data, duracao } = event.queryStringParameters || {};
 
   if (!lojaId || !data) {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'lojaId e data são obrigatórios' }) };
@@ -65,6 +65,8 @@ exports.handler = async (event) => {
     const horaInicio = profile.horaInicio || '09:00';
     const horaFim = profile.horaFim || '18:00';
     const intervalo = profile.intervalo || 60;
+    // duracao do serviço selecionado (pode diferir do intervalo base)
+    const duracaoServico = duracao ? Number(duracao) : intervalo;
 
     // Se não tem Google Calendar ligado, devolve todos os slots sem filtrar
     if (!profile.googleRefreshToken) {
@@ -94,9 +96,9 @@ exports.handler = async (event) => {
 
     const eventos = resposta.data.items || [];
 
-    // Filtra os slots livres
+    // Filtra os slots livres usando a duração real do serviço
     const todosSlots = gerarSlots(horaInicio, horaFim, intervalo);
-    const slotsLivres = todosSlots.filter(slot => !slotOcupado(slot, data, intervalo, eventos));
+    const slotsLivres = todosSlots.filter(slot => !slotOcupado(slot, data, duracaoServico, eventos));
 
     return {
       statusCode: 200,
