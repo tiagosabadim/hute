@@ -671,6 +671,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
   const [appointments, setAppointments] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [googleFreeSlots, setGoogleFreeSlots] = useState(null); // null = not google
+  const [googleEvents, setGoogleEvents] = useState([]); // actual GCal events for display
   const [googleLoading, setGoogleLoading] = useState(false);
   const [activeSlot, setActiveSlot] = useState(null); // hora string of the tapped free slot
   const [showNewAppt, setShowNewAppt] = useState(false);
@@ -711,15 +712,19 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
 
     setGoogleLoading(true);
     setGoogleFreeSlots(null);
-    const params = new URLSearchParams({
-      lojaId: colId, data: dateISO,
-      duracao: profile?.intervalo || 60,
-      profissionalId: selectedProfId,
-    });
-    fetch(`${BACKEND_URL}/getSlots?${params}`)
-      .then(r => r.json())
-      .then(j => setGoogleFreeSlots(j.googleSync ? (j.slots || []) : null))
-      .catch(() => setGoogleFreeSlots(null))
+    setGoogleEvents([]);
+    const baseParams = { lojaId: colId, data: dateISO, profissionalId: selectedProfId };
+    const slotsParams = new URLSearchParams({ ...baseParams, duracao: profile?.intervalo || 60 });
+    const eventsParams = new URLSearchParams(baseParams);
+    Promise.all([
+      fetch(`${BACKEND_URL}/getSlots?${slotsParams}`).then(r => r.json()),
+      fetch(`${BACKEND_URL}/getCalendarEvents?${eventsParams}`).then(r => r.json()),
+    ])
+      .then(([slots, evts]) => {
+        setGoogleFreeSlots(slots.googleSync ? (slots.slots || []) : null);
+        setGoogleEvents(evts.events || []);
+      })
+      .catch(() => { setGoogleFreeSlots(null); setGoogleEvents([]); })
       .finally(() => setGoogleLoading(false));
   }, [selectedProfId, dateISO, colId, profile?.intervalo, selectedProf?.agendaTipo]);
 
@@ -740,8 +745,19 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
     a.data === dateISO && (!selectedProfId || a.profissionalId === selectedProfId)
   );
 
+  // Helper: find Google Calendar event overlapping a slot
+  const findGoogleEvent = (hora) => {
+    const slotTime = new Date(`${dateISO}T${hora}:00`);
+    return googleEvents.find(e => {
+      if (e.allDay) return true;
+      const eStart = new Date(e.start);
+      const eEnd   = new Date(e.end);
+      return slotTime >= eStart && slotTime < eEnd;
+    }) || null;
+  };
+
   // For each slot determine state
-  const timeline = allSlots.map(hora => {
+  const timeline = allSlots.map((hora, idx) => {
     const block = slotBlocks.find(b => b.hora === hora);
     if (block) return { hora, state: 'blocked', block };
 
@@ -758,8 +774,14 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
     });
     if (covered) return { hora, state: 'continuation', appt: covered };
 
-    if (googleFreeSlots !== null && !googleFreeSlots.includes(hora))
-      return { hora, state: 'google_busy' };
+    if (googleFreeSlots !== null && !googleFreeSlots.includes(hora)) {
+      const googleEvent = findGoogleEvent(hora);
+      // Is this the first slot of this google event in the timeline?
+      const prevHora = idx > 0 ? allSlots[idx - 1] : null;
+      const isFirst = !googleEvent || googleEvent.allDay || !prevHora ||
+        new Date(googleEvent.start) > new Date(`${dateISO}T${prevHora}:00`);
+      return { hora, state: 'google_busy', googleEvent, isFirstGoogleSlot: isFirst };
+    }
 
     return { hora, state: 'free' };
   });
@@ -940,14 +962,38 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
               </div>
             );
 
-            if (state === 'google_busy') return (
-              <div key={hora} className="bg-blue-50/60 rounded-xl overflow-hidden border border-blue-100 flex items-center opacity-70">
-                <div className="w-[60px] bg-blue-100/60 flex-shrink-0 flex items-center justify-center py-2.5">
-                  <span className="text-xs font-semibold text-blue-500">{hora}</span>
+            if (state === 'google_busy') {
+              if (isFirstGoogleSlot) return (
+                <div key={hora} className="bg-blue-50 rounded-2xl overflow-hidden border border-blue-100 shadow-sm">
+                  <div className="flex items-stretch">
+                    <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-3 bg-blue-500">
+                      <span className="text-xs font-black text-white leading-tight">{hora}</span>
+                      <Calendar className="w-3 h-3 text-white/60 mt-0.5" />
+                    </div>
+                    <div className="flex-1 px-4 py-3 min-w-0">
+                      <p className="font-bold text-blue-800 text-sm truncate">{googleEvent?.summary || 'Evento'}</p>
+                      {googleEvent && !googleEvent.allDay && (
+                        <p className="text-xs text-blue-500 mt-0.5">
+                          {new Date(googleEvent.start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          {' – '}
+                          {new Date(googleEvent.end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                      {googleEvent?.allDay && <p className="text-xs text-blue-400 mt-0.5">Dia inteiro</p>}
+                      <p className="text-[10px] text-blue-400 mt-1">Google Calendar</p>
+                    </div>
+                  </div>
                 </div>
-                <p className="px-3 text-xs text-blue-600 font-semibold">Ocupado (Google)</p>
-              </div>
-            );
+              );
+              return (
+                <div key={hora} className="flex items-center rounded-xl overflow-hidden border border-blue-50 bg-blue-50/40 opacity-60">
+                  <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-2 bg-blue-100/50">
+                    <span className="text-[10px] font-semibold text-blue-400">{hora}</span>
+                  </div>
+                  <p className="px-3 text-[10px] text-blue-500 font-semibold">↳ {googleEvent?.summary || 'Evento'} em curso</p>
+                </div>
+              );
+            }
 
             // Free
             const isActive = activeSlot === hora;
@@ -1264,6 +1310,12 @@ function BlockModal({ lojaId, filterProfId, profile, prefilledHora, prefilledDat
         ...(type === 'custom_hours' ? { horaInicio, horaFim } : {}),
       };
       await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${lojaId}`), blockData);
+      // Fire-and-forget sync to Google Calendar
+      fetch(`${BACKEND_URL}/createBlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId, ...blockData }),
+      }).catch(() => {});
       onSaved();
       onClose();
     } finally {
