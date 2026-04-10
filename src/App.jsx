@@ -2403,6 +2403,7 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
 
 // ── Client Portal ─────────────────────────────────────────
 function ClientPortal({ lojaUid, profile }) {
+  // Booking flow
   const [step, setStep] = useState('service');
   const [selectedService, setSelectedService] = useState(null);
   const [selectedProfissional, setSelectedProfissional] = useState(null);
@@ -2416,8 +2417,75 @@ function ClientPortal({ lojaUid, profile }) {
   const [submitting, setSubmitting] = useState(false);
   const [confirmedAppt, setConfirmedAppt] = useState(null);
 
+  // Client auth
+  const [clientUser, setClientUser] = useState(null);
+  const [clientAccount, setClientAccount] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Account step
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [authMode, setAuthMode] = useState('signup');
+  const [authError, setAuthError] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+
+  // Home step
+  const [clientAppts, setClientAppts] = useState([]);
+
+  // PWA install
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
+  const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone;
+
   const profissionals = profile.profissionals || [];
   const servicos = profile.servicos || [];
+
+  // Listen to Firebase Auth — returning clients go straight to home
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        try {
+          const snap = await getDoc(doc(db, 'clientAccounts', u.uid));
+          if (snap.exists()) {
+            setClientUser(u);
+            setClientAccount(snap.data());
+            setStep('home');
+          } else {
+            setClientUser(null);
+          }
+        } catch { setClientUser(null); }
+      } else {
+        setClientUser(null);
+      }
+      setAuthChecked(true);
+    });
+    return () => unsub();
+  }, []);
+
+  // Capture PWA install prompt (Android)
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  // Subscribe to client's appointments on home step
+  useEffect(() => {
+    if (!clientUser || step !== 'home') return;
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`);
+    const unsub = onSnapshot(q, snap => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const phone = (clientAccount?.whats || '').replace(/\D/g, '');
+      const filtered = all.filter(a =>
+        a.clientUid === clientUser.uid ||
+        (phone && (a.clienteWhats || '').replace(/\D/g, '') === phone)
+      );
+      filtered.sort((a, b) => (a.data + a.hora) > (b.data + b.hora) ? 1 : -1);
+      setClientAppts(filtered);
+    });
+    return () => unsub();
+  }, [clientUser, step, lojaUid, clientAccount]);
 
   const fetchSlots = useCallback(async (date, servico, profId) => {
     setSlotsLoading(true);
@@ -2505,33 +2573,27 @@ function ClientPortal({ lojaUid, profile }) {
         hora: selectedHora,
         dataHoraInternacional: dtInt.toISOString(),
         createdAt: new Date().toISOString(),
+        ...(clientUser ? { clientUid: clientUser.uid } : {}),
       };
 
-      // Save to Firestore
       const apptRef = await addDoc(
         collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`),
         apptData
       );
 
-      // Upsert client
       const clientKey = whats.trim().replace(/\D/g, '') || nome.trim().toLowerCase().replace(/\s+/g, '_');
       const clientDocRef = doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaUid}`, clientKey);
       const existingClient = await getDoc(clientDocRef);
       const totalVisitas = existingClient.exists() ? (existingClient.data().totalVisitas || 0) + 1 : 1;
       const primeiraVisita = existingClient.exists() ? (existingClient.data().primeiraVisita || dataISO) : dataISO;
       await setDoc(clientDocRef, {
-        nome: nome.trim(),
-        whats: whats.trim(),
-        nascimento: nascimento || '',
-        totalVisitas,
-        primeiraVisita,
-        ultimaVisita: dataISO,
+        nome: nome.trim(), whats: whats.trim(), nascimento: nascimento || '',
+        totalVisitas, primeiraVisita, ultimaVisita: dataISO,
       }, { merge: true });
 
       setConfirmedAppt({ ...apptData, id: apptRef.id });
-      setStep('confirmed');
+      setStep(clientUser ? 'home' : 'account');
 
-      // Fire-and-forget Google Calendar sync
       fetch(`${BACKEND_URL}/createAppointment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2545,25 +2607,103 @@ function ClientPortal({ lojaUid, profile }) {
     }
   };
 
-  const stepIndex = { service: 0, professional: 1, datetime: 2, form: 3, confirmed: 4 };
-  const totalSteps = profissionals.length > 0 ? 4 : 3;
-  const currentIdx = stepIndex[step] || 0;
+  const handleAuth = async () => {
+    setAuthError('');
+    setAuthSubmitting(true);
+    try {
+      let cred;
+      if (authMode === 'signup') {
+        cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      } else {
+        cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      }
+      const accountData = {
+        nome: nome.trim() || '',
+        whats: whats.trim() || '',
+        nascimento: nascimento || '',
+        email: email.trim(),
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'clientAccounts', cred.user.uid), accountData, { merge: true });
+      setClientUser(cred.user);
+      setClientAccount(accountData);
+      setStep('home');
+    } catch (err) {
+      const msgs = {
+        'auth/email-already-in-use': 'Este email já está em uso. Tente entrar.',
+        'auth/weak-password': 'A senha deve ter pelo menos 6 caracteres.',
+        'auth/invalid-email': 'Email inválido.',
+        'auth/user-not-found': 'Conta não encontrada.',
+        'auth/wrong-password': 'Senha incorreta.',
+        'auth/invalid-credential': 'Email ou senha incorretos.',
+      };
+      setAuthError(msgs[err.code] || 'Erro ao autenticar. Tente novamente.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
 
-  const canGoBack = step !== 'service' && step !== 'confirmed';
+  const handleSignOut = () => {
+    signOut(auth).catch(() => {});
+    setClientUser(null); setClientAccount(null); setClientAppts([]);
+    setStep('service');
+  };
+
+  const startNewBooking = () => {
+    setSelectedService(null); setSelectedProfissional(null);
+    setSelectedDate(new Date()); setSelectedHora('');
+    setNome(clientAccount?.nome || ''); setWhats(clientAccount?.whats || '');
+    setNascimento(clientAccount?.nascimento || ''); setConfirmedAppt(null);
+    setStep('service');
+  };
+
+  const stepIndex = { service: 0, professional: 1, datetime: 2, form: 3 };
+  const totalSteps = profissionals.length > 0 ? 4 : 3;
+  const currentIdx = stepIndex[step] ?? 0;
+
+  const canGoBack = ['professional', 'datetime', 'form'].includes(step);
   const handleBack = () => {
     if (step === 'professional') setStep('service');
-    else if (step === 'datetime') {
-      const profs = selectedService ? profissionals.filter(p => (p.servicos || []).includes(selectedService.nome)) : profissionals;
-      setStep(profs.length > 0 ? 'professional' : 'service');
-    }
+    else if (step === 'datetime') setStep(profForService.length > 0 ? 'professional' : 'service');
     else if (step === 'form') setStep('datetime');
   };
 
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const upcomingAppts = clientAppts.filter(a => new Date(a.data + 'T23:59:59') >= today);
+  const pastAppts    = clientAppts.filter(a => new Date(a.data + 'T23:59:59') <  today);
+
+  if (!authChecked) return (
+    <div className="h-screen flex items-center justify-center bg-slate-50">
+      <Loader2 className="w-6 h-6 animate-spin text-violet-400" />
+    </div>
+  );
+
+  const LogoBar = ({ showBack = false, showSignOut = false }) => (
+    <div className="flex items-center gap-3 px-5 py-3.5">
+      {showBack && (
+        <button onClick={handleBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+      )}
+      {profile.logo
+        ? <img src={profile.logo} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+        : <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+      }
+      <p className="font-black text-slate-900 flex-1 truncate text-sm">{profile.nome || 'Agendamento'}</p>
+      {showSignOut && (
+        <button onClick={handleSignOut} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors" title="Sair">
+          <LogOut className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-      {/* Header */}
+
+      {/* ── Sticky header ─────────────────────────────────── */}
       <header className="bg-white border-b border-slate-100 sticky top-0 z-10">
-        {/* Cover photo hero (only on first step) */}
+        {/* Hero cover — service step only */}
         {step === 'service' && (profile.coverFoto || profile.logo) && (
           <div className="relative h-36 overflow-hidden">
             {profile.coverFoto
@@ -2583,33 +2723,25 @@ function ClientPortal({ lojaUid, profile }) {
             </div>
           </div>
         )}
-        <div className="px-5 py-3.5">
-          <div className="flex items-center gap-3">
-            {canGoBack && (
-              <button onClick={handleBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
-            {!(step === 'service' && (profile.coverFoto || profile.logo)) && (
-              <div className="flex-1 min-w-0">
-                <p className="font-black text-slate-900 truncate">{profile.nome || 'Agendamento'}</p>
-                {profile.subtitulo && <p className="text-xs text-slate-400 truncate">{profile.subtitulo}</p>}
-              </div>
-            )}
-            {canGoBack && <div className="flex-1" />}
+
+        {/* Compact logo bar — all steps except service-with-hero */}
+        {!(step === 'service' && (profile.coverFoto || profile.logo)) && (
+          <LogoBar showBack={canGoBack} showSignOut={step === 'home'} />
+        )}
+
+        {/* Progress dots — booking steps only */}
+        {['service', 'professional', 'datetime', 'form'].includes(step) && (
+          <div className="flex gap-1.5 px-5 pb-3">
+            {Array.from({ length: totalSteps }).map((_, i) => (
+              <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
+            ))}
           </div>
-          {step !== 'confirmed' && (
-            <div className="flex gap-1.5 mt-3">
-              {Array.from({ length: totalSteps }).map((_, i) => (
-                <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </header>
 
       <div className="flex-1 p-5 pb-8">
-        {/* STEP: SERVICE */}
+
+        {/* ── SERVICE ───────────────────────────────────────── */}
         {step === 'service' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Qual serviço?</h2>
@@ -2620,30 +2752,19 @@ function ClientPortal({ lojaUid, profile }) {
               <div className="space-y-3">
                 {servicos.map((s, i) => (
                   <button key={i} onClick={() => selectService(s)}
-                    className="w-full bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-0">
-                    {/* Service photo */}
+                    className="w-full bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex">
                     {s.foto
                       ? <img src={s.foto} alt={s.nome} className="w-20 h-20 object-cover flex-shrink-0" />
-                      : (
-                        <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0">
-                          <Scissors className="w-7 h-7 text-violet-400" />
-                        </div>
-                      )
+                      : <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0"><Scissors className="w-7 h-7 text-violet-400" /></div>
                     }
                     <div className="flex-1 min-w-0 px-4 py-3">
                       <p className="font-bold text-slate-900">{s.nome}</p>
                       <div className="flex items-center gap-3 mt-1 flex-wrap">
-                        {s.duracao && (
-                          <span className="text-xs text-slate-400 flex items-center gap-1">
-                            <Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}
-                          </span>
-                        )}
-                        {s.preco && (
-                          <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span>
-                        )}
+                        {s.duracao && <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}</span>}
+                        {s.preco && <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span>}
                       </div>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300 mr-4 flex-shrink-0" />
+                    <ChevronRight className="w-4 h-4 text-slate-300 mr-4 self-center flex-shrink-0" />
                   </button>
                 ))}
               </div>
@@ -2651,13 +2772,11 @@ function ClientPortal({ lojaUid, profile }) {
           </div>
         )}
 
-        {/* STEP: PROFESSIONAL */}
+        {/* ── PROFESSIONAL ──────────────────────────────────── */}
         {step === 'professional' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Com quem?</h2>
-            <p className="text-sm text-slate-400 mb-5">
-              {selectedService ? `Profissionais para "${selectedService.nome}"` : 'Escolha o profissional'}
-            </p>
+            <p className="text-sm text-slate-400 mb-5">{selectedService ? `Para "${selectedService.nome}"` : 'Escolha o profissional'}</p>
             <div className="space-y-3">
               {profForService.map(p => (
                 <button key={p.id} onClick={() => selectProfissional(p)}
@@ -2681,34 +2800,23 @@ function ClientPortal({ lojaUid, profile }) {
           </div>
         )}
 
-        {/* STEP: DATETIME */}
+        {/* ── DATETIME ──────────────────────────────────────── */}
         {step === 'datetime' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Quando?</h2>
             <p className="text-sm text-slate-400 mb-4">Escolha o dia e horário</p>
-
-            {/* Date navigation */}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-4">
               <div className="flex items-center justify-between">
-                <button onClick={() => changeDate(-1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors">
-                  <ChevronLeft className="w-5 h-5" />
-                </button>
+                <button onClick={() => changeDate(-1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors"><ChevronLeft className="w-5 h-5" /></button>
                 <div className="text-center">
                   <p className="font-black text-slate-900">{selectedDate.toLocaleDateString('pt-BR', { weekday: 'long' })}</p>
                   <p className="text-sm text-slate-500">{selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</p>
                 </div>
-                <button onClick={() => changeDate(1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors">
-                  <ChevronRight className="w-5 h-5" />
-                </button>
+                <button onClick={() => changeDate(1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors"><ChevronRight className="w-5 h-5" /></button>
               </div>
             </div>
-
-            {/* Slots */}
             {slotsLoading ? (
-              <div className="text-center py-10">
-                <Loader2 className="w-6 h-6 animate-spin text-violet-400 mx-auto mb-2" />
-                <p className="text-sm text-slate-400">A verificar disponibilidade...</p>
-              </div>
+              <div className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-violet-400 mx-auto mb-2" /><p className="text-sm text-slate-400">A verificar disponibilidade...</p></div>
             ) : slots === null ? null : slots.length === 0 ? (
               <div className="text-center py-10">
                 <CalendarCheck className="w-10 h-10 text-slate-200 mx-auto mb-2" />
@@ -2725,8 +2833,7 @@ function ClientPortal({ lojaUid, profile }) {
                     </button>
                   ))}
                 </div>
-                <button onClick={() => { if (selectedHora) goToStep('form'); }}
-                  disabled={!selectedHora}
+                <button onClick={() => { if (selectedHora) goToStep('form'); }} disabled={!selectedHora}
                   className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors">
                   Continuar
                 </button>
@@ -2735,13 +2842,11 @@ function ClientPortal({ lojaUid, profile }) {
           </div>
         )}
 
-        {/* STEP: FORM */}
+        {/* ── FORM ──────────────────────────────────────────── */}
         {step === 'form' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Confirmar marcação</h2>
             <p className="text-sm text-slate-400 mb-4">Reveja e preencha os seus dados</p>
-
-            {/* Summary */}
             <div className="bg-violet-50 rounded-2xl p-4 mb-5 space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Serviço</span>
@@ -2768,7 +2873,6 @@ function ClientPortal({ lojaUid, profile }) {
                 </div>
               )}
             </div>
-
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome completo</label>
@@ -2786,7 +2890,6 @@ function ClientPortal({ lojaUid, profile }) {
                   className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
               </div>
             </div>
-
             <button onClick={handleSubmit} disabled={submitting || !nome.trim() || !whats.trim()}
               className="w-full mt-5 bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
               {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
@@ -2795,7 +2898,68 @@ function ClientPortal({ lojaUid, profile }) {
           </div>
         )}
 
-        {/* STEP: CONFIRMED */}
+        {/* ── ACCOUNT — create / sign in ─────────────────────── */}
+        {step === 'account' && (
+          <div>
+            {confirmedAppt && (
+              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-6 flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="font-bold text-emerald-800 text-sm">Marcação confirmada!</p>
+                  <p className="text-xs text-emerald-600">{confirmedAppt.servico} · {fmtData(confirmedAppt.data)} às {confirmedAppt.hora}</p>
+                </div>
+              </div>
+            )}
+            <h2 className="text-xl font-black text-slate-900 mb-1">
+              {authMode === 'signup' ? 'Criar a sua conta' : 'Entrar na sua conta'}
+            </h2>
+            <p className="text-sm text-slate-400 mb-6">
+              {authMode === 'signup' ? 'Guarde as suas marcações e remarque facilmente' : 'Aceda às suas marcações'}
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="o.seu@email.com" autoComplete="email"
+                    className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                  <input type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder={authMode === 'signup' ? 'Mínimo 6 caracteres' : 'A sua senha'}
+                    autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
+                    className="w-full pl-10 pr-12 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                  <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            {authError && <p className="mt-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{authError}</p>}
+            <button onClick={handleAuth} disabled={authSubmitting || !email.trim() || !password}
+              className="w-full mt-5 bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+              {authSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <User className="w-5 h-5" />}
+              {authMode === 'signup' ? 'Criar conta' : 'Entrar'}
+            </button>
+            <div className="mt-4 text-center">
+              {authMode === 'signup'
+                ? <p className="text-xs text-slate-400">Já tem conta? <button onClick={() => { setAuthMode('signin'); setAuthError(''); }} className="text-violet-600 font-bold hover:underline">Entrar</button></p>
+                : <p className="text-xs text-slate-400">Não tem conta? <button onClick={() => { setAuthMode('signup'); setAuthError(''); }} className="text-violet-600 font-bold hover:underline">Criar conta</button></p>
+              }
+            </div>
+            <button onClick={() => setStep('confirmed')} className="w-full mt-3 py-3 text-xs text-slate-400 hover:text-slate-600 transition-colors">
+              Pular por agora
+            </button>
+          </div>
+        )}
+
+        {/* ── CONFIRMED (skip from account) ─────────────────── */}
         {step === 'confirmed' && confirmedAppt && (
           <div className="text-center py-8">
             <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-5">
@@ -2803,38 +2967,136 @@ function ClientPortal({ lojaUid, profile }) {
             </div>
             <h2 className="text-2xl font-black text-slate-900 mb-2">Marcado!</h2>
             <p className="text-slate-400 text-sm mb-6">A sua marcação foi confirmada com sucesso.</p>
-
             <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 text-left space-y-3 mb-6">
-              <div className="flex justify-between">
-                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Serviço</span>
-                <span className="text-sm font-bold text-slate-900">{confirmedAppt.servico}</span>
-              </div>
-              {confirmedAppt.profissionalNome && (
-                <div className="flex justify-between">
-                  <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Profissional</span>
-                  <span className="text-sm font-bold text-slate-900">{confirmedAppt.profissionalNome}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Data</span>
-                <span className="text-sm font-bold text-slate-900">{fmtData(confirmedAppt.data)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Hora</span>
-                <span className="text-sm font-bold text-slate-900">{confirmedAppt.hora}</span>
-              </div>
-              {confirmedAppt.valor && (
-                <div className="flex justify-between">
-                  <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span>
-                  <span className="text-sm font-bold text-violet-600">R$ {Number(confirmedAppt.valor).toFixed(2)}</span>
-                </div>
-              )}
+              <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Serviço</span><span className="text-sm font-bold text-slate-900">{confirmedAppt.servico}</span></div>
+              {confirmedAppt.profissionalNome && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Profissional</span><span className="text-sm font-bold text-slate-900">{confirmedAppt.profissionalNome}</span></div>}
+              <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Data</span><span className="text-sm font-bold text-slate-900">{fmtData(confirmedAppt.data)}</span></div>
+              <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Hora</span><span className="text-sm font-bold text-slate-900">{confirmedAppt.hora}</span></div>
+              {confirmedAppt.valor && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span><span className="text-sm font-bold text-violet-600">R$ {Number(confirmedAppt.valor).toFixed(2)}</span></div>}
             </div>
-
-            <button onClick={() => { setStep('service'); setSelectedService(null); setSelectedProfissional(null); setSelectedHora(''); setNome(''); setWhats(''); setNascimento(''); }}
-              className="w-full border border-violet-200 text-violet-600 font-bold py-3.5 rounded-2xl text-sm hover:bg-violet-50 transition-colors">
+            <button onClick={startNewBooking} className="w-full border border-violet-200 text-violet-600 font-bold py-3.5 rounded-2xl text-sm hover:bg-violet-50 transition-colors">
               Nova marcação
             </button>
+          </div>
+        )}
+
+        {/* ── HOME — client dashboard ────────────────────────── */}
+        {step === 'home' && (
+          <div>
+            <div className="mb-6">
+              <h2 className="text-xl font-black text-slate-900">Olá, {(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}!</h2>
+              <p className="text-sm text-slate-400 mt-0.5">{profile.nome}</p>
+            </div>
+
+            {/* Just confirmed banner */}
+            {confirmedAppt && (
+              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-5 flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="font-bold text-emerald-800 text-sm">Marcação confirmada!</p>
+                  <p className="text-xs text-emerald-600">{confirmedAppt.servico} · {fmtData(confirmedAppt.data)} às {confirmedAppt.hora}</p>
+                </div>
+              </div>
+            )}
+
+            {/* PWA install */}
+            {!isInStandaloneMode && (
+              <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 mb-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-4 h-4 text-violet-600" />
+                  <p className="font-bold text-violet-900 text-sm">Instalar o app</p>
+                </div>
+                {isIOS ? (
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-violet-600 font-medium">Adicione ao ecrã inicial em 3 passos:</p>
+                    <p className="text-xs text-slate-600">1. Toque em <strong>Partilhar</strong> <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 text-[10px]">⬆</span> na barra do Safari</p>
+                    <p className="text-xs text-slate-600">2. Role para baixo e toque em <strong>Adicionar ao ecrã de início</strong></p>
+                    <p className="text-xs text-slate-600">3. Toque em <strong>Adicionar</strong> no canto superior direito</p>
+                  </div>
+                ) : installPrompt ? (
+                  <button onClick={() => { installPrompt.prompt(); setInstallPrompt(null); }}
+                    className="w-full bg-violet-600 text-white font-bold py-2.5 rounded-xl text-xs mt-1 hover:bg-violet-700 transition-colors flex items-center justify-center gap-2">
+                    <Plus className="w-3.5 h-3.5" /> Adicionar ao ecrã inicial
+                  </button>
+                ) : (
+                  <p className="text-xs text-violet-500">Use o menu do seu browser para adicionar ao ecrã inicial.</p>
+                )}
+              </div>
+            )}
+
+            {/* New booking button */}
+            <button onClick={startNewBooking}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 mb-6 transition-colors shadow-lg shadow-violet-200">
+              <Plus className="w-4 h-4" /> Nova marcação
+            </button>
+
+            {/* Upcoming appointments */}
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Próximas marcações</h3>
+            {upcomingAppts.length === 0 ? (
+              <div className="bg-white rounded-2xl p-5 text-center border border-slate-100 mb-5">
+                <CalendarCheck className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+                <p className="text-sm text-slate-400">Nenhuma marcação futura</p>
+              </div>
+            ) : (
+              <div className="space-y-3 mb-5">
+                {upcomingAppts.map(a => (
+                  <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#7c3aed15' }}>
+                        <Scissors className="w-4 h-4 text-violet-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-900 text-sm">{a.servico}</p>
+                        {a.profissionalNome && <p className="text-xs text-slate-400">com {a.profissionalNome}</p>}
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs font-bold text-violet-700 bg-violet-50 px-2.5 py-1 rounded-full">{fmtData(a.data)}</span>
+                          <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">{a.hora}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => {
+                          const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                          const prof = profissionals.find(p => p.id === a.profissionalId) || null;
+                          setSelectedService(svc);
+                          setSelectedProfissional(prof);
+                          setSelectedDate(new Date());
+                          setSelectedHora('');
+                          setNome(a.clienteNome || clientAccount?.nome || '');
+                          setWhats(a.clienteWhats || clientAccount?.whats || '');
+                          setNascimento(a.clienteNascimento || clientAccount?.nascimento || '');
+                          setConfirmedAppt(null);
+                          setStep('datetime');
+                          fetchSlots(new Date(), svc, prof?.id || null);
+                        }}
+                        className="flex-shrink-0 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all">
+                        Remarcar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Past appointments */}
+            {pastAppts.length > 0 && (
+              <>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Histórico</h3>
+                <div className="space-y-2">
+                  {pastAppts.slice(0, 5).map(a => (
+                    <div key={a.id} className="bg-white/70 rounded-xl p-3.5 border border-slate-100 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+                        <Scissors className="w-4 h-4 text-slate-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-600 truncate">{a.servico}</p>
+                        <p className="text-xs text-slate-400">{fmtData(a.data)} · {a.hora}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
