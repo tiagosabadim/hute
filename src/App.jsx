@@ -2446,7 +2446,7 @@ function ClientPortal({ lojaUid, profile }) {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         try {
-          const snap = await getDoc(doc(db, 'clientAccounts', u.uid));
+          const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', u.uid));
           if (snap.exists()) {
             setClientUser(u);
             setClientAccount(snap.data());
@@ -2624,7 +2624,7 @@ function ClientPortal({ lojaUid, profile }) {
         email: email.trim(),
         updatedAt: new Date().toISOString(),
       };
-      await setDoc(doc(db, 'clientAccounts', cred.user.uid), accountData, { merge: true });
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', cred.user.uid), accountData, { merge: true });
       setClientUser(cred.user);
       setClientAccount(accountData);
       setStep('home');
@@ -2703,7 +2703,7 @@ function ClientPortal({ lojaUid, profile }) {
 
       {/* ── Sticky header ─────────────────────────────────── */}
       <header className="bg-white border-b border-slate-100 sticky top-0 z-10">
-        {/* Hero cover — service step only */}
+        {/* Service step — full hero */}
         {step === 'service' && (profile.coverFoto || profile.logo) && (
           <div className="relative h-36 overflow-hidden">
             {profile.coverFoto
@@ -2724,14 +2724,35 @@ function ClientPortal({ lojaUid, profile }) {
           </div>
         )}
 
-        {/* Compact logo bar — all steps except service-with-hero */}
-        {!(step === 'service' && (profile.coverFoto || profile.logo)) && (
+        {/* Booking steps (not service) with cover photo — compact strip h-16 */}
+        {['professional', 'datetime', 'form'].includes(step) && (profile.coverFoto || profile.logo) && (
+          <div className="relative h-16 overflow-hidden">
+            {profile.coverFoto
+              ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
+              : <div className="w-full h-full bg-gradient-to-r from-violet-700 to-violet-500" />
+            }
+            <div className="absolute inset-0 bg-black/45" />
+            <div className="absolute inset-0 flex items-center px-4 gap-3">
+              <button onClick={handleBack} className="w-8 h-8 bg-black/25 hover:bg-black/40 rounded-xl flex items-center justify-center text-white flex-shrink-0 transition-colors">
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              {profile.logo
+                ? <img src={profile.logo} alt="" className="w-8 h-8 rounded-lg object-cover border border-white/50 flex-shrink-0" />
+                : <div className="w-8 h-8 rounded-lg bg-violet-600 border border-white/50 flex items-center justify-center flex-shrink-0"><Sparkles className="w-4 h-4 text-white" /></div>
+              }
+              <p className="font-black text-white text-sm truncate">{profile.nome || 'Agendamento'}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Fallback compact bar — when no cover photo, or on account/confirmed/home */}
+        {(!(profile.coverFoto || profile.logo) || ['account', 'confirmed', 'home'].includes(step)) && (
           <LogoBar showBack={canGoBack} showSignOut={step === 'home'} />
         )}
 
         {/* Progress dots — booking steps only */}
         {['service', 'professional', 'datetime', 'form'].includes(step) && (
-          <div className="flex gap-1.5 px-5 pb-3">
+          <div className="flex gap-1.5 px-5 pb-3 pt-2">
             {Array.from({ length: totalSteps }).map((_, i) => (
               <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
             ))}
@@ -2739,7 +2760,7 @@ function ClientPortal({ lojaUid, profile }) {
         )}
       </header>
 
-      <div className="flex-1 p-5 pb-8">
+      <div className="flex-1 p-5 pt-6 pb-8">
 
         {/* ── SERVICE ───────────────────────────────────────── */}
         {step === 'service' && (
