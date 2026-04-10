@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -501,7 +501,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       </header>
 
       <main className="p-5">
-        {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} />}
+        {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
         {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} />}
         {view === 'equipa'   && <AdminEquipa user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
@@ -526,9 +526,12 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 }
 
 // ── Admin Agenda ──────────────────────────────────────────
-function AdminAgenda({ user, lojaId, filterProfId }) {
+function AdminAgenda({ user, lojaId, filterProfId, profile }) {
   const [appointments, setAppointments] = useState([]);
+  const [blocks, setBlocks] = useState([]);
   const [filterDate, setFilterDate] = useState('');
+  const [showNewAppt, setShowNewAppt] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
   const colId = lojaId || user.uid;
 
   useEffect(() => {
@@ -546,9 +549,30 @@ function AdminAgenda({ user, lojaId, filterProfId }) {
     return () => unsub();
   }, [user, colId, filterProfId]);
 
+  useEffect(() => {
+    if (!user) return;
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${colId}`);
+    const unsub = onSnapshot(q, (snap) => {
+      const today = new Date().toISOString().split('T')[0];
+      let blks = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(b => b.date >= today);
+      if (filterProfId) blks = blks.filter(b => !b.profissionalId || b.profissionalId === filterProfId);
+      setBlocks(blks);
+    });
+    return () => unsub();
+  }, [user, colId, filterProfId]);
+
   const cancelar = async (id) => {
     if (!window.confirm('Cancelar este agendamento?')) return;
-    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`, id)).catch(() => alert('Erro ao cancelar.'));
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`, id))
+      .catch(() => alert('Erro ao cancelar.'));
+  };
+
+  const removeBlock = async (id) => {
+    if (!window.confirm('Remover este bloqueio?')) return;
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${colId}`, id))
+      .catch(() => alert('Erro ao remover.'));
   };
 
   const waLink = (num, nome, data, hora, servico) => {
@@ -557,21 +581,42 @@ function AdminAgenda({ user, lojaId, filterProfId }) {
     return `https://wa.me/${n.startsWith('55') ? n : '55' + n}?text=${msg}`;
   };
 
-  const filtered = filterDate ? appointments.filter(a => a.data === filterDate) : appointments;
-  const grouped = filtered.reduce((acc, a) => { (acc[a.data] = acc[a.data] || []).push(a); return acc; }, {});
+  const filteredAppts = filterDate ? appointments.filter(a => a.data === filterDate) : appointments;
+  const filteredBlocks = filterDate ? blocks.filter(b => b.date === filterDate) : blocks;
+
+  const grouped = {};
+  filteredAppts.forEach(a => {
+    if (!grouped[a.data]) grouped[a.data] = { appts: [], blks: [] };
+    grouped[a.data].appts.push(a);
+  });
+  filteredBlocks.forEach(b => {
+    if (!grouped[b.date]) grouped[b.date] = { appts: [], blks: [] };
+    grouped[b.date].blks.push(b);
+  });
+  const sortedDates = Object.keys(grouped).sort();
 
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-xl font-black text-slate-900">Agenda</h2>
-          <p className="text-xs text-slate-400">{filtered.length} marcação{filtered.length !== 1 ? 'ões' : ''} próxima{filtered.length !== 1 ? 's' : ''}</p>
+          <p className="text-xs text-slate-400">{filteredAppts.length} marcação{filteredAppts.length !== 1 ? 'ões' : ''} próxima{filteredAppts.length !== 1 ? 's' : ''}</p>
         </div>
-        <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-          className="text-xs p-2 border border-slate-200 rounded-xl bg-white outline-none text-slate-600" />
+        <div className="flex items-center gap-2">
+          <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
+            className="text-xs p-2 border border-slate-200 rounded-xl bg-white outline-none text-slate-600" />
+          <button onClick={() => setShowBlockModal(true)} title="Bloquear horário"
+            className="p-2 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
+            <Clock className="w-4 h-4" />
+          </button>
+          <button onClick={() => setShowNewAppt(true)} title="Nova marcação"
+            className="p-2 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {sortedDates.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <CalendarCheck className="w-8 h-8 text-slate-300" />
@@ -581,66 +626,508 @@ function AdminAgenda({ user, lojaId, filterProfId }) {
         </div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(grouped).map(([data, appts]) => (
-            <div key={data}>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-2 h-2 rounded-full bg-violet-500" />
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{fmtData(data)}</p>
-              </div>
-              <div className="space-y-3">
-                {appts.map(appt => (
-                  <div key={appt.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
-                    <div className="flex items-stretch">
-                      <div className="w-16 bg-violet-50 flex flex-col items-center justify-center py-4 flex-shrink-0">
-                        <span className="text-sm font-black text-violet-700">{appt.hora}</span>
-                        {appt.duracao && <span className="text-[9px] text-violet-400 mt-0.5">{fmtDuracao(appt.duracao)}</span>}
-                      </div>
-                      <div className="flex-1 p-4 min-w-0">
-                        <div className="flex items-start justify-between">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-bold text-slate-900 truncate">{appt.clienteNome}</h4>
-                            <p className="text-sm text-slate-500 mt-0.5">{appt.servico || 'Marcação'}</p>
-                            {appt.profissionalNome && (
-                              <p className="text-xs text-violet-500 mt-0.5">com {appt.profissionalNome}</p>
-                            )}
-                            <div className="flex items-center gap-2 mt-1.5">
-                              {appt.valor && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">R$ {Number(appt.valor).toFixed(2)}</span>}
-                              {appt.clienteWhats && <span className="text-xs text-slate-400">{appt.clienteWhats}</span>}
+          {sortedDates.map(date => {
+            const { appts, blks } = grouped[date];
+            const hasDayOff = blks.some(b => b.type === 'day_off');
+            return (
+              <div key={date}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-violet-500" />
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{fmtData(date)}</p>
+                  {hasDayOff && <span className="text-[10px] bg-red-50 text-red-500 px-2 py-0.5 rounded-full font-semibold">Folga</span>}
+                </div>
+                <div className="space-y-3">
+                  {appts.map(appt => (
+                    <div key={appt.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+                      <div className="flex items-stretch">
+                        <div className="w-16 bg-violet-50 flex flex-col items-center justify-center py-4 flex-shrink-0">
+                          <span className="text-sm font-black text-violet-700">{appt.hora}</span>
+                          {appt.duracao && <span className="text-[9px] text-violet-400 mt-0.5">{fmtDuracao(appt.duracao)}</span>}
+                        </div>
+                        <div className="flex-1 p-4 min-w-0">
+                          <div className="flex items-start justify-between">
+                            <div className="min-w-0 flex-1">
+                              <h4 className="font-bold text-slate-900 truncate">{appt.clienteNome}</h4>
+                              <p className="text-sm text-slate-500 mt-0.5">{appt.servico || 'Marcação'}</p>
+                              {appt.profissionalNome && (
+                                <p className="text-xs text-violet-500 mt-0.5">com {appt.profissionalNome}</p>
+                              )}
+                              <div className="flex items-center gap-2 mt-1.5">
+                                {appt.valor && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">R$ {Number(appt.valor).toFixed(2)}</span>}
+                                {appt.clienteWhats && <span className="text-xs text-slate-400">{appt.clienteWhats}</span>}
+                              </div>
                             </div>
+                            <button onClick={() => cancelar(appt.id)} className="p-1.5 text-slate-200 hover:text-red-400 transition-colors ml-2">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
-                          <button onClick={() => cancelar(appt.id)} className="p-1.5 text-slate-200 hover:text-red-400 transition-colors ml-2">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
                         </div>
                       </div>
+                      {appt.clienteWhats && (
+                        <div className="border-t border-slate-50 px-4 py-2.5">
+                          <a href={waLink(appt.clienteWhats, appt.clienteNome, appt.data, appt.hora, appt.servico || 'Marcação')}
+                            target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm text-emerald-600 font-semibold">
+                            <MessageCircle className="w-4 h-4" />
+                            Contactar via WhatsApp
+                          </a>
+                        </div>
+                      )}
                     </div>
-                    {appt.clienteWhats && (
-                      <div className="border-t border-slate-50 px-4 py-2.5">
-                        <a href={waLink(appt.clienteWhats, appt.clienteNome, appt.data, appt.hora, appt.servico || 'Marcação')}
-                          target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-sm text-emerald-600 font-semibold">
-                          <MessageCircle className="w-4 h-4" />
-                          Contactar via WhatsApp
-                        </a>
+                  ))}
+                  {blks.filter(b => b.type === 'slot').map(b => (
+                    <div key={b.id} className="bg-red-50 rounded-2xl overflow-hidden border border-red-100 flex items-center">
+                      <div className="w-16 bg-red-100 flex flex-col items-center justify-center py-4 flex-shrink-0">
+                        <span className="text-sm font-black text-red-600">{b.hora}</span>
+                        {b.duracao && <span className="text-[9px] text-red-400 mt-0.5">{fmtDuracao(b.duracao)}</span>}
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <div className="flex-1 p-4">
+                        <p className="font-bold text-red-700 text-sm">Bloqueado</p>
+                        {b.motivo && <p className="text-xs text-red-400 mt-0.5">{b.motivo}</p>}
+                        {b.profissionalId && (() => { const pr = (profile?.profissionals||[]).find(p=>p.id===b.profissionalId); return pr ? <p className="text-xs text-red-400">· {pr.nome}</p> : null; })()}
+                      </div>
+                      <button onClick={() => removeBlock(b.id)} className="p-3 text-red-300 hover:text-red-500 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {blks.filter(b => b.type === 'day_off').map(b => (
+                    <div key={b.id} className="bg-red-50 rounded-2xl p-4 border border-red-100 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-red-700 text-sm">Dia de folga / indisponível</p>
+                        {b.motivo && <p className="text-xs text-red-400 mt-0.5">{b.motivo}</p>}
+                        {b.profissionalId && (() => { const pr = (profile?.profissionals||[]).find(p=>p.id===b.profissionalId); return pr ? <p className="text-xs text-red-400">{pr.nome}</p> : null; })()}
+                      </div>
+                      <button onClick={() => removeBlock(b.id)} className="p-1.5 text-red-300 hover:text-red-500 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {blks.filter(b => b.type === 'custom_hours').map(b => (
+                    <div key={b.id} className="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-amber-700 text-sm">Horário especial: {b.horaInicio}–{b.horaFim}</p>
+                        {b.motivo && <p className="text-xs text-amber-500 mt-0.5">{b.motivo}</p>}
+                      </div>
+                      <button onClick={() => removeBlock(b.id)} className="p-1.5 text-amber-300 hover:text-amber-500 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+
+      {showNewAppt && profile && (
+        <NewAppointmentModal
+          lojaId={colId}
+          profile={profile}
+          filterProfId={filterProfId}
+          onClose={() => setShowNewAppt(false)}
+          onSaved={() => setShowNewAppt(false)}
+        />
+      )}
+      {showBlockModal && (
+        <BlockModal
+          lojaId={colId}
+          filterProfId={filterProfId}
+          profile={profile}
+          onClose={() => setShowBlockModal(false)}
+          onSaved={() => setShowBlockModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── New Appointment Modal ─────────────────────────────────
+function NewAppointmentModal({ lojaId, profile, filterProfId, onClose, onSaved }) {
+  const [clienteWhats, setClienteWhats] = useState('');
+  const [clienteNome, setClienteNome] = useState('');
+  const [clienteNascimento, setClienteNascimento] = useState('');
+  const [existingClient, setExistingClient] = useState(null);
+  const [selectedService, setSelectedService] = useState(null);
+  const [selectedProfId, setSelectedProfId] = useState(filterProfId || '');
+  const [data, setData] = useState(new Date().toISOString().split('T')[0]);
+  const [hora, setHora] = useState('');
+  const [slots, setSlots] = useState(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Client search by phone
+  useEffect(() => {
+    const phone = clienteWhats.replace(/\D/g, '');
+    if (phone.length < 8) { setExistingClient(null); return; }
+    getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, phone))
+      .then(snap => {
+        if (snap.exists()) {
+          const d = snap.data();
+          setExistingClient(d);
+          setClienteNome(prev => prev || d.nome || '');
+          setClienteNascimento(prev => prev || d.nascimento || '');
+        } else {
+          setExistingClient(null);
+        }
+      });
+  }, [clienteWhats, lojaId]);
+
+  // Fetch slots when service / prof / date changes
+  useEffect(() => {
+    if (!selectedService || !data) return;
+    setSlotsLoading(true);
+    setSlots(null);
+    setHora('');
+    const params = new URLSearchParams({
+      lojaId,
+      data,
+      duracao: selectedService.duracao || profile.intervalo || 60,
+      ...(selectedProfId ? { profissionalId: selectedProfId } : {}),
+    });
+    fetch(`${BACKEND_URL}/getSlots?${params}`)
+      .then(r => r.json())
+      .then(j => setSlots(j.slots || []))
+      .catch(() => setSlots([]))
+      .finally(() => setSlotsLoading(false));
+  }, [selectedService, selectedProfId, data, lojaId, profile.intervalo]);
+
+  const profOptions = useMemo(() => {
+    if (filterProfId) return (profile.profissionals || []).filter(p => p.id === filterProfId);
+    if (!selectedService) return profile.profissionals || [];
+    const assigned = (profile.profissionals || []).filter(p => (p.servicos || []).includes(selectedService.nome));
+    return assigned.length > 0 ? assigned : (profile.profissionals || []);
+  }, [selectedService, filterProfId, profile.profissionals]);
+
+  const handleSave = async () => {
+    if (!clienteNome.trim() || !selectedService || !data || !hora) return;
+    setSaving(true);
+    try {
+      const selectedProf = (profile.profissionals || []).find(p => p.id === selectedProfId) || null;
+      const [h, m] = hora.split(':').map(Number);
+      const dtDate = new Date(`${data}T00:00:00`);
+      dtDate.setHours(h, m, 0, 0);
+
+      const apptData = {
+        clienteNome: clienteNome.trim(),
+        clienteWhats: clienteWhats.trim(),
+        clienteNascimento: clienteNascimento || '',
+        servico: selectedService.nome,
+        valor: selectedService.preco || null,
+        duracao: selectedService.duracao || profile.intervalo || 60,
+        profissionalId: selectedProfId || null,
+        profissionalNome: selectedProf?.nome || null,
+        data,
+        hora,
+        dataHoraInternacional: dtDate.toISOString(),
+        createdAt: new Date().toISOString(),
+        criadoPorAdmin: true,
+      };
+
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`), apptData);
+
+      // Upsert client (dedup by phone)
+      const phone = clienteWhats.trim().replace(/\D/g, '');
+      const clientKey = phone || clienteNome.trim().toLowerCase().replace(/\s+/g, '_');
+      if (clientKey) {
+        const clientRef = doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, clientKey);
+        const existing = await getDoc(clientRef);
+        await setDoc(clientRef, {
+          nome: clienteNome.trim(),
+          whats: clienteWhats.trim(),
+          nascimento: clienteNascimento || '',
+          totalVisitas: existing.exists() ? (existing.data().totalVisitas || 0) + 1 : 1,
+          ultimaVisita: data,
+          primeiraVisita: existing.exists() ? (existing.data().primeiraVisita || data) : data,
+        }, { merge: true });
+      }
+
+      // Fire-and-forget Google Calendar sync
+      fetch(`${BACKEND_URL}/createAppointment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId, ...apptData }),
+      }).catch(() => {});
+
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const canSave = clienteNome.trim() && selectedService && data && hora && !saving;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-w-[480px] max-h-[92vh] overflow-y-auto shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white rounded-t-3xl border-b border-slate-100 px-5 py-4 flex items-center justify-between z-10">
+          <h2 className="font-black text-slate-900">Nova Marcação</h2>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4 pb-8">
+          {/* Client search */}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp do cliente</label>
+            <div className="relative">
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+              <input type="tel" value={clienteWhats} onChange={e => setClienteWhats(e.target.value)}
+                placeholder="(11) 99999-9999"
+                className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+            </div>
+            {existingClient && (
+              <div className="mt-1.5 px-3 py-2 bg-emerald-50 rounded-xl flex items-center gap-2">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                <span className="text-xs text-emerald-700 font-semibold">Cliente encontrado: {existingClient.nome}</span>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do cliente</label>
+            <input value={clienteNome} onChange={e => setClienteNome(e.target.value)} placeholder="Nome completo"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nascimento (opcional)</label>
+            <input type="date" value={clienteNascimento} onChange={e => setClienteNascimento(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+
+          {/* Service */}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Serviço</label>
+            <select value={selectedService?.nome || ''} onChange={e => {
+              const s = (profile.servicos || []).find(sv => sv.nome === e.target.value) || null;
+              setSelectedService(s);
+            }}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+              <option value="">Selecione o serviço...</option>
+              {(profile.servicos || []).map(s => (
+                <option key={s.nome} value={s.nome}>{s.nome}{s.preco ? ` — R$ ${Number(s.preco).toFixed(2)}` : ''}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Professional */}
+          {!filterProfId && profOptions.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Profissional</label>
+              <select value={selectedProfId} onChange={e => { setSelectedProfId(e.target.value); setHora(''); }}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                <option value="">Qualquer profissional</option>
+                {profOptions.map(p => (
+                  <option key={p.id} value={p.id}>{p.nome}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Date */}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Data</label>
+            <input type="date" value={data} onChange={e => { setData(e.target.value); setHora(''); }}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+
+          {/* Slots */}
+          {selectedService && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Horário</label>
+              {slotsLoading ? (
+                <div className="flex items-center gap-2 text-slate-400 text-sm py-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />A verificar disponibilidade...
+                </div>
+              ) : slots !== null && slots.length === 0 ? (
+                <p className="text-sm text-slate-400 py-2">Sem horários disponíveis. Pode inserir manualmente abaixo.</p>
+              ) : slots && (
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  {slots.map(slot => (
+                    <button key={slot} type="button" onClick={() => setHora(slot)}
+                      className={`py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${hora === slot ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
+                      {slot}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="relative">
+                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                <input type="time" value={hora} onChange={e => setHora(e.target.value)} placeholder="Ou insira manualmente"
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              </div>
+            </div>
+          )}
+
+          <button onClick={handleSave} disabled={!canSave}
+            className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+            Confirmar Marcação
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Block Modal ───────────────────────────────────────────
+function BlockModal({ lojaId, filterProfId, profile, onClose, onSaved }) {
+  const [type, setType] = useState('day_off');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [hora, setHora] = useState('');
+  const [duracao, setDuracao] = useState(60);
+  const [horaInicio, setHoraInicio] = useState('');
+  const [horaFim, setHoraFim] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [profissionalId, setProfissionalId] = useState(filterProfId || '');
+  const [saving, setSaving] = useState(false);
+
+  const canSave = date && !saving &&
+    (type === 'day_off' || (type === 'slot' && hora) || (type === 'custom_hours' && horaInicio && horaFim));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const blockData = {
+        type,
+        date,
+        profissionalId: profissionalId || null,
+        motivo: motivo.trim() || null,
+        createdAt: new Date().toISOString(),
+        ...(type === 'slot' ? { hora, duracao: Number(duracao) } : {}),
+        ...(type === 'custom_hours' ? { horaInicio, horaFim } : {}),
+      };
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${lojaId}`), blockData);
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const typeOptions = [
+    { key: 'day_off', label: 'Dia de folga' },
+    { key: 'slot', label: 'Bloquear horário' },
+    { key: 'custom_hours', label: 'Horário especial' },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-w-[480px] shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="border-b border-slate-100 px-5 py-4 flex items-center justify-between">
+          <h2 className="font-black text-slate-900">Bloquear / Folga</h2>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4 pb-8">
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo</label>
+            <div className="grid grid-cols-3 gap-2">
+              {typeOptions.map(t => (
+                <button key={t.key} onClick={() => setType(t.key)}
+                  className={`py-2.5 px-2 rounded-xl text-xs font-semibold border transition-colors text-center leading-tight ${type === t.key ? 'bg-violet-600 text-white border-violet-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Data</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+
+          {!filterProfId && (profile?.profissionals || []).length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Profissional (opcional — vazio = todos)</label>
+              <select value={profissionalId} onChange={e => setProfissionalId(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                <option value="">Todos os profissionais</option>
+                {(profile.profissionals || []).map(p => (
+                  <option key={p.id} value={p.id}>{p.nome}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {type === 'slot' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Hora</label>
+                <input type="time" value={hora} onChange={e => setHora(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Duração</label>
+                <select value={duracao} onChange={e => setDuracao(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                  {[30, 60, 90, 120, 180, 240].map(v => (
+                    <option key={v} value={v}>{fmtDuracao(v)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {type === 'custom_hours' && (
+            <>
+              <p className="text-xs text-slate-400">Neste dia, o horário de trabalho será diferente do normal.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Início</label>
+                  <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Fim</label>
+                  <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                </div>
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Motivo (opcional)</label>
+            <input value={motivo} onChange={e => setMotivo(e.target.value)}
+              placeholder="Ex: Férias, consulta, evento..."
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+
+          <button onClick={handleSave} disabled={!canSave}
+            className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            Confirmar bloqueio
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ── Admin Clients ─────────────────────────────────────────
 function AdminClients({ user, lojaId, filterProfId }) {
-  const [clients, setClients] = useState([]);
+  const [apptMap, setApptMap] = useState({});
+  const [directMap, setDirectMap] = useState({});
   const [selectedClient, setSelectedClient] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newNome, setNewNome] = useState('');
+  const [newWhats, setNewWhats] = useState('');
+  const [newNasc, setNewNasc] = useState('');
+  const [addSaving, setAddSaving] = useState(false);
   const colId = lojaId || user.uid;
 
+  // Appointments-derived clients
   useEffect(() => {
     if (!user) return;
     const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`);
@@ -658,10 +1145,52 @@ function AdminClients({ user, lojaId, filterProfId }) {
         }
         map[key].visitas.push(a);
       });
-      setClients(Object.values(map).sort((a, b) => (b.ultimaVisita || '').localeCompare(a.ultimaVisita || '')));
+      setApptMap(map);
     });
     return () => unsub();
   }, [user, colId, filterProfId]);
+
+  // Direct clients collection
+  useEffect(() => {
+    if (!user) return;
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `clients_${colId}`);
+    const unsub = onSnapshot(q, (snap) => {
+      const map = {};
+      snap.docs.forEach(d => { map[d.id] = { key: d.id, visitas: [], ...d.data() }; });
+      setDirectMap(map);
+    });
+    return () => unsub();
+  }, [user, colId]);
+
+  const clients = useMemo(() => {
+    const merged = { ...directMap };
+    Object.values(apptMap).forEach(c => {
+      if (merged[c.key]) {
+        merged[c.key] = { ...merged[c.key], visitas: c.visitas, ultimaVisita: c.ultimaVisita };
+      } else {
+        merged[c.key] = c;
+      }
+    });
+    return Object.values(merged).sort((a, b) => (b.ultimaVisita || '').localeCompare(a.ultimaVisita || ''));
+  }, [apptMap, directMap]);
+
+  const handleAddClient = async () => {
+    if (!newNome.trim()) return;
+    setAddSaving(true);
+    try {
+      const phone = newWhats.replace(/\D/g, '');
+      const key = phone || newNome.trim().toLowerCase().replace(/\s+/g, '_');
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${colId}`, key),
+        { nome: newNome.trim(), whats: newWhats.trim(), nascimento: newNasc || '', totalVisitas: 0, ultimaVisita: '', primeiraVisita: '' },
+        { merge: true }
+      );
+      setNewNome(''); setNewWhats(''); setNewNasc('');
+      setShowAddForm(false);
+    } finally {
+      setAddSaving(false);
+    }
+  };
 
   if (selectedClient) {
     return <ClientDetail user={user} lojaId={colId} clientData={selectedClient} onBack={() => setSelectedClient(null)} />;
@@ -669,10 +1198,49 @@ function AdminClients({ user, lojaId, filterProfId }) {
 
   return (
     <div>
-      <div className="mb-5">
-        <h2 className="text-xl font-black text-slate-900">Clientes</h2>
-        <p className="text-xs text-slate-400">{clients.length} cliente{clients.length !== 1 ? 's' : ''} registado{clients.length !== 1 ? 's' : ''}</p>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-xl font-black text-slate-900">Clientes</h2>
+          <p className="text-xs text-slate-400">{clients.length} cliente{clients.length !== 1 ? 's' : ''} registado{clients.length !== 1 ? 's' : ''}</p>
+        </div>
+        <button onClick={() => setShowAddForm(v => !v)}
+          className="p-2 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+          <Plus className="w-4 h-4" />
+        </button>
       </div>
+
+      {showAddForm && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-violet-100 mb-4 space-y-3">
+          <h3 className="font-bold text-slate-900 text-sm">Novo cliente</h3>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp</label>
+            <input type="tel" value={newWhats} onChange={e => setNewWhats(e.target.value)} placeholder="(11) 99999-9999"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+            <p className="text-[10px] text-slate-400 mt-1">Usado para identificar e evitar duplicados.</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome</label>
+            <input value={newNome} onChange={e => setNewNome(e.target.value)} placeholder="Nome completo"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nascimento (opcional)</label>
+            <input type="date" value={newNasc} onChange={e => setNewNasc(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleAddClient} disabled={!newNome.trim() || addSaving}
+              className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition-colors">
+              {addSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Guardar cliente
+            </button>
+            <button onClick={() => setShowAddForm(false)}
+              className="px-4 py-3 border border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 text-sm transition-colors">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       {clients.length === 0 ? (
         <div className="text-center py-16">
@@ -680,6 +1248,7 @@ function AdminClients({ user, lojaId, filterProfId }) {
             <Users className="w-8 h-8 text-slate-300" />
           </div>
           <p className="text-slate-400 text-sm font-medium">Ainda sem clientes registados.</p>
+          <button onClick={() => setShowAddForm(true)} className="mt-3 text-violet-500 text-xs font-semibold">+ Adicionar cliente</button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -695,8 +1264,8 @@ function AdminClients({ user, lojaId, filterProfId }) {
                 <p className="text-xs text-slate-400 truncate">{c.whats}</p>
               </div>
               <div className="text-right flex-shrink-0">
-                <p className="text-xs font-bold text-violet-600">{c.visitas.length} visita{c.visitas.length !== 1 ? 's' : ''}</p>
-                <p className="text-[10px] text-slate-400">última: {fmtData(c.ultimaVisita)}</p>
+                <p className="text-xs font-bold text-violet-600">{(c.visitas||[]).length} visita{(c.visitas||[]).length !== 1 ? 's' : ''}</p>
+                {c.ultimaVisita && <p className="text-[10px] text-slate-400">última: {fmtData(c.ultimaVisita)}</p>}
               </div>
             </button>
           ))}
@@ -1991,7 +2560,7 @@ function StaffPanel({ user, staffRecord, lojaProfile }) {
       </header>
 
       <main className="p-5">
-        {view === 'agenda'  && <AdminAgenda user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} />}
+        {view === 'agenda'  && <AdminAgenda user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} profile={lojaProfile} />}
         {view === 'clients' && <AdminClients user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} />}
       </main>
 

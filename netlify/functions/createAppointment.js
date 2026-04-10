@@ -15,8 +15,17 @@ function getDb() {
 const APP_ID = 'hutex-saas';
 
 exports.handler = async (event) => {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Content-Type': 'application/json',
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: corsHeaders };
+  }
+
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Método não permitido' };
+    return { statusCode: 405, headers: corsHeaders, body: 'Método não permitido' };
   }
 
   try {
