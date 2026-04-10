@@ -8,7 +8,7 @@ import {
 } from 'firebase/firestore';
 import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
-  MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X
+  MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -122,6 +122,9 @@ export default function App() {
       <main className="p-5">
         {view === 'agenda' && <AdminAgenda user={user} db={db} appId={APP_ID} />}
         {view === 'clients' && <AdminClients user={user} db={db} appId={APP_ID} />}
+        {view === 'servicos' && (
+          <AdminServicos user={user} db={db} appId={APP_ID} profile={lojaProfile} onProfileSaved={setLojaProfile} />
+        )}
         {view === 'settings' && (
           <AdminSettings user={user} db={db} appId={APP_ID} profile={lojaProfile} onProfileSaved={setLojaProfile} />
         )}
@@ -133,6 +136,9 @@ export default function App() {
         </button>
         <button onClick={() => setView('clients')} className={`flex flex-col items-center transition-colors ${view === 'clients' ? 'text-slate-900' : 'text-slate-400'}`}>
           <Users className="w-6 h-6 mb-1" /><span className="text-[10px] font-medium uppercase">Clientes</span>
+        </button>
+        <button onClick={() => setView('servicos')} className={`flex flex-col items-center transition-colors ${view === 'servicos' ? 'text-slate-900' : 'text-slate-400'}`}>
+          <Tag className="w-6 h-6 mb-1" /><span className="text-[10px] font-medium uppercase">Serviços</span>
         </button>
         <button onClick={() => setView('settings')} className={`flex flex-col items-center transition-colors ${view === 'settings' ? 'text-slate-900' : 'text-slate-400'}`}>
           <Settings className="w-6 h-6 mb-1" /><span className="text-[10px] font-medium uppercase">Estabelecimento</span>
@@ -335,13 +341,7 @@ function gerarHorarios(inicio, fim, intervalo) {
   return slots;
 }
 
-function AdminSettings({ user, db, appId, profile, onProfileSaved }) {
-  const [nome, setNome] = useState(profile.nome || '');
-  const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
-  const [slug, setSlug] = useState(profile.slug || '');
-  const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
-  const [horaFim, setHoraFim] = useState(profile.horaFim || '18:00');
-  const [intervalo, setIntervalo] = useState(profile.intervalo || 60);
+function AdminServicos({ user, db, appId, profile, onProfileSaved }) {
   const [servicos, setServicos] = useState(profile.servicos || []);
   const [novoServico, setNovoServico] = useState('');
   const [novoPreco, setNovoPreco] = useState('');
@@ -358,12 +358,89 @@ function AdminSettings({ user, db, appId, profile, onProfileSaved }) {
     setServicos(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const saveServicos = async () => {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { servicos }, { merge: true });
+      onProfileSaved(prev => ({ ...prev, servicos }));
+      alert('Serviços guardados!');
+    } catch (e) { alert('Erro ao guardar.'); }
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <h2 className="text-lg font-bold mb-4">Serviços & Preços</h2>
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+        <div className="space-y-2">
+          {servicos.length === 0 && (
+            <p className="text-xs text-slate-400 text-center py-4">
+              Nenhum serviço cadastrado.<br />O cliente verá "Marcação" por padrão.
+            </p>
+          )}
+          {servicos.map((s, i) => (
+            <div key={i} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-3">
+              <div>
+                <span className="text-sm font-medium text-slate-800">{s.nome}</span>
+                {s.preco && <span className="text-xs text-green-600 ml-2 font-semibold">R$ {s.preco}</span>}
+              </div>
+              <button onClick={() => removeServico(i)} className="text-slate-300 hover:text-red-400 transition-colors p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t border-slate-100 pt-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Adicionar serviço</p>
+          <div className="flex gap-2 mb-3">
+            <input
+              className="flex-1 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
+              value={novoServico}
+              onChange={e => setNovoServico(e.target.value)}
+              placeholder="Nome do serviço"
+              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addServico())}
+            />
+            <input
+              className="w-28 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
+              value={novoPreco}
+              onChange={e => setNovoPreco(e.target.value)}
+              placeholder="Preço R$"
+              type="number"
+              min="0"
+            />
+            <button onClick={addServico} className="bg-slate-800 text-white px-3 rounded-lg flex-shrink-0">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+          <button
+            onClick={saveServicos}
+            disabled={saving}
+            className="w-full bg-slate-900 text-white p-3 rounded-lg font-semibold disabled:opacity-60"
+          >
+            {saving ? 'A guardar...' : 'Guardar Serviços'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminSettings({ user, db, appId, profile, onProfileSaved }) {
+  const [nome, setNome] = useState(profile.nome || '');
+  const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
+  const [slug, setSlug] = useState(profile.slug || '');
+  const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
+  const [horaFim, setHoraFim] = useState(profile.horaFim || '18:00');
+  const [intervalo, setIntervalo] = useState(profile.intervalo || 60);
+  const [saving, setSaving] = useState(false);
+
   const saveProfile = async (e) => {
     e.preventDefault();
     setSaving(true);
     const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
     try {
-      const data = { nome, subtitulo, slug: cleanSlug, horaInicio, horaFim, intervalo: Number(intervalo), servicos };
+      const data = { nome, subtitulo, slug: cleanSlug, horaInicio, horaFim, intervalo: Number(intervalo) };
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), data, { merge: true });
       if (cleanSlug) {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'slugs', cleanSlug), { uid: user.uid, nome });
@@ -428,47 +505,6 @@ function AdminSettings({ user, db, appId, profile, onProfileSaved }) {
             <Calendar className="w-5 h-5 mr-2" /> Ligar Google Agenda
           </button>
         )}
-      </div>
-
-      {/* Serviços */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
-        <h3 className="font-bold text-slate-800 mb-3">Serviços & Preços</h3>
-        <div className="space-y-2 mb-3">
-          {servicos.length === 0 && (
-            <p className="text-xs text-slate-400 text-center py-2">Nenhum serviço cadastrado. O cliente verá "Marcação" por padrão.</p>
-          )}
-          {servicos.map((s, i) => (
-            <div key={i} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
-              <div>
-                <span className="text-sm font-medium text-slate-800">{s.nome}</span>
-                {s.preco && <span className="text-xs text-green-600 ml-2">R$ {s.preco}</span>}
-              </div>
-              <button onClick={() => removeServico(i)} className="text-slate-300 hover:text-red-400 transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input
-            className="flex-1 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
-            value={novoServico}
-            onChange={e => setNovoServico(e.target.value)}
-            placeholder="Nome do serviço"
-            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addServico())}
-          />
-          <input
-            className="w-24 p-2.5 bg-slate-50 rounded-lg border border-slate-200 outline-none text-sm"
-            value={novoPreco}
-            onChange={e => setNovoPreco(e.target.value)}
-            placeholder="R$ Preço"
-            type="number"
-            min="0"
-          />
-          <button onClick={addServico} className="bg-slate-800 text-white px-3 rounded-lg">
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
       </div>
 
       {/* Dados do estabelecimento */}
