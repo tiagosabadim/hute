@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
-  getAuth, signInAnonymously, onAuthStateChanged
+  getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  onAuthStateChanged, signOut
 } from 'firebase/auth';
 import {
-  getFirestore, collection, addDoc, onSnapshot, doc, setDoc, getDoc, deleteDoc
+  getFirestore, collection, addDoc, onSnapshot, doc, setDoc,
+  getDoc, deleteDoc, getDocs
 } from 'firebase/firestore';
 import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
-  Clock, Sparkles, Phone, CalendarCheck
+  Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
+  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -26,12 +29,10 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const APP_ID = 'hutex-saas';
 const BACKEND_URL = "/.netlify/functions";
+const PROF_COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#db2777','#0891b2','#64748b'];
 
 // ── helpers ──────────────────────────────────────────────
-function fmtData(iso) {
-  if (!iso) return '';
-  return iso.split('-').reverse().join('/');
-}
+function fmtData(iso) { return iso ? iso.split('-').reverse().join('/') : ''; }
 
 function fmtDuracao(min) {
   if (!min) return '';
@@ -53,92 +54,429 @@ function gerarHorarios(inicio, fim, intervalo) {
   return slots;
 }
 
-// ── App ──────────────────────────────────────────────────
+function newId() { return Math.random().toString(36).substr(2, 9); }
+
+function profPath(uid, profId) {
+  return `artifacts/${APP_ID}/public/data/prof_cals/${uid}_${profId}`;
+}
+
+// ── App root ──────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [view, setView] = useState('agenda');
+  const [user, setUser] = useState(undefined); // undefined = loading
+  const [profile, setProfile] = useState(null);
   const [isClientMode, setIsClientMode] = useState(false);
   const [resolvedLojaUid, setResolvedLojaUid] = useState(null);
   const [lojaProfile, setLojaProfile] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  const fetchProfile = useCallback(async (uid) => {
+    const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid));
+    if (snap.exists()) {
+      setProfile(snap.data());
+      return snap.data();
+    }
+    setProfile(null);
+    return null;
+  }, []);
 
   useEffect(() => {
-    signInAnonymously(auth).catch(console.error);
+    const hash = window.location.hash.replace('#', '').toLowerCase().trim();
+    if (hash) {
+      // Client portal mode — resolve slug without auth
+      getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', hash))
+        .then(snap => {
+          if (snap.exists()) {
+            const uid = snap.data().uid;
+            setResolvedLojaUid(uid);
+            getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid)).then(p => {
+              if (p.exists()) setLojaProfile(p.data());
+            });
+            setIsClientMode(true);
+          }
+        })
+        .catch(console.error)
+        .finally(() => setAuthLoading(false));
+      return;
+    }
+
     const unsub = onAuthStateChanged(auth, async (u) => {
-      setUser(u);
-      if (u) {
+      if (u && !u.isAnonymous) {
+        // Handle OAuth callback params
         const params = new URLSearchParams(window.location.search);
+        if (params.get('success')) {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
         if (params.get('error')) {
           alert(`Erro Google Agenda: ${params.get('msg') || params.get('error')}`);
           window.history.replaceState({}, '', window.location.pathname);
         }
-        if (params.get('success')) window.history.replaceState({}, '', window.location.pathname);
-        await checkRoute(u.uid);
+        setUser(u);
+        await fetchProfile(u.uid);
+      } else {
+        setUser(null);
+        setProfile(null);
       }
+      setAuthLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [fetchProfile]);
 
-  useEffect(() => {
-    const onChange = () => { if (user) checkRoute(user.uid); };
-    window.addEventListener('hashchange', onChange);
-    return () => window.removeEventListener('hashchange', onChange);
-  }, [user]);
-
-  const checkRoute = async (uid) => {
-    setLoading(true);
-    const hash = window.location.hash.replace('#', '');
-    if (hash) {
-      try {
-        const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', hash.toLowerCase()));
-        if (snap.exists()) {
-          const tid = snap.data().uid;
-          setResolvedLojaUid(tid);
-          await fetchProfile(tid);
-          setIsClientMode(true);
-        } else {
-          setIsClientMode(false);
-          await fetchProfile(uid);
-        }
-      } catch (e) { console.error(e); }
-    } else {
-      setIsClientMode(false);
-      setResolvedLojaUid(null);
-      await fetchProfile(uid);
-    }
-    setLoading(false);
-  };
-
-  const fetchProfile = async (uid) => {
-    const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid));
-    if (snap.exists()) setLojaProfile(snap.data());
-  };
-
-  if (loading) {
+  if (authLoading) {
     return (
-      <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-violet-50 to-slate-50">
-        <div className="w-12 h-12 bg-violet-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-violet-200">
-          <Sparkles className="w-6 h-6 text-white" />
+      <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-violet-600 to-violet-800">
+        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
+          <Sparkles className="w-8 h-8 text-white" />
         </div>
-        <Loader2 className="w-5 h-5 animate-spin text-violet-400" />
+        <span className="text-white font-black text-2xl tracking-tight mb-2">hute</span>
+        <Loader2 className="w-5 h-5 animate-spin text-white/70" />
       </div>
     );
   }
 
   if (isClientMode) {
-    return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} db={db} appId={APP_ID} />;
+    return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} />;
   }
 
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  if (!profile || !profile.nome) {
+    return <OnboardingScreen user={user} onComplete={(p) => setProfile(p)} />;
+  }
+
+  return <AdminPanel user={user} profile={profile} setProfile={setProfile} fetchProfile={fetchProfile} />;
+}
+
+// ── Login Screen ──────────────────────────────────────────
+function LoginScreen() {
+  const [mode, setMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      if (mode === 'signup') {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+      }
+    } catch (err) {
+      const msgs = {
+        'auth/email-already-in-use': 'Este email já está registado.',
+        'auth/invalid-email': 'Email inválido.',
+        'auth/weak-password': 'A palavra-passe deve ter pelo menos 6 caracteres.',
+        'auth/user-not-found': 'Utilizador não encontrado.',
+        'auth/wrong-password': 'Palavra-passe incorreta.',
+        'auth/invalid-credential': 'Credenciais inválidas. Verifique o email e palavra-passe.',
+      };
+      setError(msgs[err.code] || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-violet-600 via-violet-700 to-violet-900 flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-sm">
+        {/* Branding */}
+        <div className="text-center mb-10">
+          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <Sparkles className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-white font-black text-3xl tracking-tight">hute</h1>
+          <p className="text-violet-200 text-sm mt-1">Mais que uma agenda, a sua secretária inteligente</p>
+        </div>
+
+        {/* Card */}
+        <div className="bg-white rounded-3xl p-8 shadow-2xl">
+          <h2 className="text-slate-900 font-black text-xl mb-6">
+            {mode === 'login' ? 'Entrar na conta' : 'Criar conta'}
+          </h2>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="o@meu.email"
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Palavra-passe</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent text-sm"
+                />
+                <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
+                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl p-3">
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {mode === 'login' ? 'Entrar' : 'Criar conta'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <p className="text-slate-400 text-sm">
+              {mode === 'login' ? 'Ainda não tem conta?' : 'Já tem conta?'}
+              {' '}
+              <button
+                onClick={() => { setMode(m => m === 'login' ? 'signup' : 'login'); setError(''); }}
+                className="text-violet-600 font-semibold hover:underline"
+              >
+                {mode === 'login' ? 'Registar' : 'Entrar'}
+              </button>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Onboarding Screen ─────────────────────────────────────
+function OnboardingScreen({ user, onComplete }) {
+  const [step, setStep] = useState(1);
+  const [nome, setNome] = useState('');
+  const [subtitulo, setSubtitulo] = useState('');
+  const [slug, setSlug] = useState('');
+  const [horaInicio, setHoraInicio] = useState('09:00');
+  const [horaFim, setHoraFim] = useState('19:00');
+  const [intervalo, setIntervalo] = useState(30);
+  const [profNome, setProfNome] = useState('');
+  const [profCor, setProfCor] = useState(PROF_COLORS[0]);
+  const [saving, setSaving] = useState(false);
+
+  const slugify = (v) => v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  const handleComplete = async () => {
+    setSaving(true);
+    try {
+      const profissionals = profNome.trim()
+        ? [{ id: newId(), nome: profNome.trim(), cor: profCor, servicos: [], agendaTipo: 'nativa' }]
+        : [];
+      const profileData = {
+        nome: nome.trim(),
+        subtitulo: subtitulo.trim(),
+        slug: slug.trim() || slugify(nome),
+        horaInicio,
+        horaFim,
+        intervalo: Number(intervalo),
+        servicos: [],
+        profissionals,
+        googleCalendarConnected: false,
+      };
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), profileData, { merge: true });
+      // Register slug
+      const finalSlug = profileData.slug;
+      if (finalSlug) {
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', finalSlug), { uid: user.uid, nome: nome.trim() });
+      }
+      onComplete(profileData);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const steps = [
+    { n: 1, title: 'O seu espaço', subtitle: 'Vamos começar com o básico' },
+    { n: 2, title: 'Horários', subtitle: 'Quando está aberto?' },
+    { n: 3, title: 'Primeira equipa', subtitle: 'Adicione um profissional' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-violet-600 via-violet-700 to-violet-900 flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Sparkles className="w-6 h-6 text-white" />
+            <span className="text-white font-black text-2xl tracking-tight">hute</span>
+          </div>
+          <p className="text-violet-200 text-sm">Configure o seu espaço</p>
+        </div>
+
+        {/* Step indicators */}
+        <div className="flex justify-center gap-2 mb-8">
+          {steps.map(s => (
+            <div key={s.n} className={`transition-all rounded-full ${step === s.n ? 'w-8 h-2 bg-white' : step > s.n ? 'w-2 h-2 bg-white/60' : 'w-2 h-2 bg-white/30'}`} />
+          ))}
+        </div>
+
+        <div className="bg-white rounded-3xl p-8 shadow-2xl">
+          <h2 className="text-slate-900 font-black text-xl">{steps[step-1].title}</h2>
+          <p className="text-slate-400 text-sm mb-6">{steps[step-1].subtitle}</p>
+
+          {step === 1 && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do estabelecimento</label>
+                <input
+                  value={nome}
+                  onChange={e => { setNome(e.target.value); setSlug(slugify(e.target.value)); }}
+                  placeholder="Ex: Studio da Ana"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Especialidade</label>
+                <input
+                  value={subtitulo}
+                  onChange={e => setSubtitulo(e.target.value)}
+                  placeholder="Ex: Cabeleireiro & Estética"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Link de reservas</label>
+                <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
+                  <span className="pl-3 pr-1 text-slate-300 text-xs">hute.app/#</span>
+                  <input
+                    value={slug}
+                    onChange={e => setSlug(slugify(e.target.value))}
+                    placeholder="studio-da-ana"
+                    className="flex-1 px-2 py-3 text-slate-800 outline-none text-sm bg-transparent"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Abertura</label>
+                  <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Fecho</label>
+                  <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
+                <select value={intervalo} onChange={e => setIntervalo(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                  {[15, 20, 30, 45, 60, 90, 120].map(v => (
+                    <option key={v} value={v}>{fmtDuracao(v)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do profissional</label>
+                <input
+                  value={profNome}
+                  onChange={e => setProfNome(e.target.value)}
+                  placeholder="Ex: Ana Silva"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Cor</label>
+                <div className="flex gap-2 flex-wrap">
+                  {PROF_COLORS.map(c => (
+                    <button key={c} type="button" onClick={() => setProfCor(c)}
+                      className={`w-8 h-8 rounded-full border-2 transition-all ${profCor === c ? 'border-slate-700 scale-110' : 'border-transparent'}`}
+                      style={{ backgroundColor: c }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 mt-8">
+            {step > 1 && (
+              <button onClick={() => setStep(s => s - 1)}
+                className="flex-1 py-3 border border-slate-200 text-slate-600 font-semibold rounded-xl hover:bg-slate-50 transition-colors text-sm">
+                Anterior
+              </button>
+            )}
+            {step < 3 && (
+              <button onClick={() => setStep(s => s + 1)} disabled={step === 1 && !nome.trim()}
+                className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl transition-colors text-sm disabled:opacity-40">
+                Seguinte
+              </button>
+            )}
+            {step === 3 && (
+              <div className="flex-1 flex flex-col gap-2">
+                <button onClick={handleComplete} disabled={saving}
+                  className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Concluir
+                </button>
+                {!profNome.trim() && (
+                  <button onClick={handleComplete} className="text-slate-400 text-xs text-center hover:text-slate-600">
+                    Saltar por agora
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Admin Panel Shell ─────────────────────────────────────
+function AdminPanel({ user, profile, setProfile, fetchProfile }) {
+  const [view, setView] = useState('agenda');
+
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
+
   const navItems = [
-    { key: 'agenda',    icon: Calendar, label: 'Agenda' },
-    { key: 'clients',   icon: Users,    label: 'Clientes' },
-    { key: 'servicos',  icon: Tag,      label: 'Serviços' },
-    { key: 'settings',  icon: Settings, label: 'Config' },
+    { key: 'agenda',   icon: Calendar,  label: 'Agenda' },
+    { key: 'clients',  icon: Users,     label: 'Clientes' },
+    { key: 'equipa',   icon: Briefcase, label: 'Equipa' },
+    { key: 'servicos', icon: Tag,       label: 'Serviços' },
+    { key: 'settings', icon: Settings,  label: 'Config' },
   ];
 
   return (
     <div className="max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200">
-      {/* Header */}
       <header className="bg-white border-b border-slate-100 px-5 py-4 sticky top-0 z-10">
         <div className="flex justify-between items-center">
           <div>
@@ -148,31 +486,29 @@ export default function App() {
               </div>
               <span className="font-black text-slate-900 text-lg tracking-tight">hute</span>
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5 ml-9">{lojaProfile.nome || 'Painel de Gestão'}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5 ml-9">{profile.nome || 'Painel de Gestão'}</p>
           </div>
-          <div className="w-9 h-9 bg-violet-50 rounded-full flex items-center justify-center">
-            <Scissors className="w-4 h-4 text-violet-600" />
-          </div>
+          <button onClick={handleLogout} className="flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-xs font-medium px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors">
+            <LogOut className="w-4 h-4" />
+            Sair
+          </button>
         </div>
       </header>
 
       <main className="p-5">
-        {view === 'agenda'   && <AdminAgenda user={user} db={db} appId={APP_ID} />}
-        {view === 'clients'  && <AdminClients user={user} db={db} appId={APP_ID} />}
-        {view === 'servicos' && <AdminServicos user={user} db={db} appId={APP_ID} profile={lojaProfile} onProfileSaved={setLojaProfile} />}
-        {view === 'settings' && <AdminSettings user={user} db={db} appId={APP_ID} profile={lojaProfile} onProfileSaved={setLojaProfile} />}
+        {view === 'agenda'   && <AdminAgenda user={user} />}
+        {view === 'clients'  && <AdminClients user={user} />}
+        {view === 'equipa'   && <AdminEquipa user={user} profile={profile} setProfile={setProfile} />}
+        {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
+        {view === 'settings' && <AdminSettings user={user} profile={profile} setProfile={setProfile} onLogout={handleLogout} />}
       </main>
 
-      {/* Bottom nav */}
       <nav className="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-slate-100 flex justify-around py-2 px-1 z-20">
         {navItems.map(({ key, icon: Icon, label }) => {
           const active = view === key;
           return (
-            <button
-              key={key}
-              onClick={() => setView(key)}
-              className={`flex flex-col items-center px-3 py-1.5 rounded-xl transition-all ${active ? 'text-violet-600' : 'text-slate-400'}`}
-            >
+            <button key={key} onClick={() => setView(key)}
+              className={`flex flex-col items-center px-3 py-1.5 rounded-xl transition-all ${active ? 'text-violet-600' : 'text-slate-400'}`}>
               <Icon className={`w-5 h-5 mb-0.5 ${active ? 'text-violet-600' : ''}`} />
               <span className={`text-[10px] font-semibold ${active ? 'text-violet-600' : ''}`}>{label}</span>
               {active && <div className="w-1 h-1 rounded-full bg-violet-600 mt-0.5" />}
@@ -185,13 +521,13 @@ export default function App() {
 }
 
 // ── Admin Agenda ──────────────────────────────────────────
-function AdminAgenda({ user, db, appId }) {
+function AdminAgenda({ user }) {
   const [appointments, setAppointments] = useState([]);
   const [filterDate, setFilterDate] = useState('');
 
   useEffect(() => {
     if (!user) return;
-    const q = collection(db, 'artifacts', appId, 'public', 'data', `appointments_${user.uid}`);
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`);
     const unsub = onSnapshot(q, (snap) => {
       const today = new Date().toISOString().split('T')[0];
       const appts = snap.docs
@@ -205,8 +541,7 @@ function AdminAgenda({ user, db, appId }) {
 
   const cancelar = async (id) => {
     if (!window.confirm('Cancelar este agendamento?')) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', `appointments_${user.uid}`, id))
-      .catch(() => alert('Erro ao cancelar.'));
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`, id)).catch(() => alert('Erro ao cancelar.'));
   };
 
   const waLink = (num, nome, data, hora, servico) => {
@@ -216,10 +551,7 @@ function AdminAgenda({ user, db, appId }) {
   };
 
   const filtered = filterDate ? appointments.filter(a => a.data === filterDate) : appointments;
-  const grouped = filtered.reduce((acc, a) => {
-    (acc[a.data] = acc[a.data] || []).push(a);
-    return acc;
-  }, {});
+  const grouped = filtered.reduce((acc, a) => { (acc[a.data] = acc[a.data] || []).push(a); return acc; }, {});
 
   return (
     <div>
@@ -228,12 +560,8 @@ function AdminAgenda({ user, db, appId }) {
           <h2 className="text-xl font-black text-slate-900">Agenda</h2>
           <p className="text-xs text-slate-400">{filtered.length} marcação{filtered.length !== 1 ? 'ões' : ''} próxima{filtered.length !== 1 ? 's' : ''}</p>
         </div>
-        <input
-          type="date"
-          value={filterDate}
-          onChange={e => setFilterDate(e.target.value)}
-          className="text-xs p-2 border border-slate-200 rounded-xl bg-white outline-none text-slate-600"
-        />
+        <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
+          className="text-xs p-2 border border-slate-200 rounded-xl bg-white outline-none text-slate-600" />
       </div>
 
       {filtered.length === 0 ? (
@@ -241,9 +569,8 @@ function AdminAgenda({ user, db, appId }) {
           <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <CalendarCheck className="w-8 h-8 text-slate-300" />
           </div>
-          <p className="text-slate-400 text-sm font-medium">
-            {filterDate ? 'Sem marcações neste dia.' : 'A sua agenda está livre.'}
-          </p>
+          <p className="text-slate-400 text-sm font-medium">{filterDate ? 'Sem marcações neste dia.' : 'A sua agenda está livre.'}</p>
+          {filterDate && <button onClick={() => setFilterDate('')} className="mt-2 text-violet-500 text-xs font-semibold">Ver todas</button>}
         </div>
       ) : (
         <div className="space-y-6">
@@ -257,26 +584,21 @@ function AdminAgenda({ user, db, appId }) {
                 {appts.map(appt => (
                   <div key={appt.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
                     <div className="flex items-stretch">
-                      {/* Hora lateral */}
                       <div className="w-16 bg-violet-50 flex flex-col items-center justify-center py-4 flex-shrink-0">
                         <span className="text-sm font-black text-violet-700">{appt.hora}</span>
                         {appt.duracao && <span className="text-[9px] text-violet-400 mt-0.5">{fmtDuracao(appt.duracao)}</span>}
                       </div>
-                      {/* Info */}
                       <div className="flex-1 p-4 min-w-0">
                         <div className="flex items-start justify-between">
                           <div className="min-w-0 flex-1">
                             <h4 className="font-bold text-slate-900 truncate">{appt.clienteNome}</h4>
                             <p className="text-sm text-slate-500 mt-0.5">{appt.servico || 'Marcação'}</p>
+                            {appt.profissionalNome && (
+                              <p className="text-xs text-violet-500 mt-0.5">com {appt.profissionalNome}</p>
+                            )}
                             <div className="flex items-center gap-2 mt-1.5">
-                              {appt.valor && (
-                                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                                  R$ {Number(appt.valor).toFixed(2)}
-                                </span>
-                              )}
-                              {appt.clienteWhats && (
-                                <span className="text-xs text-slate-400">{appt.clienteWhats}</span>
-                              )}
+                              {appt.valor && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">R$ {Number(appt.valor).toFixed(2)}</span>}
+                              {appt.clienteWhats && <span className="text-xs text-slate-400">{appt.clienteWhats}</span>}
                             </div>
                           </div>
                           <button onClick={() => cancelar(appt.id)} className="p-1.5 text-slate-200 hover:text-red-400 transition-colors ml-2">
@@ -287,11 +609,9 @@ function AdminAgenda({ user, db, appId }) {
                     </div>
                     {appt.clienteWhats && (
                       <div className="border-t border-slate-50 px-4 py-2.5">
-                        <a
-                          href={waLink(appt.clienteWhats, appt.clienteNome, appt.data, appt.hora, appt.servico || 'Marcação')}
+                        <a href={waLink(appt.clienteWhats, appt.clienteNome, appt.data, appt.hora, appt.servico || 'Marcação')}
                           target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-2 text-sm text-emerald-600 font-semibold"
-                        >
+                          className="flex items-center gap-2 text-sm text-emerald-600 font-semibold">
                           <MessageCircle className="w-4 h-4" />
                           Contactar via WhatsApp
                         </a>
@@ -309,26 +629,34 @@ function AdminAgenda({ user, db, appId }) {
 }
 
 // ── Admin Clients ─────────────────────────────────────────
-function AdminClients({ user, db, appId }) {
+function AdminClients({ user }) {
   const [clients, setClients] = useState([]);
+  const [selectedClient, setSelectedClient] = useState(null);
 
   useEffect(() => {
     if (!user) return;
-    const q = collection(db, 'artifacts', appId, 'public', 'data', `appointments_${user.uid}`);
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`);
     const unsub = onSnapshot(q, (snap) => {
+      const appts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const map = {};
-      snap.docs.forEach(d => {
-        const a = d.data();
-        const key = a.clienteWhats || a.clienteNome;
+      appts.forEach(a => {
+        const key = (a.clienteWhats || '').replace(/\D/g, '') || (a.clienteNome || '').toLowerCase().replace(/\s+/g, '_');
         if (!key) return;
-        if (!map[key]) map[key] = { nome: a.clienteNome, whats: a.clienteWhats, count: 0, ultimo: a.data };
-        map[key].count++;
-        if (a.data > map[key].ultimo) map[key].ultimo = a.data;
+        if (!map[key]) {
+          map[key] = { key, nome: a.clienteNome, whats: a.clienteWhats, nascimento: a.clienteNascimento || '', visitas: [], ultimaVisita: a.data };
+        } else {
+          if (a.data > map[key].ultimaVisita) map[key].ultimaVisita = a.data;
+        }
+        map[key].visitas.push(a);
       });
-      setClients(Object.values(map).sort((a, b) => b.count - a.count));
+      setClients(Object.values(map).sort((a, b) => (b.ultimaVisita || '').localeCompare(a.ultimaVisita || '')));
     });
     return () => unsub();
   }, [user]);
+
+  if (selectedClient) {
+    return <ClientDetail user={user} clientData={selectedClient} onBack={() => setSelectedClient(null)} />;
+  }
 
   return (
     <div>
@@ -345,26 +673,23 @@ function AdminClients({ user, db, appId }) {
           <p className="text-slate-400 text-sm font-medium">Ainda sem clientes registados.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {clients.map((c, i) => (
-            <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3">
-              <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                <span className="text-sm font-black text-violet-600">{c.nome?.[0]?.toUpperCase()}</span>
+        <div className="space-y-2">
+          {clients.map(c => (
+            <button key={c.key} onClick={() => setSelectedClient(c)}
+              className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 hover:shadow-md transition-shadow text-left">
+              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
+                style={{ backgroundColor: '#7c3aed' }}>
+                {(c.nome || '?')[0].toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-slate-900 truncate">{c.nome}</p>
-                <p className="text-xs text-slate-400">{c.whats || '—'} · {c.count} marcação{c.count !== 1 ? 'ões' : ''}</p>
+                <p className="text-xs text-slate-400 truncate">{c.whats}</p>
               </div>
-              {c.whats && (
-                <a
-                  href={`https://wa.me/${c.whats.replace(/\D/g, '').replace(/^(?!55)/, '55')}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="w-9 h-9 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                </a>
-              )}
-            </div>
+              <div className="text-right flex-shrink-0">
+                <p className="text-xs font-bold text-violet-600">{c.visitas.length} visita{c.visitas.length !== 1 ? 's' : ''}</p>
+                <p className="text-[10px] text-slate-400">última: {fmtData(c.ultimaVisita)}</p>
+              </div>
+            </button>
           ))}
         </div>
       )}
@@ -372,150 +697,519 @@ function AdminClients({ user, db, appId }) {
   );
 }
 
-// ── Admin Serviços ────────────────────────────────────────
-function AdminServicos({ user, db, appId, profile, onProfileSaved }) {
-  const [servicos, setServicos] = useState(profile.servicos || []);
-  const [novoNome, setNovoNome] = useState('');
-  const [novoPreco, setNovoPreco] = useState('');
-  const [novaDuracao, setNovaDuracao] = useState(60);
+function ClientDetail({ user, clientData, onBack }) {
+  const [nome, setNome] = useState(clientData.nome || '');
+  const [whats, setWhats] = useState(clientData.whats || '');
+  const [nascimento, setNascimento] = useState(clientData.nascimento || '');
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  const add = () => {
-    if (!novoNome.trim()) return;
-    setServicos(p => [...p, { nome: novoNome.trim(), preco: novoPreco.trim(), duracao: Number(novaDuracao) }]);
-    setNovoNome(''); setNovoPreco(''); setNovaDuracao(60);
-  };
-
-  const remove = (i) => setServicos(p => p.filter((_, j) => j !== i));
-
-  const save = async () => {
+  const handleSave = async () => {
     setSaving(true);
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { servicos }, { merge: true });
-      onProfileSaved(p => ({ ...p, servicos }));
-      alert('Serviços guardados!');
-    } catch { alert('Erro ao guardar.'); }
-    setSaving(false);
+      const clientKey = (whats || '').replace(/\D/g, '') || nome.toLowerCase().replace(/\s+/g, '_');
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${user.uid}`, clientKey),
+        { nome, whats, nascimento, ultimaVisita: clientData.ultimaVisita || '', totalVisitas: clientData.visitas.length },
+        { merge: true }
+      );
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const waLink = () => {
+    const n = (whats || '').replace(/\D/g, '');
+    return `https://wa.me/${n.startsWith('55') ? n : '55' + n}`;
+  };
+
+  const recentVisitas = [...clientData.visitas].sort((a, b) => b.data.localeCompare(a.data)).slice(0, 5);
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-2 text-violet-600 font-semibold text-sm mb-5 hover:text-violet-800">
+        <ArrowLeft className="w-4 h-4" />
+        Clientes
+      </button>
+
+      <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 mb-4">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-black text-2xl flex-shrink-0"
+            style={{ backgroundColor: '#7c3aed' }}>
+            {(nome || '?')[0].toUpperCase()}
+          </div>
+          <div>
+            <p className="font-black text-slate-900 text-lg">{clientData.nome}</p>
+            <p className="text-xs text-slate-400">{clientData.visitas.length} visita{clientData.visitas.length !== 1 ? 's' : ''} · última em {fmtData(clientData.ultimaVisita)}</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome</label>
+            <input value={nome} onChange={e => setNome(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp</label>
+            <input value={whats} onChange={e => setWhats(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Data de Nascimento</label>
+            <input type="date" value={nascimento} onChange={e => setNascimento(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-5">
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
+            {saved ? 'Guardado!' : 'Guardar'}
+          </button>
+          {whats && (
+            <a href={waLink()} target="_blank" rel="noopener noreferrer"
+              className="px-4 py-3 bg-emerald-50 text-emerald-600 rounded-xl flex items-center gap-2 font-semibold text-sm hover:bg-emerald-100 transition-colors">
+              <MessageCircle className="w-4 h-4" />
+            </a>
+          )}
+        </div>
+      </div>
+
+      {recentVisitas.length > 0 && (
+        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+          <h3 className="font-bold text-slate-900 mb-4 text-sm">Últimas visitas</h3>
+          <div className="space-y-3">
+            {recentVisitas.map((v, i) => (
+              <div key={i} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">{v.servico || 'Marcação'}</p>
+                  {v.profissionalNome && <p className="text-xs text-violet-500">com {v.profissionalNome}</p>}
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">{fmtData(v.data)} · {v.hora}</p>
+                  {v.valor && <p className="text-xs font-bold text-emerald-600">R$ {Number(v.valor).toFixed(2)}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Admin Equipa ──────────────────────────────────────────
+function AdminEquipa({ user, profile, setProfile }) {
+  const [profissionals, setProfissionals] = useState(profile.profissionals || []);
+  const [expandedId, setExpandedId] = useState(null);
+  const [editData, setEditData] = useState({});
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newProf, setNewProf] = useState({ nome: '', cor: PROF_COLORS[0], servicos: [], agendaTipo: 'nativa' });
+  const [calStatus, setCalStatus] = useState({}); // profId -> { connected: bool }
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // Check Google Calendar connection status for each professional
+    const checkCals = async () => {
+      const status = {};
+      for (const p of profissionals) {
+        try {
+          const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'prof_cals', `${user.uid}_${p.id}`));
+          status[p.id] = { connected: snap.exists() && snap.data().googleCalendarConnected === true };
+        } catch {
+          status[p.id] = { connected: false };
+        }
+      }
+      setCalStatus(status);
+    };
+    if (profissionals.length > 0) checkCals();
+  }, [profissionals, user.uid]);
+
+  // Handle success/error params from Google OAuth per prof
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') && params.get('profId')) {
+      const profId = params.get('profId');
+      setCalStatus(prev => ({ ...prev, [profId]: { connected: true } }));
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  const saveProfissionals = async (list) => {
+    setSaving(true);
+    try {
+      const updated = { ...profile, profissionals: list };
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), { profissionals: list }, { merge: true });
+      setProfissionals(list);
+      setProfile(updated);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = (p) => {
+    setExpandedId(p.id);
+    setEditData({ ...p });
+  };
+
+  const saveEdit = async () => {
+    const updated = profissionals.map(p => p.id === editData.id ? { ...editData } : p);
+    await saveProfissionals(updated);
+    setExpandedId(null);
+  };
+
+  const deleteProf = async (id) => {
+    if (!window.confirm('Remover este profissional?')) return;
+    await saveProfissionals(profissionals.filter(p => p.id !== id));
+    if (expandedId === id) setExpandedId(null);
+  };
+
+  const addProf = async () => {
+    if (!newProf.nome.trim()) return;
+    const prof = { ...newProf, id: newId(), nome: newProf.nome.trim() };
+    await saveProfissionals([...profissionals, prof]);
+    setNewProf({ nome: '', cor: PROF_COLORS[0], servicos: [], agendaTipo: 'nativa' });
+    setShowAddForm(false);
+  };
+
+  const startGoogleAuth = (profId) => {
+    const state = `${user.uid}|${profId}`;
+    const params = new URLSearchParams({
+      client_id: '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com',
+      redirect_uri: 'https://hute.netlify.app/.netlify/functions/googleAuthCallback',
+      response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/calendar',
+      access_type: 'offline',
+      prompt: 'consent',
+      state,
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  };
+
+  const toggleEditServico = (nome) => {
+    const list = editData.servicos || [];
+    setEditData(prev => ({
+      ...prev,
+      servicos: list.includes(nome) ? list.filter(s => s !== nome) : [...list, nome]
+    }));
+  };
+
+  const toggleNewServico = (nome) => {
+    const list = newProf.servicos || [];
+    setNewProf(prev => ({
+      ...prev,
+      servicos: list.includes(nome) ? list.filter(s => s !== nome) : [...list, nome]
+    }));
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-xl font-black text-slate-900">Equipa</h2>
+          <p className="text-xs text-slate-400">{profissionals.length} profissional{profissionals.length !== 1 ? 'is' : ''}</p>
+        </div>
+      </div>
+
+      <div className="space-y-3 mb-4">
+        {profissionals.map(p => {
+          const isExpanded = expandedId === p.id;
+          const googleConnected = calStatus[p.id]?.connected;
+
+          return (
+            <div key={p.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="flex items-center gap-3 p-4 cursor-pointer" onClick={() => isExpanded ? setExpandedId(null) : startEdit(p)}>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
+                  style={{ backgroundColor: p.cor || '#7c3aed' }}>
+                  {(p.nome || '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-900">{p.nome}</p>
+                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${googleConnected ? 'bg-emerald-50 text-emerald-600' : p.agendaTipo === 'google' ? 'bg-amber-50 text-amber-600' : 'bg-violet-50 text-violet-600'}`}>
+                      {googleConnected ? 'Google Agenda' : p.agendaTipo === 'google' ? 'Google (desligado)' : 'Agenda Nativa'}
+                    </span>
+                    {(p.servicos || []).slice(0, 2).map(s => (
+                      <span key={s} className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{s}</span>
+                    ))}
+                    {(p.servicos || []).length > 2 && <span className="text-[10px] text-slate-400">+{p.servicos.length - 2}</span>}
+                  </div>
+                </div>
+                <Edit2 className="w-4 h-4 text-slate-300 flex-shrink-0" />
+              </div>
+
+              {isExpanded && (
+                <div className="border-t border-slate-100 p-4 space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome</label>
+                    <input value={editData.nome || ''} onChange={e => setEditData(prev => ({ ...prev, nome: e.target.value }))}
+                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Cor</label>
+                    <div className="flex gap-2 flex-wrap">
+                      {PROF_COLORS.map(c => (
+                        <button key={c} type="button" onClick={() => setEditData(prev => ({ ...prev, cor: c }))}
+                          className={`w-7 h-7 rounded-full border-2 transition-all ${editData.cor === c ? 'border-slate-700 scale-110' : 'border-transparent'}`}
+                          style={{ backgroundColor: c }} />
+                      ))}
+                    </div>
+                  </div>
+
+                  {(profile.servicos || []).length > 0 && (
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Serviços</label>
+                      <div className="space-y-2">
+                        {profile.servicos.map(s => (
+                          <label key={s.nome} className="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox"
+                              checked={(editData.servicos || []).includes(s.nome)}
+                              onChange={() => toggleEditServico(s.nome)}
+                              className="w-4 h-4 accent-violet-600" />
+                            <span className="text-sm text-slate-700">{s.nome}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo de agenda</label>
+                    <div className="flex gap-2">
+                      {['nativa', 'google'].map(tipo => (
+                        <button key={tipo} type="button"
+                          onClick={() => setEditData(prev => ({ ...prev, agendaTipo: tipo }))}
+                          className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${editData.agendaTipo === tipo ? 'bg-violet-600 text-white border-violet-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                          {tipo === 'nativa' ? 'Agenda Nativa' : 'Google Agenda'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {editData.agendaTipo === 'google' && (
+                    <div>
+                      {googleConnected ? (
+                        <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
+                          <CheckCircle className="w-4 h-4" />
+                          Google Agenda ligado
+                        </div>
+                      ) : (
+                        <button onClick={() => startGoogleAuth(p.id)}
+                          className="w-full py-3 bg-blue-50 text-blue-600 font-semibold rounded-xl text-sm hover:bg-blue-100 transition-colors">
+                          Ligar Google Agenda
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={saveEdit} disabled={saving}
+                      className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                      Guardar
+                    </button>
+                    <button onClick={() => deleteProf(p.id)}
+                      className="px-4 py-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {showAddForm ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-4">
+          <h3 className="font-bold text-slate-900">Novo profissional</h3>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome</label>
+            <input value={newProf.nome} onChange={e => setNewProf(prev => ({ ...prev, nome: e.target.value }))}
+              placeholder="Ex: Maria Costa"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Cor</label>
+            <div className="flex gap-2 flex-wrap">
+              {PROF_COLORS.map(c => (
+                <button key={c} type="button" onClick={() => setNewProf(prev => ({ ...prev, cor: c }))}
+                  className={`w-7 h-7 rounded-full border-2 transition-all ${newProf.cor === c ? 'border-slate-700 scale-110' : 'border-transparent'}`}
+                  style={{ backgroundColor: c }} />
+              ))}
+            </div>
+          </div>
+          {(profile.servicos || []).length > 0 && (
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Serviços</label>
+              <div className="space-y-2">
+                {profile.servicos.map(s => (
+                  <label key={s.nome} className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox"
+                      checked={(newProf.servicos || []).includes(s.nome)}
+                      onChange={() => toggleNewServico(s.nome)}
+                      className="w-4 h-4 accent-violet-600" />
+                    <span className="text-sm text-slate-700">{s.nome}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo de agenda</label>
+            <div className="flex gap-2">
+              {['nativa', 'google'].map(tipo => (
+                <button key={tipo} type="button"
+                  onClick={() => setNewProf(prev => ({ ...prev, agendaTipo: tipo }))}
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${newProf.agendaTipo === tipo ? 'bg-violet-600 text-white border-violet-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+                  {tipo === 'nativa' ? 'Agenda Nativa' : 'Google Agenda'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={addProf} disabled={!newProf.nome.trim() || saving}
+              className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-40">
+              Adicionar
+            </button>
+            <button onClick={() => setShowAddForm(false)}
+              className="px-4 py-3 border border-slate-200 text-slate-500 rounded-xl hover:bg-slate-50 text-sm">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setShowAddForm(true)}
+          className="w-full flex items-center justify-center gap-2 py-4 border-2 border-dashed border-violet-200 text-violet-600 font-semibold rounded-2xl hover:bg-violet-50 transition-colors text-sm">
+          <Plus className="w-4 h-4" />
+          Adicionar Profissional
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Admin Servicos ────────────────────────────────────────
+function AdminServicos({ user, profile, setProfile }) {
+  const [servicos, setServicos] = useState(profile.servicos || []);
+  const [nome, setNome] = useState('');
+  const [preco, setPreco] = useState('');
+  const [duracao, setDuracao] = useState(60);
+  const [saving, setSaving] = useState(false);
+
+  const saveServicos = async (list) => {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), { servicos: list }, { merge: true });
+      setServicos(list);
+      setProfile(prev => ({ ...prev, servicos: list }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addServico = async () => {
+    if (!nome.trim()) return;
+    await saveServicos([...servicos, { nome: nome.trim(), preco: preco ? Number(preco) : null, duracao: Number(duracao) }]);
+    setNome(''); setPreco(''); setDuracao(60);
+  };
+
+  const removeServico = async (i) => {
+    await saveServicos(servicos.filter((_, idx) => idx !== i));
   };
 
   return (
     <div>
       <div className="mb-5">
         <h2 className="text-xl font-black text-slate-900">Serviços</h2>
-        <p className="text-xs text-slate-400">Defina os serviços, preços e duração</p>
+        <p className="text-xs text-slate-400">{servicos.length} serviço{servicos.length !== 1 ? 's' : ''} disponível{servicos.length !== 1 ? 'is' : ''}</p>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mb-4">
-        {servicos.length === 0 ? (
-          <div className="text-center py-10">
-            <Tag className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-            <p className="text-xs text-slate-400">Nenhum serviço cadastrado.<br />O cliente verá "Marcação" por padrão.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-50">
-            {servicos.map((s, i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3.5">
-                <div className="w-9 h-9 bg-violet-50 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Scissors className="w-4 h-4 text-violet-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">{s.nome}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    {s.preco && <span className="text-xs font-bold text-emerald-600">R$ {s.preco}</span>}
-                    <span className="text-xs text-slate-400 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />{fmtDuracao(s.duracao || 60)}
-                    </span>
-                  </div>
-                </div>
-                <button onClick={() => remove(i)} className="p-1.5 text-slate-200 hover:text-red-400 transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
+      <div className="space-y-3 mb-5">
+        {servicos.map((s, i) => (
+          <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3">
+            <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Scissors className="w-5 h-5 text-violet-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-slate-900">{s.nome}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                {s.preco && <span className="text-xs text-emerald-600 font-semibold">R$ {Number(s.preco).toFixed(2)}</span>}
+                {s.duracao && <span className="text-xs text-slate-400">{fmtDuracao(s.duracao)}</span>}
               </div>
-            ))}
+            </div>
+            <button onClick={() => removeServico(i)} className="p-1.5 text-slate-200 hover:text-red-400 transition-colors">
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
-        )}
+        ))}
       </div>
 
-      {/* Adicionar */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3 mb-4">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Adicionar serviço</p>
-        <input
-          className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm placeholder-slate-400 focus:border-violet-300"
-          value={novoNome}
-          onChange={e => setNovoNome(e.target.value)}
-          placeholder="Nome (ex: Corte, Escova, Coloração)"
-          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), add())}
-        />
-        <div className="flex gap-2">
-          <input
-            className="flex-1 p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm placeholder-slate-400 focus:border-violet-300"
-            value={novoPreco}
-            onChange={e => setNovoPreco(e.target.value)}
-            placeholder="Preço R$"
-            type="number" min="0"
-          />
-          <select
-            className="flex-1 p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm text-slate-600 focus:border-violet-300"
-            value={novaDuracao}
-            onChange={e => setNovaDuracao(e.target.value)}
-          >
-            <option value={15}>15 min</option>
-            <option value={30}>30 min</option>
-            <option value={45}>45 min</option>
-            <option value={60}>1 hora</option>
-            <option value={90}>1h30</option>
-            <option value={120}>2 horas</option>
-            <option value={150}>2h30</option>
-            <option value={180}>3 horas</option>
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <h3 className="font-bold text-slate-900 text-sm">Adicionar serviço</h3>
+        <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do serviço"
+          className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+        <div className="grid grid-cols-2 gap-2">
+          <input type="number" value={preco} onChange={e => setPreco(e.target.value)} placeholder="Preço (R$)"
+            className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          <select value={duracao} onChange={e => setDuracao(e.target.value)}
+            className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+            {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
+              <option key={v} value={v}>{fmtDuracao(v)}</option>
+            ))}
           </select>
-          <button onClick={add} className="w-12 bg-violet-600 text-white rounded-xl flex items-center justify-center flex-shrink-0 hover:bg-violet-700 transition-colors">
-            <Plus className="w-5 h-5" />
-          </button>
         </div>
+        <button onClick={addServico} disabled={!nome.trim() || saving}
+          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition-colors">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          Adicionar
+        </button>
       </div>
-
-      <button
-        onClick={save}
-        disabled={saving}
-        className="w-full bg-violet-600 text-white py-3.5 rounded-2xl font-bold shadow-lg shadow-violet-100 hover:bg-violet-700 transition-colors disabled:opacity-50"
-      >
-        {saving ? 'A guardar...' : 'Guardar Serviços'}
-      </button>
     </div>
   );
 }
 
 // ── Admin Settings ────────────────────────────────────────
-function AdminSettings({ user, db, appId, profile, onProfileSaved }) {
+function AdminSettings({ user, profile, setProfile, onLogout }) {
   const [nome, setNome] = useState(profile.nome || '');
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
   const [slug, setSlug] = useState(profile.slug || '');
   const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
-  const [horaFim, setHoraFim] = useState(profile.horaFim || '18:00');
-  const [intervalo, setIntervalo] = useState(profile.intervalo || 60);
+  const [horaFim, setHoraFim] = useState(profile.horaFim || '19:00');
+  const [intervalo, setIntervalo] = useState(profile.intervalo || 30);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const save = async (e) => {
-    e.preventDefault();
+  const link = `https://hute.netlify.app/#${profile.slug || ''}`;
+
+  const saveSettings = async () => {
     setSaving(true);
-    const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
     try {
-      const data = { nome, subtitulo, slug: cleanSlug, horaInicio, horaFim, intervalo: Number(intervalo) };
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), data, { merge: true });
-      if (cleanSlug) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'slugs', cleanSlug), { uid: user.uid, nome });
-      onProfileSaved(p => ({ ...p, ...data }));
-      setSlug(cleanSlug);
-      alert('Perfil guardado!');
-    } catch { alert('Erro ao guardar.'); }
-    setSaving(false);
+      const data = { nome, subtitulo, slug, horaInicio, horaFim, intervalo: Number(intervalo) };
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), data, { merge: true });
+      if (slug !== profile.slug) {
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slug), { uid: user.uid, nome });
+      }
+      setProfile(prev => ({ ...prev, ...data }));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const loginGoogle = () => {
+  const startGoogleAuth = () => {
     const params = new URLSearchParams({
       client_id: '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com',
       redirect_uri: 'https://hute.netlify.app/.netlify/functions/googleAuthCallback',
       response_type: 'code',
-      scope: 'https://www.googleapis.com/auth/calendar.events',
+      scope: 'https://www.googleapis.com/auth/calendar',
       access_type: 'offline',
       prompt: 'consent',
       state: user.uid,
@@ -523,345 +1217,512 @@ function AdminSettings({ user, db, appId, profile, onProfileSaved }) {
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   };
 
-  const desligarGoogle = async () => {
-    if (!window.confirm('Desligar o Google Agenda?')) return;
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid), { googleCalendarConnected: false }, { merge: true })
-      .catch(() => alert('Erro ao desligar.'));
-  };
-
-  const input = "w-full p-3 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm placeholder-slate-400 focus:border-violet-300";
-
   return (
     <div className="space-y-5">
-      <div className="mb-1">
-        <h2 className="text-xl font-black text-slate-900">Estabelecimento</h2>
-        <p className="text-xs text-slate-400">Configurações do seu perfil</p>
+      <div>
+        <h2 className="text-xl font-black text-slate-900">Configurações</h2>
+        <p className="text-xs text-slate-400">Dados do estabelecimento</p>
       </div>
 
-      {/* Google Calendar */}
-      <div className={`rounded-2xl border p-5 ${profile.googleCalendarConnected ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100 shadow-sm'}`}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${profile.googleCalendarConnected ? 'bg-emerald-500' : 'bg-slate-100'}`}>
-              <Calendar className={`w-4 h-4 ${profile.googleCalendarConnected ? 'text-white' : 'text-slate-400'}`} />
-            </div>
-            <span className="font-bold text-slate-900 text-sm">Google Agenda</span>
-          </div>
-          {profile.googleCalendarConnected && (
-            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full uppercase tracking-wide">Ativo</span>
-          )}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 space-y-3">
+        <h3 className="font-bold text-slate-900 text-sm">Informações</h3>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome</label>
+          <input value={nome} onChange={e => setNome(e.target.value)}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
         </div>
-        <p className="text-xs text-slate-500 mb-4">
-          {profile.googleCalendarConnected
-            ? 'Agendamentos sincronizados automaticamente com o seu Google Agenda.'
-            : 'Ligue para sincronizar marcações com o seu Google Agenda e mostrar apenas horários livres.'}
-        </p>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Especialidade</label>
+          <input value={subtitulo} onChange={e => setSubtitulo(e.target.value)}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Slug do link</label>
+          <input value={slug} onChange={e => setSlug(e.target.value)}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Abertura</label>
+            <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Fecho</label>
+            <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)}
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base</label>
+          <select value={intervalo} onChange={e => setIntervalo(e.target.value)}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+            {[15, 20, 30, 45, 60, 90, 120].map(v => (
+              <option key={v} value={v}>{fmtDuracao(v)}</option>
+            ))}
+          </select>
+        </div>
+        <button onClick={saveSettings} disabled={saving}
+          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
+          {saved ? 'Guardado!' : 'Guardar alterações'}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+        <h3 className="font-bold text-slate-900 text-sm mb-3">Link de reservas</h3>
+        <div className="bg-slate-50 rounded-xl p-3 flex items-center gap-2">
+          <p className="text-xs text-slate-600 flex-1 break-all">{link}</p>
+          <button onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+            className="p-1.5 text-slate-400 hover:text-violet-600 transition-colors">
+            {copied ? <CheckCircle className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+        <h3 className="font-bold text-slate-900 text-sm mb-1">Google Agenda (estabelecimento)</h3>
+        <p className="text-xs text-slate-400 mb-3">Sincronização geral da loja</p>
         {profile.googleCalendarConnected ? (
-          <>
-            <div className="bg-emerald-100 text-emerald-700 p-3 rounded-xl text-sm flex items-center font-semibold mb-2">
-              <CheckCircle className="w-4 h-4 mr-2" /> Integração ativa
-            </div>
-            <button onClick={desligarGoogle} className="w-full text-red-400 text-sm py-2 font-medium">Desligar integração</button>
-          </>
+          <div className="flex items-center gap-2 text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
+            <CheckCircle className="w-4 h-4" />
+            Google Agenda ligado
+          </div>
         ) : (
-          <button onClick={loginGoogle} className="w-full bg-slate-900 text-white p-3 rounded-xl font-semibold text-sm flex justify-center items-center gap-2 hover:bg-slate-800 transition-colors">
-            <Calendar className="w-4 h-4" /> Ligar Google Agenda
+          <button onClick={startGoogleAuth}
+            className="w-full py-3 bg-blue-50 text-blue-600 font-semibold rounded-xl text-sm hover:bg-blue-100 transition-colors">
+            Ligar Google Agenda
           </button>
         )}
       </div>
 
-      {/* Dados */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Dados do Estabelecimento</p>
-        <form onSubmit={save} className="space-y-3">
-          <input className={input} value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do Salão" required />
-          <input className={input} value={subtitulo} onChange={e => setSubtitulo(e.target.value)} placeholder="Especialidade (ex: Cabeleireiro)" />
-          <div className="flex">
-            <span className="px-3 py-3 bg-slate-100 text-slate-400 text-sm rounded-l-xl border border-slate-200 border-r-0">/#</span>
-            <input className="flex-1 p-3 bg-slate-50 rounded-r-xl border border-slate-200 outline-none text-sm focus:border-violet-300" value={slug} onChange={e => setSlug(e.target.value)} placeholder="seusalao" required />
-          </div>
-
-          <div className="border-t border-slate-100 pt-4">
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Horário de Funcionamento</p>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Abertura</label>
-                <input type="time" className={input} value={horaInicio} onChange={e => setHoraInicio(e.target.value)} />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Fecho</label>
-                <input type="time" className={input} value={horaFim} onChange={e => setHoraFim(e.target.value)} />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Intervalo base entre slots</label>
-              <select className={input} value={intervalo} onChange={e => setIntervalo(e.target.value)}>
-                <option value={15}>15 minutos</option>
-                <option value={30}>30 minutos</option>
-                <option value={45}>45 minutos</option>
-                <option value={60}>1 hora</option>
-                <option value={90}>1h30</option>
-                <option value={120}>2 horas</option>
-              </select>
-            </div>
-          </div>
-
-          <button type="submit" disabled={saving} className="w-full bg-violet-600 text-white py-3.5 rounded-2xl font-bold shadow-lg shadow-violet-100 hover:bg-violet-700 transition-colors disabled:opacity-50">
-            {saving ? 'A guardar...' : 'Guardar'}
-          </button>
-        </form>
-      </div>
-
-      {/* Link */}
-      {slug && (
-        <div className="bg-gradient-to-br from-violet-600 to-violet-700 rounded-2xl p-5 text-white">
-          <p className="font-bold mb-0.5">Link para Clientes</p>
-          <p className="text-xs text-violet-200 mb-4 font-mono break-all">{window.location.origin}/#<strong>{slug}</strong></p>
-          <button
-            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/#${slug}`); alert('Copiado!'); }}
-            className="w-full bg-white/20 hover:bg-white/30 text-white py-3 rounded-xl font-semibold flex justify-center items-center gap-2 transition-colors"
-          >
-            <Copy className="w-4 h-4" /> Copiar Link
-          </button>
-        </div>
-      )}
+      <button onClick={onLogout}
+        className="w-full flex items-center justify-center gap-2 py-3.5 border border-slate-200 text-slate-500 font-semibold rounded-2xl hover:bg-slate-100 transition-colors text-sm">
+        <LogOut className="w-4 h-4" />
+        Terminar sessão
+      </button>
     </div>
   );
 }
 
 // ── Client Portal ─────────────────────────────────────────
-function ClientPortal({ lojaUid, profile, db, appId }) {
+function ClientPortal({ lojaUid, profile }) {
+  const [step, setStep] = useState('service');
+  const [selectedService, setSelectedService] = useState(null);
+  const [selectedProfissional, setSelectedProfissional] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedHora, setSelectedHora] = useState('');
+  const [slots, setSlots] = useState(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [nome, setNome] = useState('');
   const [whats, setWhats] = useState('');
-  const [hora, setHora] = useState('');
-  const [servico, setServico] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [confirmado, setConfirmado] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [slots, setSlots] = useState(null);
+  const [nascimento, setNascimento] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmedAppt, setConfirmedAppt] = useState(null);
 
-  const todayDate = new Date(); todayDate.setHours(0,0,0,0);
-  const dataIso = selectedDate.toISOString().split('T')[0];
+  const profissionals = profile.profissionals || [];
   const servicos = profile.servicos || [];
-  const servicoAtivo = servicos.find(s => s.nome === servico) || servicos[0] || null;
-  const duracaoAtiva = servicoAtivo?.duracao || profile.intervalo || 60;
 
-  const fetchSlots = (date, dur) => {
-    if (!lojaUid) return;
-    const iso = date.toISOString().split('T')[0];
-    setLoadingSlots(true); setHora('');
-    fetch(`${BACKEND_URL}/getSlots?lojaId=${lojaUid}&data=${iso}&duracao=${dur || duracaoAtiva}`)
-      .then(r => r.json())
-      .then(d => setSlots(d.slots || []))
-      .catch(() => setSlots(gerarHorarios(profile.horaInicio || '09:00', profile.horaFim || '18:00', profile.intervalo || 60)))
-      .finally(() => setLoadingSlots(false));
+  const toDateISO = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   };
 
-  useEffect(() => { if (lojaUid) fetchSlots(selectedDate, duracaoAtiva); }, [lojaUid, dataIso, duracaoAtiva]);
+  const addDays = (d, n) => { const copy = new Date(d); copy.setDate(copy.getDate() + n); return copy; };
 
-  const prevDay = () => { const d = new Date(selectedDate); d.setDate(d.getDate()-1); if (d >= todayDate) setSelectedDate(d); };
-  const nextDay = () => { const d = new Date(selectedDate); d.setDate(d.getDate()+1); setSelectedDate(d); };
-
-  const book = async (e) => {
-    e.preventDefault();
-    if (!hora) { alert('Escolha uma hora!'); return; }
-    setLoading(true);
-    const payload = {
-      lojaId: lojaUid, clienteNome: nome, clienteWhats: whats,
-      servico: servicoAtivo?.nome || 'Marcação',
-      valor: servicoAtivo?.preco || '',
-      duracao: duracaoAtiva,
-      data: dataIso, hora,
-      dataHoraInternacional: new Date(`${dataIso}T${hora}:00`).toISOString(),
-    };
+  const fetchSlots = useCallback(async (date, servico, profId) => {
+    setSlotsLoading(true);
+    setSlots(null);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', `appointments_${lojaUid}`), {
-        ...payload, createdAt: new Date().toISOString(), origem: 'portal_cliente'
+      const params = new URLSearchParams({
+        lojaId: lojaUid,
+        data: toDateISO(date),
+        duracao: servico?.duracao || profile.intervalo || 60,
+        ...(profId ? { profissionalId: profId } : {}),
       });
-      setConfirmado({ hora, dataIso, servico: payload.servico, valor: payload.valor });
-      setSlots(p => (p || []).filter(s => s !== hora));
-      fetch(`${BACKEND_URL}/createAppointment`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        .catch(console.error);
-    } catch (err) { console.error(err); alert('Erro ao guardar. Tente novamente.'); }
-    setLoading(false);
+      const res = await fetch(`${BACKEND_URL}/getSlots?${params}`);
+      const json = await res.json();
+      setSlots(json.slots || []);
+    } catch {
+      setSlots([]);
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, [lojaUid, profile.intervalo]);
+
+  const profForService = selectedService
+    ? profissionals.filter(p => (p.servicos || []).includes(selectedService.nome))
+    : profissionals;
+
+  const goToStep = (newStep) => {
+    if (newStep === 'datetime') {
+      fetchSlots(selectedDate, selectedService, selectedProfissional?.id || null);
+    }
+    setStep(newStep);
   };
 
-  // ── Confirmação ──
-  if (confirmado) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-violet-50 to-slate-50 flex items-center justify-center px-5 max-w-[480px] mx-auto">
-        <div className="bg-white rounded-3xl shadow-2xl shadow-slate-100 p-8 text-center w-full border border-slate-100">
-          <div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
-            <CheckCircle className="w-10 h-10 text-emerald-500" />
-          </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-1">Confirmado!</h2>
-          <p className="text-violet-600 font-bold mb-4">{confirmado.servico}</p>
-          <div className="bg-slate-50 rounded-2xl p-4 mb-6 text-left space-y-2">
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <CalendarCheck className="w-4 h-4 text-slate-400" />
-              <span>{fmtData(confirmado.dataIso)} às {confirmado.hora}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <Scissors className="w-4 h-4 text-slate-400" />
-              <span>{profile.nome}</span>
-            </div>
-            {confirmado.valor && (
-              <div className="flex items-center gap-2 text-sm text-emerald-600 font-semibold">
-                <span>R$ {Number(confirmado.valor).toFixed(2)}</span>
-              </div>
-            )}
-          </div>
-          <p className="text-slate-400 text-xs mb-6">O salão foi notificado. Aguarde a confirmação!</p>
-          <button
-            onClick={() => { setConfirmado(null); setNome(''); setWhats(''); setHora(''); setServico(''); }}
-            className="w-full bg-violet-600 text-white py-4 rounded-2xl font-bold hover:bg-violet-700 transition-colors"
-          >
-            Nova marcação
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const selectService = (s) => {
+    setSelectedService(s);
+    setSelectedProfissional(null);
+    setSelectedHora('');
+    const profs = profissionals.filter(p => (p.servicos || []).includes(s.nome));
+    if (profs.length === 0) {
+      // No professionals for this service, skip professional step
+      fetchSlots(selectedDate, s, null);
+      setStep('datetime');
+    } else {
+      setStep('professional');
+    }
+  };
 
-  // ── Formulário ──
+  const selectProfissional = (p) => {
+    setSelectedProfissional(p);
+    setSelectedHora('');
+    fetchSlots(selectedDate, selectedService, p?.id || null);
+    setStep('datetime');
+  };
+
+  const changeDate = (delta) => {
+    const newDate = addDays(selectedDate, delta);
+    if (newDate < new Date(new Date().setHours(0,0,0,0))) return;
+    setSelectedDate(newDate);
+    setSelectedHora('');
+    fetchSlots(newDate, selectedService, selectedProfissional?.id || null);
+  };
+
+  const handleSubmit = async () => {
+    if (!nome.trim() || !whats.trim()) return;
+    setSubmitting(true);
+    try {
+      const dataISO = toDateISO(selectedDate);
+      const [h, m] = selectedHora.split(':').map(Number);
+      const dtInt = new Date(selectedDate);
+      dtInt.setHours(h, m, 0, 0);
+
+      const apptData = {
+        clienteNome: nome.trim(),
+        clienteWhats: whats.trim(),
+        clienteNascimento: nascimento || '',
+        servico: selectedService.nome,
+        valor: selectedService.preco || null,
+        duracao: selectedService.duracao || profile.intervalo || 60,
+        profissionalId: selectedProfissional?.id || null,
+        profissionalNome: selectedProfissional?.nome || null,
+        data: dataISO,
+        hora: selectedHora,
+        dataHoraInternacional: dtInt.toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      // Save to Firestore
+      const apptRef = await addDoc(
+        collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`),
+        apptData
+      );
+
+      // Upsert client
+      const clientKey = whats.trim().replace(/\D/g, '') || nome.trim().toLowerCase().replace(/\s+/g, '_');
+      const clientDocRef = doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaUid}`, clientKey);
+      const existingClient = await getDoc(clientDocRef);
+      const totalVisitas = existingClient.exists() ? (existingClient.data().totalVisitas || 0) + 1 : 1;
+      const primeiraVisita = existingClient.exists() ? (existingClient.data().primeiraVisita || dataISO) : dataISO;
+      await setDoc(clientDocRef, {
+        nome: nome.trim(),
+        whats: whats.trim(),
+        nascimento: nascimento || '',
+        totalVisitas,
+        primeiraVisita,
+        ultimaVisita: dataISO,
+      }, { merge: true });
+
+      setConfirmedAppt({ ...apptData, id: apptRef.id });
+      setStep('confirmed');
+
+      // Fire-and-forget Google Calendar sync
+      fetch(`${BACKEND_URL}/createAppointment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId: lojaUid, ...apptData }),
+      }).catch(() => {});
+    } catch (err) {
+      alert('Erro ao confirmar marcação. Tente novamente.');
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const stepIndex = { service: 0, professional: 1, datetime: 2, form: 3, confirmed: 4 };
+  const totalSteps = profissionals.length > 0 ? 4 : 3;
+  const currentIdx = stepIndex[step] || 0;
+
+  const canGoBack = step !== 'service' && step !== 'confirmed';
+  const handleBack = () => {
+    if (step === 'professional') setStep('service');
+    else if (step === 'datetime') {
+      const profs = selectedService ? profissionals.filter(p => (p.servicos || []).includes(selectedService.nome)) : profissionals;
+      setStep(profs.length > 0 ? 'professional' : 'service');
+    }
+    else if (step === 'form') setStep('datetime');
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 max-w-[480px] mx-auto">
-      {/* Hero */}
-      <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white px-6 pt-14 pb-20 text-center relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10" style={{backgroundImage:'radial-gradient(circle at 30% 50%, #7c3aed 0%, transparent 60%), radial-gradient(circle at 80% 20%, #4f46e5 0%, transparent 50%)'}} />
-        <div className="relative z-10">
-          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/20">
-            <Scissors className="text-white w-8 h-8" />
-          </div>
-          <h1 className="text-2xl font-black">{profile.nome || 'Carregando...'}</h1>
-          {profile.subtitulo && <p className="text-sm text-slate-300 mt-1">{profile.subtitulo}</p>}
-          <div className="flex items-center justify-center gap-1 mt-3">
-            <Sparkles className="w-3 h-3 text-violet-400" />
-            <span className="text-[11px] text-violet-300 font-medium">powered by hute</span>
+    <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-100 px-5 py-4 sticky top-0 z-10">
+        <div className="flex items-center gap-3">
+          {canGoBack && (
+            <button onClick={handleBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="font-black text-slate-900 truncate">{profile.nome || 'Agendamento'}</p>
+            {profile.subtitulo && <p className="text-xs text-slate-400 truncate">{profile.subtitulo}</p>}
           </div>
         </div>
-      </div>
+        {step !== 'confirmed' && (
+          <div className="flex gap-1.5 mt-3">
+            {Array.from({ length: totalSteps }).map((_, i) => (
+              <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
+            ))}
+          </div>
+        )}
+      </header>
 
-      {/* Card principal */}
-      <div className="px-4 -mt-10 relative z-10 pb-10">
-        <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-          <form onSubmit={book} className="p-5 space-y-5">
-
-            {/* Dados pessoais */}
-            <div className="space-y-3">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Seus dados</p>
-              <div className="relative">
-                <Users className="absolute left-3 top-3.5 w-4 h-4 text-slate-300" />
-                <input
-                  className="w-full pl-9 pr-3 py-3 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm placeholder-slate-400 focus:border-violet-300"
-                  value={nome} onChange={e => setNome(e.target.value)} required placeholder="Nome completo"
-                />
-              </div>
-              <div className="relative">
-                <Phone className="absolute left-3 top-3.5 w-4 h-4 text-slate-300" />
-                <input
-                  className="w-full pl-9 pr-3 py-3 bg-slate-50 rounded-xl border border-slate-200 outline-none text-sm placeholder-slate-400 focus:border-violet-300"
-                  value={whats} onChange={e => setWhats(e.target.value)} required placeholder="WhatsApp (ex: 11999999999)" type="tel"
-                />
-              </div>
-            </div>
-
-            {/* Serviços */}
-            {servicos.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Serviço</p>
-                <div className="space-y-2">
-                  {servicos.map((s, i) => {
-                    const ativo = (servico || servicos[0]?.nome) === s.nome;
-                    return (
-                      <button
-                        key={i} type="button" onClick={() => setServico(s.nome)}
-                        className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-sm font-medium transition-all ${
-                          ativo ? 'bg-violet-600 text-white border-violet-600 shadow-md shadow-violet-100' : 'bg-slate-50 text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Scissors className={`w-4 h-4 ${ativo ? 'text-violet-200' : 'text-slate-300'}`} />
-                          <span>{s.nome}</span>
-                          <span className={`text-xs ${ativo ? 'text-violet-200' : 'text-slate-400'}`}>{fmtDuracao(s.duracao)}</span>
-                        </div>
-                        {s.preco && (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${ativo ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-600'}`}>
-                            R$ {s.preco}
+      <div className="flex-1 p-5 pb-8">
+        {/* STEP: SERVICE */}
+        {step === 'service' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-1">Qual serviço?</h2>
+            <p className="text-sm text-slate-400 mb-5">Escolha o serviço que deseja</p>
+            {servicos.length === 0 ? (
+              <p className="text-center text-slate-400 py-12 text-sm">Nenhum serviço disponível.</p>
+            ) : (
+              <div className="space-y-3">
+                {servicos.map((s, i) => (
+                  <button key={i} onClick={() => selectService(s)}
+                    className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
+                    <div className="w-12 h-12 bg-violet-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <Scissors className="w-6 h-6 text-violet-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-900">{s.nome}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {s.duracao && (
+                          <span className="text-xs text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}
                           </span>
                         )}
-                      </button>
-                    );
-                  })}
-                </div>
+                      </div>
+                    </div>
+                    {s.preco && (
+                      <span className="text-sm font-black text-violet-600 flex-shrink-0">R$ {Number(s.preco).toFixed(2)}</span>
+                    )}
+                  </button>
+                ))}
               </div>
             )}
+          </div>
+        )}
 
-            {/* Data */}
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Data</p>
-              <div className="flex items-center justify-between bg-slate-50 rounded-xl border border-slate-200 p-1">
-                <button type="button" onClick={prevDay} disabled={dataIso === new Date().toISOString().split('T')[0]}
-                  className="w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 disabled:opacity-30 hover:bg-slate-100 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
+        {/* STEP: PROFESSIONAL */}
+        {step === 'professional' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-1">Com quem?</h2>
+            <p className="text-sm text-slate-400 mb-5">Escolha o profissional</p>
+            <div className="space-y-3">
+              <button onClick={() => selectProfissional(null)}
+                className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
+                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <User className="w-6 h-6 text-slate-400" />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-900">Sem preferência</p>
+                  <p className="text-xs text-slate-400">Primeiro disponível</p>
+                </div>
+              </button>
+              {profForService.map(p => (
+                <button key={p.id} onClick={() => selectProfissional(p)}
+                  className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl flex-shrink-0"
+                    style={{ backgroundColor: p.cor || '#7c3aed' }}>
+                    {(p.nome || '?')[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-900">{p.nome}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* STEP: DATETIME */}
+        {step === 'datetime' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-1">Quando?</h2>
+            <p className="text-sm text-slate-400 mb-4">Escolha o dia e horário</p>
+
+            {/* Date navigation */}
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-4">
+              <div className="flex items-center justify-between">
+                <button onClick={() => changeDate(-1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors">
+                  <ChevronLeft className="w-5 h-5" />
                 </button>
                 <div className="text-center">
-                  <span className="font-bold text-slate-900 text-sm">{fmtData(dataIso)}</span>
-                  <p className="text-[10px] text-slate-400">{selectedDate.toLocaleDateString('pt-BR', { weekday: 'long' })}</p>
+                  <p className="font-black text-slate-900">{selectedDate.toLocaleDateString('pt-BR', { weekday: 'long' })}</p>
+                  <p className="text-sm text-slate-500">{selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</p>
                 </div>
-                <button type="button" onClick={nextDay}
-                  className="w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
+                <button onClick={() => changeDate(1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors">
+                  <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
             </div>
 
-            {/* Horários */}
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Horário disponível</p>
-              {loadingSlots ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="w-5 h-5 animate-spin text-violet-400" />
-                </div>
-              ) : (slots || []).length === 0 ? (
-                <div className="text-center py-8 bg-slate-50 rounded-xl border border-slate-200">
-                  <Clock className="w-6 h-6 text-slate-200 mx-auto mb-2" />
-                  <p className="text-slate-400 text-sm">Sem disponibilidade neste dia.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {(slots || []).map(h => (
-                    <button
-                      key={h} type="button" onClick={() => setHora(h)}
-                      className={`py-2.5 rounded-xl border font-semibold text-sm transition-all ${
-                        hora === h
-                          ? 'bg-violet-600 text-white border-violet-600 shadow-md shadow-violet-100'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-violet-200'
-                      }`}
-                    >
-                      {h}
+            {/* Slots */}
+            {slotsLoading ? (
+              <div className="text-center py-10">
+                <Loader2 className="w-6 h-6 animate-spin text-violet-400 mx-auto mb-2" />
+                <p className="text-sm text-slate-400">A verificar disponibilidade...</p>
+              </div>
+            ) : slots === null ? null : slots.length === 0 ? (
+              <div className="text-center py-10">
+                <CalendarCheck className="w-10 h-10 text-slate-200 mx-auto mb-2" />
+                <p className="text-slate-400 text-sm font-medium">Sem horários disponíveis neste dia.</p>
+                <p className="text-slate-300 text-xs mt-1">Tente outro dia</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-2 mb-5">
+                  {slots.map(slot => (
+                    <button key={slot} onClick={() => setSelectedHora(slot)}
+                      className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${selectedHora === slot ? 'bg-violet-600 text-white border-violet-600 shadow-lg shadow-violet-200' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
+                      {slot}
                     </button>
                   ))}
+                </div>
+                <button onClick={() => { if (selectedHora) goToStep('form'); }}
+                  disabled={!selectedHora}
+                  className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors">
+                  Continuar
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* STEP: FORM */}
+        {step === 'form' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-1">Confirmar marcação</h2>
+            <p className="text-sm text-slate-400 mb-4">Reveja e preencha os seus dados</p>
+
+            {/* Summary */}
+            <div className="bg-violet-50 rounded-2xl p-4 mb-5 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Serviço</span>
+                <span className="text-sm font-bold text-violet-900">{selectedService?.nome}</span>
+              </div>
+              {selectedProfissional && (
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Profissional</span>
+                  <span className="text-sm font-bold text-violet-900">{selectedProfissional.nome}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Data</span>
+                <span className="text-sm font-bold text-violet-900">{selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Hora</span>
+                <span className="text-sm font-bold text-violet-900">{selectedHora}</span>
+              </div>
+              {selectedService?.preco && (
+                <div className="flex justify-between items-center pt-1 border-t border-violet-100">
+                  <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Preço</span>
+                  <span className="text-base font-black text-violet-900">R$ {Number(selectedService.preco).toFixed(2)}</span>
                 </div>
               )}
             </div>
 
-            <button
-              type="submit" disabled={loading || !hora}
-              className="w-full bg-violet-600 text-white py-4 rounded-2xl font-black text-base shadow-xl shadow-violet-200 hover:bg-violet-700 transition-colors disabled:opacity-40"
-            >
-              {loading ? 'A processar...' : 'Confirmar Marcação'}
-            </button>
-          </form>
-        </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome completo</label>
+                <input value={nome} onChange={e => setNome(e.target.value)} placeholder="O seu nome"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp</label>
+                <input type="tel" value={whats} onChange={e => setWhats(e.target.value)} placeholder="(11) 99999-9999"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Data de nascimento</label>
+                <input type="date" value={nascimento} onChange={e => setNascimento(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+              </div>
+            </div>
 
-        {/* Rodapé branding */}
-        <div className="flex items-center justify-center gap-1.5 mt-6">
-          <div className="w-4 h-4 bg-violet-600 rounded flex items-center justify-center">
-            <Sparkles className="w-2.5 h-2.5 text-white" />
+            <button onClick={handleSubmit} disabled={submitting || !nome.trim() || !whats.trim()}
+              className="w-full mt-5 bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+              Confirmar marcação
+            </button>
           </div>
-          <span className="text-xs text-slate-400">hute · sua secretária inteligente</span>
+        )}
+
+        {/* STEP: CONFIRMED */}
+        {step === 'confirmed' && confirmedAppt && (
+          <div className="text-center py-8">
+            <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-5">
+              <CheckCircle className="w-10 h-10 text-emerald-500" />
+            </div>
+            <h2 className="text-2xl font-black text-slate-900 mb-2">Marcado!</h2>
+            <p className="text-slate-400 text-sm mb-6">A sua marcação foi confirmada com sucesso.</p>
+
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 text-left space-y-3 mb-6">
+              <div className="flex justify-between">
+                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Serviço</span>
+                <span className="text-sm font-bold text-slate-900">{confirmedAppt.servico}</span>
+              </div>
+              {confirmedAppt.profissionalNome && (
+                <div className="flex justify-between">
+                  <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Profissional</span>
+                  <span className="text-sm font-bold text-slate-900">{confirmedAppt.profissionalNome}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Data</span>
+                <span className="text-sm font-bold text-slate-900">{fmtData(confirmedAppt.data)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Hora</span>
+                <span className="text-sm font-bold text-slate-900">{confirmedAppt.hora}</span>
+              </div>
+              {confirmedAppt.valor && (
+                <div className="flex justify-between">
+                  <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span>
+                  <span className="text-sm font-bold text-violet-600">R$ {Number(confirmedAppt.valor).toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => { setStep('service'); setSelectedService(null); setSelectedProfissional(null); setSelectedHora(''); setNome(''); setWhats(''); setNascimento(''); }}
+              className="w-full border border-violet-200 text-violet-600 font-bold py-3.5 rounded-2xl text-sm hover:bg-violet-50 transition-colors">
+              Nova marcação
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="text-center py-4 border-t border-slate-100 bg-white">
+        <div className="flex items-center justify-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+          <span className="text-xs text-slate-400 font-semibold">hute</span>
         </div>
       </div>
     </div>

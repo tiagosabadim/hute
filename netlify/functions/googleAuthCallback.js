@@ -1,6 +1,6 @@
 const { google } = require('googleapis');
 const { initializeApp, getApps } = require('firebase/app');
-const { getFirestore, doc, setDoc } = require('firebase/firestore/lite');
+const { getFirestore, doc, getDoc, setDoc } = require('firebase/firestore/lite');
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -22,10 +22,21 @@ exports.handler = async (event) => {
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, REDIRECT_URI);
 
   const code = event.queryStringParameters && event.queryStringParameters.code;
-  const adminUid = event.queryStringParameters && event.queryStringParameters.state;
+  const stateRaw = event.queryStringParameters && event.queryStringParameters.state;
 
-  if (!code || !adminUid) {
+  if (!code || !stateRaw) {
     return { statusCode: 400, body: 'Parâmetros em falta.' };
+  }
+
+  // Parse state: may be "uid" or "uid|profId"
+  let adminUid, profId;
+  if (stateRaw.includes('|')) {
+    const parts = stateRaw.split('|');
+    adminUid = parts[0];
+    profId = parts[1];
+  } else {
+    adminUid = stateRaw;
+    profId = null;
   }
 
   try {
@@ -33,25 +44,67 @@ exports.handler = async (event) => {
 
     if (!tokens.refresh_token) {
       console.error('refresh_token não recebido:', JSON.stringify(tokens));
-      return { statusCode: 302, headers: { Location: 'https://hute.netlify.app?error=no_refresh_token' } };
+      return {
+        statusCode: 302,
+        headers: { Location: 'https://hute.netlify.app?error=no_refresh_token' },
+      };
     }
 
     const db = getDb();
 
-    // Guarda no perfil público (acessível pela function createAppointment)
-    await setDoc(
-      doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', adminUid),
-      { googleCalendarConnected: true, googleRefreshToken: tokens.refresh_token },
-      { merge: true }
-    );
+    if (profId) {
+      // Save professional-level Google token
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'prof_cals', `${adminUid}_${profId}`),
+        {
+          googleRefreshToken: tokens.refresh_token,
+          googleCalendarConnected: true,
+          lojaUid: adminUid,
+          profId,
+        },
+        { merge: true }
+      );
 
-    return { statusCode: 302, headers: { Location: 'https://hute.netlify.app?success=1' } };
+      // Update the professional's googleCalendarConnected flag in the profile
+      const profileDoc = await getDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', adminUid)
+      );
+      if (profileDoc.exists()) {
+        const profileData = profileDoc.data();
+        const profissionals = profileData.profissionals || [];
+        const updatedProfissionals = profissionals.map(p =>
+          p.id === profId ? { ...p, agendaTipo: 'google', googleCalendarConnected: true } : p
+        );
+        await setDoc(
+          doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', adminUid),
+          { profissionals: updatedProfissionals },
+          { merge: true }
+        );
+      }
+
+      return {
+        statusCode: 302,
+        headers: { Location: `https://hute.netlify.app?success=1&profId=${encodeURIComponent(profId)}` },
+      };
+    } else {
+      // Establishment-level Google token
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', adminUid),
+        { googleCalendarConnected: true, googleRefreshToken: tokens.refresh_token },
+        { merge: true }
+      );
+
+      return {
+        statusCode: 302,
+        headers: { Location: 'https://hute.netlify.app?success=1' },
+      };
+    }
 
   } catch (error) {
     console.error('Erro no callback:', error.message);
     return {
       statusCode: 302,
-      headers: { Location: `https://hute.netlify.app?error=callback&msg=${encodeURIComponent(error.message)}` }
+      headers: { Location: `https://hute.netlify.app?error=callback&msg=${encodeURIComponent(error.message)}` },
     };
   }
 };
