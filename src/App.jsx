@@ -32,8 +32,8 @@ const BACKEND_URL = "/.netlify/functions";
 const PROF_COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#db2777','#0891b2','#64748b'];
 
 // ── Cloudinary config ─────────────────────────────────────
-const CLOUDINARY_CLOUD  = import.meta.env.VITE_CLOUDINARY_CLOUD  || '';
-const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_PRESET || '';
+const CLOUDINARY_CLOUD  = import.meta.env.VITE_CLOUDINARY_CLOUD  || 'dwfkovv5z';
+const CLOUDINARY_PRESET = import.meta.env.VITE_CLOUDINARY_PRESET || 'hute_uploads';
 
 async function uploadToCloudinary(file) {
   if (!CLOUDINARY_CLOUD || !CLOUDINARY_PRESET) {
