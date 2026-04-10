@@ -2472,6 +2472,7 @@ function ClientPortal({ lojaUid, profile }) {
 
   // PWA install
   const [installPrompt, setInstallPrompt] = useState(null);
+  const [pwaBlockHidden, setPwaBlockHidden] = useState(false);
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
   const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone;
 
@@ -2500,11 +2501,16 @@ function ClientPortal({ lojaUid, profile }) {
     return () => unsub();
   }, []);
 
-  // Capture PWA install prompt (Android)
+  // Capture PWA install prompt (Android/Desktop) and detect install
   useEffect(() => {
     const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    const installed = () => setPwaBlockHidden(true);
     window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener('appinstalled', installed);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('appinstalled', installed);
+    };
   }, []);
 
   // Subscribe to client's appointments on home step
@@ -3045,7 +3051,6 @@ function ClientPortal({ lojaUid, profile }) {
           <div>
             <div className="mb-6">
               <h2 className="text-xl font-black text-slate-900">Olá, {(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}!</h2>
-              <p className="text-sm text-slate-400 mt-0.5">{profile.nome}</p>
             </div>
 
             {/* Just confirmed banner */}
@@ -3061,8 +3066,8 @@ function ClientPortal({ lojaUid, profile }) {
               </div>
             )}
 
-            {/* PWA install */}
-            {!isInStandaloneMode && (
+            {/* PWA install — only shown if not already installed */}
+            {!isInStandaloneMode && !pwaBlockHidden && (
               <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 mb-5">
                 <div className="flex items-center gap-2 mb-2">
                   <Sparkles className="w-4 h-4 text-violet-600" />
@@ -3076,13 +3081,16 @@ function ClientPortal({ lojaUid, profile }) {
                     <p className="text-xs text-slate-600">3. Toque em <strong>Adicionar</strong> no canto superior direito</p>
                   </div>
                 ) : installPrompt ? (
-                  <button onClick={() => { installPrompt.prompt(); setInstallPrompt(null); }}
+                  <button onClick={async () => {
+                    installPrompt.prompt();
+                    const { outcome } = await installPrompt.userChoice;
+                    setInstallPrompt(null);
+                    if (outcome === 'accepted') setPwaBlockHidden(true);
+                  }}
                     className="w-full bg-violet-600 text-white font-bold py-2.5 rounded-xl text-xs mt-1 hover:bg-violet-700 transition-colors flex items-center justify-center gap-2">
                     <Plus className="w-3.5 h-3.5" /> Adicionar ao ecrã inicial
                   </button>
-                ) : (
-                  <p className="text-xs text-violet-500">Use o menu do seu browser para adicionar ao ecrã inicial.</p>
-                )}
+                ) : null}
               </div>
             )}
 
@@ -3115,6 +3123,8 @@ function ClientPortal({ lojaUid, profile }) {
                           <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">{a.hora}</span>
                         </div>
                       </div>
+                    </div>
+                    <div className="flex gap-2 mt-3">
                       <button onClick={() => {
                           const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
                           const prof = profissionals.find(p => p.id === a.profissionalId) || null;
@@ -3129,8 +3139,15 @@ function ClientPortal({ lojaUid, profile }) {
                           setStep('datetime');
                           fetchSlots(new Date(), svc, prof?.id || null);
                         }}
-                        className="flex-shrink-0 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all">
+                        className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
                         Remarcar
+                      </button>
+                      <button onClick={async () => {
+                          if (!window.confirm('Cancelar esta marcação?')) return;
+                          await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`, a.id)).catch(() => alert('Erro ao cancelar.'));
+                        }}
+                        className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center">
+                        Cancelar
                       </button>
                     </div>
                   </div>
