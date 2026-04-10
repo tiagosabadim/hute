@@ -183,6 +183,15 @@ function gerarHorarios(inicio, fim, intervalo) {
 
 function newId() { return Math.random().toString(36).substr(2, 9); }
 
+function toDateISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function addDays(d, n) { const c = new Date(d); c.setDate(c.getDate() + n); return c; }
+
 function profPath(uid, profId) {
   return `artifacts/${APP_ID}/public/data/prof_cals/${uid}_${profId}`;
 }
@@ -654,41 +663,106 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 
 // ── Admin Agenda ──────────────────────────────────────────
 function AdminAgenda({ user, lojaId, filterProfId, profile }) {
+  const profissionals = profile?.profissionals || [];
+  const defaultProfId = filterProfId || (profissionals[0]?.id ?? null);
+
+  const [selectedProfId, setSelectedProfId] = useState(defaultProfId);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [appointments, setAppointments] = useState([]);
   const [blocks, setBlocks] = useState([]);
-  const [filterDate, setFilterDate] = useState('');
+  const [googleFreeSlots, setGoogleFreeSlots] = useState(null); // null = not google
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [activeSlot, setActiveSlot] = useState(null); // hora string of the tapped free slot
   const [showNewAppt, setShowNewAppt] = useState(false);
+  const [preHora, setPreHora] = useState('');
   const [showBlockModal, setShowBlockModal] = useState(false);
   const colId = lojaId || user.uid;
+  const dateISO = toDateISO(selectedDate);
+  const todayISO = toDateISO(new Date());
 
+  // Subscribe to all appointments
   useEffect(() => {
-    if (!user) return;
     const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`);
-    const unsub = onSnapshot(q, (snap) => {
-      const today = new Date().toISOString().split('T')[0];
-      let appts = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(a => a.data >= today);
+    const unsub = onSnapshot(q, snap => {
+      let appts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (filterProfId) appts = appts.filter(a => a.profissionalId === filterProfId);
-      appts.sort((a, b) => a.data.localeCompare(b.data) || a.hora.localeCompare(b.hora));
       setAppointments(appts);
     });
     return () => unsub();
-  }, [user, colId, filterProfId]);
+  }, [colId, filterProfId]);
 
+  // Subscribe to blocks
   useEffect(() => {
-    if (!user) return;
     const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${colId}`);
-    const unsub = onSnapshot(q, (snap) => {
-      const today = new Date().toISOString().split('T')[0];
-      let blks = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(b => b.date >= today);
+    const unsub = onSnapshot(q, snap => {
+      let blks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (filterProfId) blks = blks.filter(b => !b.profissionalId || b.profissionalId === filterProfId);
       setBlocks(blks);
     });
     return () => unsub();
-  }, [user, colId, filterProfId]);
+  }, [colId, filterProfId]);
+
+  // When professional or date changes, check Google Calendar
+  const selectedProf = profissionals.find(p => p.id === selectedProfId) || null;
+  useEffect(() => {
+    setActiveSlot(null);
+    const usesGoogle = selectedProf?.agendaTipo === 'google';
+    if (!usesGoogle) { setGoogleFreeSlots(null); return; }
+
+    setGoogleLoading(true);
+    setGoogleFreeSlots(null);
+    const params = new URLSearchParams({
+      lojaId: colId, data: dateISO,
+      duracao: profile?.intervalo || 60,
+      profissionalId: selectedProfId,
+    });
+    fetch(`${BACKEND_URL}/getSlots?${params}`)
+      .then(r => r.json())
+      .then(j => setGoogleFreeSlots(j.googleSync ? (j.slots || []) : null))
+      .catch(() => setGoogleFreeSlots(null))
+      .finally(() => setGoogleLoading(false));
+  }, [selectedProfId, dateISO, colId, profile?.intervalo, selectedProf?.agendaTipo]);
+
+  // Build timeline
+  const dayBlocks = blocks.filter(b =>
+    b.date === dateISO && (!b.profissionalId || b.profissionalId === selectedProfId)
+  );
+  const isDayOff = dayBlocks.some(b => b.type === 'day_off');
+  const customHours = dayBlocks.find(b => b.type === 'custom_hours');
+  const slotBlocks = dayBlocks.filter(b => b.type === 'slot');
+
+  const effStart = customHours ? customHours.horaInicio : (profile?.horaInicio || '09:00');
+  const effEnd   = customHours ? customHours.horaFim    : (profile?.horaFim    || '18:00');
+  const intervalo = profile?.intervalo || 60;
+  const allSlots = isDayOff ? [] : gerarHorarios(effStart, effEnd, intervalo);
+
+  const dayAppts = appointments.filter(a =>
+    a.data === dateISO && (!selectedProfId || a.profissionalId === selectedProfId)
+  );
+
+  // For each slot determine state
+  const timeline = allSlots.map(hora => {
+    const block = slotBlocks.find(b => b.hora === hora);
+    if (block) return { hora, state: 'blocked', block };
+
+    const appt = dayAppts.find(a => a.hora === hora);
+    if (appt) return { hora, state: 'booked', appt };
+
+    // Continuation of an earlier appointment
+    const covered = dayAppts.find(a => {
+      if (a.hora === hora) return false;
+      const s = new Date(`${dateISO}T${a.hora}:00`);
+      const e = new Date(s.getTime() + (a.duracao || intervalo) * 60000);
+      const t = new Date(`${dateISO}T${hora}:00`);
+      return t > s && t < e;
+    });
+    if (covered) return { hora, state: 'continuation', appt: covered };
+
+    if (googleFreeSlots !== null && !googleFreeSlots.includes(hora))
+      return { hora, state: 'google_busy' };
+
+    return { hora, state: 'free' };
+  });
 
   const cancelar = async (id) => {
     if (!window.confirm('Cancelar este agendamento?')) return;
@@ -702,146 +776,205 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
       .catch(() => alert('Erro ao remover.'));
   };
 
-  const waLink = (num, nome, data, hora, servico) => {
-    const n = num.replace(/\D/g, '');
-    const msg = encodeURIComponent(`Olá ${nome}! Lembrete: ${servico} em ${fmtData(data)} às ${hora}. Até breve!`);
-    return `https://wa.me/${n.startsWith('55') ? n : '55' + n}?text=${msg}`;
-  };
+  const openNewAppt = (hora) => { setPreHora(hora); setActiveSlot(null); setShowNewAppt(true); };
+  const openBlock   = (hora) => { setPreHora(hora); setActiveSlot(null); setShowBlockModal(true); };
 
-  const filteredAppts = filterDate ? appointments.filter(a => a.data === filterDate) : appointments;
-  const filteredBlocks = filterDate ? blocks.filter(b => b.date === filterDate) : blocks;
-
-  const grouped = {};
-  filteredAppts.forEach(a => {
-    if (!grouped[a.data]) grouped[a.data] = { appts: [], blks: [] };
-    grouped[a.data].appts.push(a);
-  });
-  filteredBlocks.forEach(b => {
-    if (!grouped[b.date]) grouped[b.date] = { appts: [], blks: [] };
-    grouped[b.date].blks.push(b);
-  });
-  const sortedDates = Object.keys(grouped).sort();
+  const syncBadge = googleLoading
+    ? <span className="text-[10px] text-slate-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Sincronizando...</span>
+    : googleFreeSlots !== null
+      ? <span className="text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><CheckCircle className="w-3 h-3" />Google Agenda</span>
+      : selectedProf
+        ? <span className="text-[10px] bg-violet-50 text-violet-600 font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><Calendar className="w-3 h-3" />Agenda nativa</span>
+        : null;
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-xl font-black text-slate-900">Agenda</h2>
-          <p className="text-xs text-slate-400">{filteredAppts.length} marcação{filteredAppts.length !== 1 ? 'ões' : ''} próxima{filteredAppts.length !== 1 ? 's' : ''}</p>
+          <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
         </div>
-        <div className="flex items-center gap-2">
-          <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-            className="text-xs p-2 border border-slate-200 rounded-xl bg-white outline-none text-slate-600" />
-          <button onClick={() => setShowBlockModal(true)} title="Bloquear horário"
-            className="p-2 border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
-            <Clock className="w-4 h-4" />
-          </button>
-          <button onClick={() => setShowNewAppt(true)} title="Nova marcação"
-            className="p-2 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
+        <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
+          className="p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+          <Plus className="w-4 h-4" />
+        </button>
       </div>
 
-      {sortedDates.length === 0 ? (
-        <div className="text-center py-16">
-          <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <CalendarCheck className="w-8 h-8 text-slate-300" />
-          </div>
-          <p className="text-slate-400 text-sm font-medium">{filterDate ? 'Sem marcações neste dia.' : 'A sua agenda está livre.'}</p>
-          {filterDate && <button onClick={() => setFilterDate('')} className="mt-2 text-violet-500 text-xs font-semibold">Ver todas</button>}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {sortedDates.map(date => {
-            const { appts, blks } = grouped[date];
-            const hasDayOff = blks.some(b => b.type === 'day_off');
+      {/* Professional selector — hidden for staff (filterProfId set) */}
+      {!filterProfId && profissionals.length > 1 && (
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+          {profissionals.map(p => {
+            const active = selectedProfId === p.id;
             return (
-              <div key={date}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-violet-500" />
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{fmtData(date)}</p>
-                  {hasDayOff && <span className="text-[10px] bg-red-50 text-red-500 px-2 py-0.5 rounded-full font-semibold">Folga</span>}
+              <button key={p.id} onClick={() => setSelectedProfId(p.id)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-all ${
+                  active ? 'text-white shadow-sm border-transparent' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-200'
+                }`}
+                style={active ? { backgroundColor: p.cor || '#7c3aed' } : {}}>
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: active ? 'rgba(255,255,255,0.6)' : (p.cor || '#7c3aed') }} />
+                {p.nome}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Date navigation */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <button onClick={() => { setSelectedDate(d => addDays(d, -1)); setActiveSlot(null); }}
+            className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="text-center">
+            <p className="font-black text-slate-900 capitalize">
+              {selectedDate.toLocaleDateString('pt-BR', { weekday: 'long' })}
+            </p>
+            <p className="text-sm text-slate-500">
+              {selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+          </div>
+          <button onClick={() => { setSelectedDate(d => addDays(d, 1)); setActiveSlot(null); }}
+            className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors">
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+        {dateISO !== todayISO && (
+          <button onClick={() => { setSelectedDate(new Date()); setActiveSlot(null); }}
+            className="w-full mt-2 text-xs text-violet-500 font-semibold hover:text-violet-700 transition-colors">
+            Ir para hoje
+          </button>
+        )}
+      </div>
+
+      {/* Custom hours badge */}
+      {customHours && !isDayOff && (
+        <div className="bg-amber-50 rounded-xl px-3 py-2 border border-amber-100 flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold text-amber-700">Horário especial hoje: {customHours.horaInicio}–{customHours.horaFim}</p>
+          <button onClick={() => removeBlock(customHours.id)} className="p-1 text-amber-400 hover:text-amber-600 transition-colors"><X className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
+
+      {/* Day off */}
+      {isDayOff && (() => {
+        const b = dayBlocks.find(x => x.type === 'day_off');
+        return (
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-5 text-center mb-4">
+            <p className="font-black text-red-700 text-base">Dia de folga</p>
+            {b?.motivo && <p className="text-xs text-red-400 mt-1">{b.motivo}</p>}
+            <button onClick={() => removeBlock(b.id)} className="mt-3 text-xs text-red-400 hover:text-red-600 font-semibold">Remover bloqueio</button>
+          </div>
+        );
+      })()}
+
+      {/* Timeline */}
+      {!isDayOff && (
+        <div className="space-y-1.5">
+          {allSlots.length === 0 && (
+            <p className="text-center text-slate-400 text-sm py-10">Sem horários configurados.</p>
+          )}
+          {timeline.map(({ hora, state, appt, block }) => {
+
+            if (state === 'booked') return (
+              <div key={hora} className="bg-white rounded-2xl overflow-hidden border border-violet-100 shadow-sm">
+                <div className="flex items-stretch">
+                  <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-3"
+                    style={{ backgroundColor: selectedProf?.cor || '#7c3aed' }}>
+                    <span className="text-xs font-black text-white leading-tight">{hora}</span>
+                    {appt.duracao && <span className="text-[9px] text-white/60 mt-0.5">{fmtDuracao(appt.duracao)}</span>}
+                  </div>
+                  <div className="flex-1 px-4 py-3 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-slate-900 text-sm truncate">{appt.clienteNome}</p>
+                        <p className="text-xs text-slate-500 truncate">{appt.servico}</p>
+                        {appt.profissionalNome && !selectedProfId && (
+                          <p className="text-[10px] text-violet-500 mt-0.5">com {appt.profissionalNome}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          {appt.valor && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {Number(appt.valor).toFixed(2)}</span>}
+                          {appt.clienteWhats && (
+                            <a href={`https://wa.me/${appt.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${appt.clienteNome}! Lembrete: ${appt.servico} às ${appt.hora}. Até breve!`)}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold">
+                              <MessageCircle className="w-3 h-3" />{appt.clienteWhats}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                      <button onClick={() => cancelar(appt.id)} className="p-1 text-slate-200 hover:text-red-400 transition-colors flex-shrink-0">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-3">
-                  {appts.map(appt => (
-                    <div key={appt.id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
-                      <div className="flex items-stretch">
-                        <div className="w-16 bg-violet-50 flex flex-col items-center justify-center py-4 flex-shrink-0">
-                          <span className="text-sm font-black text-violet-700">{appt.hora}</span>
-                          {appt.duracao && <span className="text-[9px] text-violet-400 mt-0.5">{fmtDuracao(appt.duracao)}</span>}
-                        </div>
-                        <div className="flex-1 p-4 min-w-0">
-                          <div className="flex items-start justify-between">
-                            <div className="min-w-0 flex-1">
-                              <h4 className="font-bold text-slate-900 truncate">{appt.clienteNome}</h4>
-                              <p className="text-sm text-slate-500 mt-0.5">{appt.servico || 'Marcação'}</p>
-                              {appt.profissionalNome && (
-                                <p className="text-xs text-violet-500 mt-0.5">com {appt.profissionalNome}</p>
-                              )}
-                              <div className="flex items-center gap-2 mt-1.5">
-                                {appt.valor && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">R$ {Number(appt.valor).toFixed(2)}</span>}
-                                {appt.clienteWhats && <span className="text-xs text-slate-400">{appt.clienteWhats}</span>}
-                              </div>
-                            </div>
-                            <button onClick={() => cancelar(appt.id)} className="p-1.5 text-slate-200 hover:text-red-400 transition-colors ml-2">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                      {appt.clienteWhats && (
-                        <div className="border-t border-slate-50 px-4 py-2.5">
-                          <a href={waLink(appt.clienteWhats, appt.clienteNome, appt.data, appt.hora, appt.servico || 'Marcação')}
-                            target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-sm text-emerald-600 font-semibold">
-                            <MessageCircle className="w-4 h-4" />
-                            Contactar via WhatsApp
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {blks.filter(b => b.type === 'slot').map(b => (
-                    <div key={b.id} className="bg-red-50 rounded-2xl overflow-hidden border border-red-100 flex items-center">
-                      <div className="w-16 bg-red-100 flex flex-col items-center justify-center py-4 flex-shrink-0">
-                        <span className="text-sm font-black text-red-600">{b.hora}</span>
-                        {b.duracao && <span className="text-[9px] text-red-400 mt-0.5">{fmtDuracao(b.duracao)}</span>}
-                      </div>
-                      <div className="flex-1 p-4">
-                        <p className="font-bold text-red-700 text-sm">Bloqueado</p>
-                        {b.motivo && <p className="text-xs text-red-400 mt-0.5">{b.motivo}</p>}
-                        {b.profissionalId && (() => { const pr = (profile?.profissionals||[]).find(p=>p.id===b.profissionalId); return pr ? <p className="text-xs text-red-400">· {pr.nome}</p> : null; })()}
-                      </div>
-                      <button onClick={() => removeBlock(b.id)} className="p-3 text-red-300 hover:text-red-500 transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                  {blks.filter(b => b.type === 'day_off').map(b => (
-                    <div key={b.id} className="bg-red-50 rounded-2xl p-4 border border-red-100 flex items-center justify-between">
-                      <div>
-                        <p className="font-bold text-red-700 text-sm">Dia de folga / indisponível</p>
-                        {b.motivo && <p className="text-xs text-red-400 mt-0.5">{b.motivo}</p>}
-                        {b.profissionalId && (() => { const pr = (profile?.profissionals||[]).find(p=>p.id===b.profissionalId); return pr ? <p className="text-xs text-red-400">{pr.nome}</p> : null; })()}
-                      </div>
-                      <button onClick={() => removeBlock(b.id)} className="p-1.5 text-red-300 hover:text-red-500 transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                  {blks.filter(b => b.type === 'custom_hours').map(b => (
-                    <div key={b.id} className="bg-amber-50 rounded-2xl p-4 border border-amber-100 flex items-center justify-between">
-                      <div>
-                        <p className="font-bold text-amber-700 text-sm">Horário especial: {b.horaInicio}–{b.horaFim}</p>
-                        {b.motivo && <p className="text-xs text-amber-500 mt-0.5">{b.motivo}</p>}
-                      </div>
-                      <button onClick={() => removeBlock(b.id)} className="p-1.5 text-amber-300 hover:text-amber-500 transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+              </div>
+            );
+
+            if (state === 'continuation') return (
+              <div key={hora} className="flex items-center rounded-xl overflow-hidden border border-violet-50 bg-violet-50/50 opacity-60">
+                <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-2"
+                  style={{ backgroundColor: (selectedProf?.cor || '#7c3aed') + '30' }}>
+                  <span className="text-[10px] font-semibold text-slate-400">{hora}</span>
                 </div>
+                <div className="px-4 py-2">
+                  <p className="text-[10px] text-violet-400 font-semibold">↳ {appt.servico} em curso</p>
+                </div>
+              </div>
+            );
+
+            if (state === 'blocked') return (
+              <div key={hora} className="bg-red-50 rounded-xl overflow-hidden border border-red-100 flex items-center">
+                <div className="w-[60px] bg-red-100 flex-shrink-0 flex flex-col items-center justify-center py-3">
+                  <span className="text-xs font-black text-red-600">{hora}</span>
+                  {block.duracao && <span className="text-[9px] text-red-400 mt-0.5">{fmtDuracao(block.duracao)}</span>}
+                </div>
+                <div className="flex-1 px-3 py-2">
+                  <p className="text-xs font-bold text-red-700">Bloqueado</p>
+                  {block.motivo && <p className="text-[10px] text-red-400">{block.motivo}</p>}
+                </div>
+                <button onClick={() => removeBlock(block.id)} className="p-3 text-red-300 hover:text-red-500 transition-colors flex-shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+
+            if (state === 'google_busy') return (
+              <div key={hora} className="bg-blue-50/60 rounded-xl overflow-hidden border border-blue-100 flex items-center opacity-70">
+                <div className="w-[60px] bg-blue-100/60 flex-shrink-0 flex items-center justify-center py-2.5">
+                  <span className="text-xs font-semibold text-blue-500">{hora}</span>
+                </div>
+                <p className="px-3 text-xs text-blue-600 font-semibold">Ocupado (Google)</p>
+              </div>
+            );
+
+            // Free
+            const isActive = activeSlot === hora;
+            return (
+              <div key={hora}>
+                <button onClick={() => setActiveSlot(isActive ? null : hora)}
+                  className={`w-full flex items-center rounded-xl border-2 border-dashed transition-all ${
+                    isActive ? 'border-violet-400 bg-violet-50' : 'border-slate-100 bg-white/60 hover:border-violet-200 hover:bg-violet-50/40'
+                  }`}>
+                  <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-3">
+                    <span className="text-xs font-semibold text-slate-400">{hora}</span>
+                  </div>
+                  <p className="flex-1 text-left px-3 text-[11px] text-slate-300 font-medium">Disponível</p>
+                  {isActive && <ChevronRight className="w-3.5 h-3.5 text-violet-400 mr-3" />}
+                </button>
+                {isActive && (
+                  <div className="flex gap-2 mt-1 mb-0.5">
+                    <button onClick={() => openNewAppt(hora)}
+                      className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors">
+                      <Plus className="w-3.5 h-3.5" />Agendar
+                    </button>
+                    <button onClick={() => openBlock(hora)}
+                      className="flex-1 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-red-100 transition-colors">
+                      <Clock className="w-3.5 h-3.5" />Bloquear
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -850,20 +983,20 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
 
       {showNewAppt && profile && (
         <NewAppointmentModal
-          lojaId={colId}
-          profile={profile}
-          filterProfId={filterProfId}
-          onClose={() => setShowNewAppt(false)}
-          onSaved={() => setShowNewAppt(false)}
+          lojaId={colId} profile={profile}
+          filterProfId={filterProfId || selectedProfId}
+          prefilledHora={preHora} prefilledDate={dateISO}
+          onClose={() => { setShowNewAppt(false); setPreHora(''); }}
+          onSaved={() => { setShowNewAppt(false); setPreHora(''); }}
         />
       )}
       {showBlockModal && (
         <BlockModal
-          lojaId={colId}
-          filterProfId={filterProfId}
-          profile={profile}
-          onClose={() => setShowBlockModal(false)}
-          onSaved={() => setShowBlockModal(false)}
+          lojaId={colId} profile={profile}
+          filterProfId={filterProfId || selectedProfId}
+          prefilledHora={preHora} prefilledDate={dateISO}
+          onClose={() => { setShowBlockModal(false); setPreHora(''); }}
+          onSaved={() => { setShowBlockModal(false); setPreHora(''); }}
         />
       )}
     </div>
@@ -871,15 +1004,15 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
 }
 
 // ── New Appointment Modal ─────────────────────────────────
-function NewAppointmentModal({ lojaId, profile, filterProfId, onClose, onSaved }) {
+function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, prefilledDate, onClose, onSaved }) {
   const [clienteWhats, setClienteWhats] = useState('');
   const [clienteNome, setClienteNome] = useState('');
   const [clienteNascimento, setClienteNascimento] = useState('');
   const [existingClient, setExistingClient] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [selectedProfId, setSelectedProfId] = useState(filterProfId || '');
-  const [data, setData] = useState(new Date().toISOString().split('T')[0]);
-  const [hora, setHora] = useState('');
+  const [data, setData] = useState(prefilledDate || new Date().toISOString().split('T')[0]);
+  const [hora, setHora] = useState(prefilledHora || '');
   const [slots, setSlots] = useState(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -906,7 +1039,7 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, onClose, onSaved }
     if (!selectedService || !data) return;
     setSlotsLoading(true);
     setSlots(null);
-    setHora('');
+    setHora(h => (prefilledHora && h === prefilledHora) ? prefilledHora : '');
     const params = new URLSearchParams({
       lojaId,
       data,
@@ -1104,10 +1237,10 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, onClose, onSaved }
 }
 
 // ── Block Modal ───────────────────────────────────────────
-function BlockModal({ lojaId, filterProfId, profile, onClose, onSaved }) {
-  const [type, setType] = useState('day_off');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [hora, setHora] = useState('');
+function BlockModal({ lojaId, filterProfId, profile, prefilledHora, prefilledDate, onClose, onSaved }) {
+  const [type, setType] = useState(prefilledHora ? 'slot' : 'day_off');
+  const [date, setDate] = useState(prefilledDate || new Date().toISOString().split('T')[0]);
+  const [hora, setHora] = useState(prefilledHora || '');
   const [duracao, setDuracao] = useState(60);
   const [horaInicio, setHoraInicio] = useState('');
   const [horaFim, setHoraFim] = useState('');
@@ -2233,15 +2366,6 @@ function ClientPortal({ lojaUid, profile }) {
 
   const profissionals = profile.profissionals || [];
   const servicos = profile.servicos || [];
-
-  const toDateISO = (d) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
-
-  const addDays = (d, n) => { const copy = new Date(d); copy.setDate(copy.getDate() + n); return copy; };
 
   const fetchSlots = useCallback(async (date, servico, profId) => {
     setSlotsLoading(true);
