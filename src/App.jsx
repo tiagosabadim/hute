@@ -243,40 +243,46 @@ export default function App() {
 
     // ── Admin / Staff auth ───────────────────────────────
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (u && !u.isAnonymous) {
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('success')) window.history.replaceState({}, '', window.location.pathname);
-        if (params.get('error')) {
-          alert(`Erro Google Agenda: ${params.get('msg') || params.get('error')}`);
-          window.history.replaceState({}, '', window.location.pathname);
-        }
-        setUser(u);
-
-        // Check if this is a staff (professional) account
-        const staffSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'staff', u.uid));
-        if (staffSnap.exists()) {
-          const sr = staffSnap.data();
-          setStaffRecord(sr);
-          const lp = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', sr.lojaId));
-          if (lp.exists()) setLojaProfile(lp.data());
-        } else {
-          const p = await fetchProfile(u.uid);
-          if (!p) {
-            // No admin profile — check if this is a B2C client account that leaked into admin URL
-            try {
-              const clientSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', u.uid));
-              if (clientSnap.exists()) {
-                // Client user on admin URL — sign them out and show login
-                await signOut(auth);
-                return;
-              }
-            } catch {}
+      try {
+        if (u && !u.isAnonymous) {
+          const params = new URLSearchParams(window.location.search);
+          if (params.get('success')) window.history.replaceState({}, '', window.location.pathname);
+          if (params.get('error')) {
+            alert(`Erro Google Agenda: ${params.get('msg') || params.get('error')}`);
+            window.history.replaceState({}, '', window.location.pathname);
           }
+          setUser(u);
+
+          // Check if this is a staff (professional) account
+          const staffSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'staff', u.uid));
+          if (staffSnap.exists()) {
+            const sr = staffSnap.data();
+            setStaffRecord(sr);
+            const lp = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', sr.lojaId));
+            if (lp.exists()) setLojaProfile(lp.data());
+          } else {
+            const p = await fetchProfile(u.uid);
+            if (!p) {
+              // No admin profile — check if this is a B2C client account on admin URL
+              try {
+                const clientSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', u.uid));
+                if (clientSnap.exists()) {
+                  // Client account on admin URL — sign out silently, show login
+                  signOut(auth).catch(() => {});
+                  setUser(null); setProfile(null);
+                }
+              } catch { /* ignore — treat as new admin */ }
+            }
+          }
+        } else {
+          setUser(null); setProfile(null); setStaffRecord(null);
         }
-      } else {
+      } catch (err) {
+        console.error('Auth flow error:', err);
         setUser(null); setProfile(null); setStaffRecord(null);
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
     return () => unsub();
   }, [fetchProfile]);
@@ -296,7 +302,7 @@ export default function App() {
   if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} />;
   if (!user) return <LoginScreen />;
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
-  if (profile === null) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
+  if (!profile) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
   return <AdminPanel user={user} profile={profile} setProfile={setProfile} fetchProfile={fetchProfile} />;
 }
 
