@@ -245,6 +245,7 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, async (u) => {
       try {
         if (u && !u.isAnonymous) {
+          setAuthLoading(true); // keep loading screen while we verify profile
           const params = new URLSearchParams(window.location.search);
           if (params.get('success')) window.history.replaceState({}, '', window.location.pathname);
           if (params.get('error')) {
@@ -913,7 +914,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
           {allSlots.length === 0 && (
             <p className="text-center text-slate-400 text-sm py-10">Sem horários configurados.</p>
           )}
-          {timeline.map(({ hora, state, appt, block }) => {
+          {timeline.map(({ hora, state, appt, block, googleEvent, isFirstGoogleSlot }) => {
 
             if (state === 'booked') return (
               <div key={hora} className="bg-white rounded-2xl overflow-hidden border border-violet-100 shadow-sm">
