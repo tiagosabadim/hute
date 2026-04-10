@@ -2510,7 +2510,20 @@ function ClientPortal({ lojaUid, profile }) {
       });
       const res = await fetch(`${BACKEND_URL}/getSlots?${params}`);
       const json = await res.json();
-      setSlots(json.slots || []);
+      let slots = json.slots || [];
+
+      // Filter out past slots when the selected date is today (uses browser local time)
+      const isToday = toDateISO(date) === toDateISO(new Date());
+      if (isToday) {
+        const now = new Date();
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        slots = slots.filter(slot => {
+          const [h, m] = slot.split(':').map(Number);
+          return h * 60 + m > nowMin;
+        });
+      }
+
+      setSlots(slots);
     } catch {
       setSlots([]);
     } finally {
@@ -2713,15 +2726,26 @@ function ClientPortal({ lojaUid, profile }) {
     <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
 
       {/* ── Sticky header ─────────────────────────────────── */}
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-10">
-        {/* Service step — full hero */}
-        {step === 'service' && (profile.coverFoto || profile.logo) && (
+      <header className="sticky top-0 z-10">
+        {/* Hero banner — always visible when cover or logo exists */}
+        {(profile.coverFoto || profile.logo) ? (
           <div className="relative h-36 overflow-hidden">
             {profile.coverFoto
               ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
-              : <div className="w-full h-full bg-gradient-to-br from-violet-600 to-violet-900" />
+              : <div className="w-full h-full bg-gradient-to-br from-violet-700 to-violet-500" />
             }
-            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
+            {/* Back / signout buttons — top row */}
+            <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
+              {canGoBack
+                ? <button onClick={handleBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
+                : <div />
+              }
+              {step === 'home' && (
+                <button onClick={handleSignOut} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors" title="Sair"><LogOut className="w-4 h-4" /></button>
+              )}
+            </div>
+            {/* Logo + name — bottom */}
             <div className="absolute bottom-4 left-5 flex items-center gap-3">
               {profile.logo
                 ? <img src={profile.logo} alt="" className="w-12 h-12 rounded-xl object-cover border-2 border-white/80 shadow-lg" />
@@ -2733,37 +2757,15 @@ function ClientPortal({ lojaUid, profile }) {
               </div>
             </div>
           </div>
-        )}
-
-        {/* Booking steps (not service) with cover photo — compact strip h-16 */}
-        {['professional', 'datetime', 'form'].includes(step) && (profile.coverFoto || profile.logo) && (
-          <div className="relative h-16 overflow-hidden">
-            {profile.coverFoto
-              ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
-              : <div className="w-full h-full bg-gradient-to-r from-violet-700 to-violet-500" />
-            }
-            <div className="absolute inset-0 bg-black/45" />
-            <div className="absolute inset-0 flex items-center px-4 gap-3">
-              <button onClick={handleBack} className="w-8 h-8 bg-black/25 hover:bg-black/40 rounded-xl flex items-center justify-center text-white flex-shrink-0 transition-colors">
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              {profile.logo
-                ? <img src={profile.logo} alt="" className="w-8 h-8 rounded-lg object-cover border border-white/50 flex-shrink-0" />
-                : <div className="w-8 h-8 rounded-lg bg-violet-600 border border-white/50 flex items-center justify-center flex-shrink-0"><Sparkles className="w-4 h-4 text-white" /></div>
-              }
-              <p className="font-black text-white text-sm truncate">{profile.nome || 'Agendamento'}</p>
-            </div>
+        ) : (
+          <div className="bg-white border-b border-slate-100">
+            <LogoBar showBack={canGoBack} showSignOut={step === 'home'} />
           </div>
-        )}
-
-        {/* Fallback compact bar — when no cover photo, or on account/confirmed/home */}
-        {(!(profile.coverFoto || profile.logo) || ['account', 'confirmed', 'home'].includes(step)) && (
-          <LogoBar showBack={canGoBack} showSignOut={step === 'home'} />
         )}
 
         {/* Progress dots — booking steps only */}
         {['service', 'professional', 'datetime', 'form'].includes(step) && (
-          <div className="flex gap-1.5 px-5 pb-3 pt-2">
+          <div className="flex gap-1.5 px-5 py-2 bg-white border-b border-slate-100">
             {Array.from({ length: totalSteps }).map((_, i) => (
               <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
             ))}
