@@ -62,35 +62,41 @@ function profPath(uid, profId) {
 
 // ── App root ──────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(undefined); // undefined = loading
+  const [user, setUser] = useState(undefined);
   const [profile, setProfile] = useState(null);
+  const [staffRecord, setStaffRecord] = useState(null); // { lojaId, profissionalId, nome }
+  const [lojaProfile, setLojaProfile] = useState({});   // used by staff + client portal
   const [isClientMode, setIsClientMode] = useState(false);
   const [resolvedLojaUid, setResolvedLojaUid] = useState(null);
-  const [lojaProfile, setLojaProfile] = useState({});
+  const [inviteToken, setInviteToken] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
   const fetchProfile = useCallback(async (uid) => {
     const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid));
-    if (snap.exists()) {
-      setProfile(snap.data());
-      return snap.data();
-    }
-    setProfile(null);
-    return null;
+    if (snap.exists()) { setProfile(snap.data()); return snap.data(); }
+    setProfile(null); return null;
   }, []);
 
   useEffect(() => {
-    const hash = window.location.hash.replace('#', '').toLowerCase().trim();
+    const raw = window.location.hash.replace('#', '').trim();
+    const hash = raw.toLowerCase();
+
+    // ── Invite link: /#invite/TOKEN ──────────────────────
+    if (hash.startsWith('invite/')) {
+      setInviteToken(raw.replace(/^invite\//i, ''));
+      setAuthLoading(false);
+      return;
+    }
+
+    // ── Client portal: /#slug ────────────────────────────
     if (hash) {
-      // Client portal mode — resolve slug without auth
       getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', hash))
         .then(snap => {
           if (snap.exists()) {
             const uid = snap.data().uid;
             setResolvedLojaUid(uid);
-            getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid)).then(p => {
-              if (p.exists()) setLojaProfile(p.data());
-            });
+            getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid))
+              .then(p => { if (p.exists()) setLojaProfile(p.data()); });
             setIsClientMode(true);
           }
         })
@@ -99,52 +105,51 @@ export default function App() {
       return;
     }
 
+    // ── Admin / Staff auth ───────────────────────────────
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u && !u.isAnonymous) {
-        // Handle OAuth callback params
         const params = new URLSearchParams(window.location.search);
-        if (params.get('success')) {
-          window.history.replaceState({}, '', window.location.pathname);
-        }
+        if (params.get('success')) window.history.replaceState({}, '', window.location.pathname);
         if (params.get('error')) {
           alert(`Erro Google Agenda: ${params.get('msg') || params.get('error')}`);
           window.history.replaceState({}, '', window.location.pathname);
         }
         setUser(u);
-        await fetchProfile(u.uid);
+
+        // Check if this is a staff (professional) account
+        const staffSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'staff', u.uid));
+        if (staffSnap.exists()) {
+          const sr = staffSnap.data();
+          setStaffRecord(sr);
+          const lp = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', sr.lojaId));
+          if (lp.exists()) setLojaProfile(lp.data());
+        } else {
+          await fetchProfile(u.uid);
+        }
       } else {
-        setUser(null);
-        setProfile(null);
+        setUser(null); setProfile(null); setStaffRecord(null);
       }
       setAuthLoading(false);
     });
     return () => unsub();
   }, [fetchProfile]);
 
-  if (authLoading) {
-    return (
-      <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-violet-600 to-violet-800">
-        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-          <Sparkles className="w-8 h-8 text-white" />
-        </div>
-        <span className="text-white font-black text-2xl tracking-tight mb-2">hute</span>
-        <Loader2 className="w-5 h-5 animate-spin text-white/70" />
+  const Loading = () => (
+    <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-violet-600 to-violet-800">
+      <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
+        <Sparkles className="w-8 h-8 text-white" />
       </div>
-    );
-  }
+      <span className="text-white font-black text-2xl tracking-tight mb-2">hute</span>
+      <Loader2 className="w-5 h-5 animate-spin text-white/70" />
+    </div>
+  );
 
-  if (isClientMode) {
-    return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} />;
-  }
-
-  if (!user) {
-    return <LoginScreen />;
-  }
-
-  if (!profile || !profile.nome) {
-    return <OnboardingScreen user={user} onComplete={(p) => setProfile(p)} />;
-  }
-
+  if (authLoading) return <Loading />;
+  if (inviteToken) return <InviteAcceptScreen token={inviteToken} onDone={() => setInviteToken(null)} />;
+  if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} />;
+  if (!user) return <LoginScreen />;
+  if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
+  if (!profile || !profile.nome) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
   return <AdminPanel user={user} profile={profile} setProfile={setProfile} fetchProfile={fetchProfile} />;
 }
 
@@ -496,8 +501,8 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       </header>
 
       <main className="p-5">
-        {view === 'agenda'   && <AdminAgenda user={user} />}
-        {view === 'clients'  && <AdminClients user={user} />}
+        {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} />}
+        {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} />}
         {view === 'equipa'   && <AdminEquipa user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
         {view === 'settings' && <AdminSettings user={user} profile={profile} setProfile={setProfile} onLogout={handleLogout} />}
@@ -521,27 +526,29 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 }
 
 // ── Admin Agenda ──────────────────────────────────────────
-function AdminAgenda({ user }) {
+function AdminAgenda({ user, lojaId, filterProfId }) {
   const [appointments, setAppointments] = useState([]);
   const [filterDate, setFilterDate] = useState('');
+  const colId = lojaId || user.uid;
 
   useEffect(() => {
     if (!user) return;
-    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`);
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`);
     const unsub = onSnapshot(q, (snap) => {
       const today = new Date().toISOString().split('T')[0];
-      const appts = snap.docs
+      let appts = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter(a => a.data >= today)
-        .sort((a, b) => a.data.localeCompare(b.data) || a.hora.localeCompare(b.hora));
+        .filter(a => a.data >= today);
+      if (filterProfId) appts = appts.filter(a => a.profissionalId === filterProfId);
+      appts.sort((a, b) => a.data.localeCompare(b.data) || a.hora.localeCompare(b.hora));
       setAppointments(appts);
     });
     return () => unsub();
-  }, [user]);
+  }, [user, colId, filterProfId]);
 
   const cancelar = async (id) => {
     if (!window.confirm('Cancelar este agendamento?')) return;
-    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`, id)).catch(() => alert('Erro ao cancelar.'));
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`, id)).catch(() => alert('Erro ao cancelar.'));
   };
 
   const waLink = (num, nome, data, hora, servico) => {
@@ -629,15 +636,17 @@ function AdminAgenda({ user }) {
 }
 
 // ── Admin Clients ─────────────────────────────────────────
-function AdminClients({ user }) {
+function AdminClients({ user, lojaId, filterProfId }) {
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
+  const colId = lojaId || user.uid;
 
   useEffect(() => {
     if (!user) return;
-    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`);
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`);
     const unsub = onSnapshot(q, (snap) => {
-      const appts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let appts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (filterProfId) appts = appts.filter(a => a.profissionalId === filterProfId);
       const map = {};
       appts.forEach(a => {
         const key = (a.clienteWhats || '').replace(/\D/g, '') || (a.clienteNome || '').toLowerCase().replace(/\s+/g, '_');
@@ -652,10 +661,10 @@ function AdminClients({ user }) {
       setClients(Object.values(map).sort((a, b) => (b.ultimaVisita || '').localeCompare(a.ultimaVisita || '')));
     });
     return () => unsub();
-  }, [user]);
+  }, [user, colId, filterProfId]);
 
   if (selectedClient) {
-    return <ClientDetail user={user} clientData={selectedClient} onBack={() => setSelectedClient(null)} />;
+    return <ClientDetail user={user} lojaId={colId} clientData={selectedClient} onBack={() => setSelectedClient(null)} />;
   }
 
   return (
@@ -697,7 +706,7 @@ function AdminClients({ user }) {
   );
 }
 
-function ClientDetail({ user, clientData, onBack }) {
+function ClientDetail({ user, lojaId, clientData, onBack }) {
   const [nome, setNome] = useState(clientData.nome || '');
   const [whats, setWhats] = useState(clientData.whats || '');
   const [nascimento, setNascimento] = useState(clientData.nascimento || '');
@@ -709,7 +718,7 @@ function ClientDetail({ user, clientData, onBack }) {
     try {
       const clientKey = (whats || '').replace(/\D/g, '') || nome.toLowerCase().replace(/\s+/g, '_');
       await setDoc(
-        doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${user.uid}`, clientKey),
+        doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId || user.uid}`, clientKey),
         { nome, whats, nascimento, ultimaVisita: clientData.ultimaVisita || '', totalVisitas: clientData.visitas.length },
         { merge: true }
       );
@@ -810,6 +819,8 @@ function AdminEquipa({ user, profile, setProfile }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newProf, setNewProf] = useState({ nome: '', cor: PROF_COLORS[0], servicos: [], agendaTipo: 'nativa' });
   const [calStatus, setCalStatus] = useState({}); // profId -> { connected: bool }
+  const [inviteLinks, setInviteLinks] = useState({}); // profId -> invite URL
+  const [generatingInvite, setGeneratingInvite] = useState({}); // profId -> bool
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -874,6 +885,21 @@ function AdminEquipa({ user, profile, setProfile }) {
     await saveProfissionals([...profissionals, prof]);
     setNewProf({ nome: '', cor: PROF_COLORS[0], servicos: [], agendaTipo: 'nativa' });
     setShowAddForm(false);
+  };
+
+  const generateInvite = async (p) => {
+    setGeneratingInvite(prev => ({ ...prev, [p.id]: true }));
+    try {
+      const token = Math.random().toString(36).substr(2, 12) + Math.random().toString(36).substr(2, 12);
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'invites', token),
+        { lojaId: user.uid, profissionalId: p.id, profNome: p.nome, createdAt: new Date().toISOString(), used: false }
+      );
+      const link = `${window.location.origin}/#invite/${token}`;
+      setInviteLinks(prev => ({ ...prev, [p.id]: link }));
+    } finally {
+      setGeneratingInvite(prev => ({ ...prev, [p.id]: false }));
+    }
   };
 
   const startGoogleAuth = (profId) => {
@@ -1019,6 +1045,32 @@ function AdminEquipa({ user, profile, setProfile }) {
                       )}
                     </div>
                   )}
+
+                  <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-2">Acesso Staff</label>
+                    {inviteLinks[p.id] ? (
+                      <div>
+                        <p className="text-[11px] text-slate-500 mb-1.5">Partilhe este link com o profissional:</p>
+                        <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 px-3 py-2">
+                          <p className="text-[11px] text-slate-700 flex-1 break-all">{inviteLinks[p.id]}</p>
+                          <button onClick={() => { navigator.clipboard.writeText(inviteLinks[p.id]); }}
+                            className="p-1 text-slate-400 hover:text-violet-600 transition-colors flex-shrink-0">
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <button onClick={() => generateInvite(p)} disabled={generatingInvite[p.id]}
+                          className="mt-2 text-[11px] text-violet-500 hover:underline">
+                          Gerar novo link
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => generateInvite(p)} disabled={generatingInvite[p.id]}
+                        className="w-full py-2.5 border border-dashed border-violet-200 text-violet-600 font-semibold rounded-xl text-xs hover:bg-violet-50 transition-colors flex items-center justify-center gap-2">
+                        {generatingInvite[p.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                        Gerar Link de Convite
+                      </button>
+                    )}
+                  </div>
 
                   <div className="flex gap-3 pt-2">
                     <button onClick={saveEdit} disabled={saving}
@@ -1747,6 +1799,215 @@ function ClientPortal({ lojaUid, profile }) {
           <span className="text-xs text-slate-400 font-semibold">hute</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Invite Accept Screen ──────────────────────────────────
+function InviteAcceptScreen({ token, onDone }) {
+  const [inviteData, setInviteData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [mode, setMode] = useState('create');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'invites', token))
+      .then(snap => {
+        if (!snap.exists()) { setError('Link de convite inválido ou expirado.'); }
+        else if (snap.data().used) { setError('Este link de convite já foi utilizado.'); }
+        else { setInviteData(snap.data()); }
+      })
+      .catch(() => setError('Erro ao carregar convite.'))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setSubmitting(true);
+    try {
+      let userCred;
+      if (mode === 'create') {
+        userCred = await createUserWithEmailAndPassword(auth, email, password);
+      } else {
+        userCred = await signInWithEmailAndPassword(auth, email, password);
+      }
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'staff', userCred.user.uid),
+        { lojaId: inviteData.lojaId, profissionalId: inviteData.profissionalId, nome: inviteData.profNome, role: 'professional' }
+      );
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'invites', token),
+        { used: true },
+        { merge: true }
+      );
+      window.location.hash = '';
+      onDone();
+    } catch (err) {
+      const msgs = {
+        'auth/email-already-in-use': 'Este email já está registado. Tente fazer login.',
+        'auth/invalid-email': 'Email inválido.',
+        'auth/weak-password': 'A palavra-passe deve ter pelo menos 6 caracteres.',
+        'auth/user-not-found': 'Utilizador não encontrado.',
+        'auth/wrong-password': 'Palavra-passe incorreta.',
+        'auth/invalid-credential': 'Credenciais inválidas.',
+      };
+      setAuthError(msgs[err.code] || err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-violet-600 to-violet-800">
+        <Loader2 className="w-8 h-8 animate-spin text-white" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-violet-600 to-violet-900 flex items-center justify-center p-6">
+        <div className="bg-white rounded-3xl p-8 shadow-2xl w-full max-w-sm text-center">
+          <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <X className="w-7 h-7 text-red-500" />
+          </div>
+          <h2 className="font-black text-slate-900 text-xl mb-2">Link inválido</h2>
+          <p className="text-slate-400 text-sm">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-violet-600 via-violet-700 to-violet-900 flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+            <Sparkles className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-white font-black text-3xl tracking-tight">hute</h1>
+          <p className="text-violet-200 text-sm mt-1">Convite de acesso</p>
+        </div>
+
+        <div className="bg-white rounded-3xl p-8 shadow-2xl">
+          <div className="bg-violet-50 rounded-2xl p-4 mb-6 text-center">
+            <p className="text-xs text-violet-500 font-semibold uppercase tracking-wider mb-1">Você foi convidado como</p>
+            <p className="font-black text-violet-900 text-lg">{inviteData?.profNome}</p>
+          </div>
+
+          <h2 className="text-slate-900 font-black text-lg mb-1">
+            {mode === 'create' ? 'Criar a sua conta' : 'Entrar na sua conta'}
+          </h2>
+          <p className="text-slate-400 text-xs mb-5">Aceda à sua agenda pessoal</p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="o@meu.email"
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Palavra-passe</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+                <input type={showPw ? 'text' : 'password'} required value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
+                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {authError && (
+              <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-xl p-3">{authError}</div>
+            )}
+
+            <button type="submit" disabled={submitting}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {mode === 'create' ? 'Criar conta e entrar' : 'Entrar'}
+            </button>
+          </form>
+
+          <div className="mt-5 text-center">
+            <p className="text-slate-400 text-sm">
+              {mode === 'create' ? 'Já tem conta?' : 'Ainda não tem conta?'}
+              {' '}
+              <button onClick={() => { setMode(m => m === 'create' ? 'login' : 'create'); setAuthError(''); }}
+                className="text-violet-600 font-semibold hover:underline">
+                {mode === 'create' ? 'Entrar' : 'Criar conta'}
+              </button>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Staff Panel ───────────────────────────────────────────
+function StaffPanel({ user, staffRecord, lojaProfile }) {
+  const [view, setView] = useState('agenda');
+
+  const handleLogout = async () => { await signOut(auth); };
+
+  const navItems = [
+    { key: 'agenda',  icon: Calendar, label: 'Agenda' },
+    { key: 'clients', icon: Users,    label: 'Clientes' },
+  ];
+
+  return (
+    <div className="max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200">
+      <header className="bg-white border-b border-slate-100 px-5 py-4 sticky top-0 z-10">
+        <div className="flex justify-between items-center">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-violet-600 rounded-lg flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <span className="font-black text-slate-900 text-lg tracking-tight">hute</span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-0.5 ml-9">
+              {staffRecord.nome} · {lojaProfile.nome || 'Staff'}
+            </p>
+          </div>
+          <button onClick={handleLogout} className="flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-xs font-medium px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors">
+            <LogOut className="w-4 h-4" />
+            Sair
+          </button>
+        </div>
+      </header>
+
+      <main className="p-5">
+        {view === 'agenda'  && <AdminAgenda user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} />}
+        {view === 'clients' && <AdminClients user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} />}
+      </main>
+
+      <nav className="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-slate-100 flex justify-around py-2 px-1 z-20">
+        {navItems.map(({ key, icon: Icon, label }) => {
+          const active = view === key;
+          return (
+            <button key={key} onClick={() => setView(key)}
+              className={`flex flex-col items-center px-6 py-1.5 rounded-xl transition-all ${active ? 'text-violet-600' : 'text-slate-400'}`}>
+              <Icon className={`w-5 h-5 mb-0.5 ${active ? 'text-violet-600' : ''}`} />
+              <span className={`text-[10px] font-semibold ${active ? 'text-violet-600' : ''}`}>{label}</span>
+              {active && <div className="w-1 h-1 rounded-full bg-violet-600 mt-0.5" />}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
