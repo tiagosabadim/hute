@@ -260,7 +260,18 @@ export default function App() {
           const lp = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', sr.lojaId));
           if (lp.exists()) setLojaProfile(lp.data());
         } else {
-          await fetchProfile(u.uid);
+          const p = await fetchProfile(u.uid);
+          if (!p) {
+            // No admin profile — check if this is a B2C client account that leaked into admin URL
+            try {
+              const clientSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', u.uid));
+              if (clientSnap.exists()) {
+                // Client user on admin URL — sign them out and show login
+                await signOut(auth);
+                return;
+              }
+            } catch {}
+          }
         }
       } else {
         setUser(null); setProfile(null); setStaffRecord(null);
@@ -285,7 +296,7 @@ export default function App() {
   if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} />;
   if (!user) return <LoginScreen />;
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
-  if (!profile || !profile.nome) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
+  if (profile === null) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
   return <AdminPanel user={user} profile={profile} setProfile={setProfile} fetchProfile={fetchProfile} />;
 }
 
