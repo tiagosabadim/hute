@@ -929,14 +929,17 @@ function AdminEquipa({ user, profile, setProfile }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-slate-900">{p.nome}</p>
-                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${googleConnected ? 'bg-emerald-50 text-emerald-600' : p.agendaTipo === 'google' ? 'bg-amber-50 text-amber-600' : 'bg-violet-50 text-violet-600'}`}>
-                      {googleConnected ? 'Google Agenda' : p.agendaTipo === 'google' ? 'Google (desligado)' : 'Agenda Nativa'}
+                      {googleConnected ? 'Google ✓' : p.agendaTipo === 'google' ? 'Google (desligado)' : 'Nativa'}
                     </span>
-                    {(p.servicos || []).slice(0, 2).map(s => (
-                      <span key={s} className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{s}</span>
-                    ))}
-                    {(p.servicos || []).length > 2 && <span className="text-[10px] text-slate-400">+{p.servicos.length - 2}</span>}
+                    {(p.servicos || []).length === 0
+                      ? <span className="text-[10px] text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full">Sem serviços</span>
+                      : (p.servicos || []).slice(0, 3).map(s => (
+                          <span key={s} className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{s}</span>
+                        ))
+                    }
+                    {(p.servicos || []).length > 3 && <span className="text-[10px] text-slate-400">+{p.servicos.length - 3}</span>}
                   </div>
                 </div>
                 <Edit2 className="w-4 h-4 text-slate-300 flex-shrink-0" />
@@ -961,9 +964,13 @@ function AdminEquipa({ user, profile, setProfile }) {
                     </div>
                   </div>
 
-                  {(profile.servicos || []).length > 0 && (
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Serviços</label>
+                  <div className={`rounded-2xl p-3 border ${(editData.servicos || []).length === 0 ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-slate-50'}`}>
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-2">
+                      Serviços deste profissional
+                    </label>
+                    {(profile.servicos || []).length === 0 ? (
+                      <p className="text-xs text-slate-400">Adicione serviços primeiro na aba <strong>Serviços</strong>.</p>
+                    ) : (
                       <div className="space-y-2">
                         {profile.servicos.map(s => (
                           <label key={s.nome} className="flex items-center gap-3 cursor-pointer">
@@ -971,12 +978,18 @@ function AdminEquipa({ user, profile, setProfile }) {
                               checked={(editData.servicos || []).includes(s.nome)}
                               onChange={() => toggleEditServico(s.nome)}
                               className="w-4 h-4 accent-violet-600" />
-                            <span className="text-sm text-slate-700">{s.nome}</span>
+                            <div className="flex-1">
+                              <span className="text-sm text-slate-700 font-medium">{s.nome}</span>
+                              {s.preco && <span className="text-xs text-slate-400 ml-2">R$ {Number(s.preco).toFixed(2)}</span>}
+                            </div>
                           </label>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    )}
+                    {(editData.servicos || []).length === 0 && (profile.servicos || []).length > 0 && (
+                      <p className="text-[11px] text-amber-600 mt-2">⚠ Selecione pelo menos um serviço para este profissional aparecer na agenda dos clientes.</p>
+                    )}
+                  </div>
 
                   <div>
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo de agenda</label>
@@ -1044,9 +1057,13 @@ function AdminEquipa({ user, profile, setProfile }) {
               ))}
             </div>
           </div>
-          {(profile.servicos || []).length > 0 && (
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Serviços</label>
+          <div className={`rounded-2xl p-3 border ${(newProf.servicos || []).length === 0 ? 'border-amber-200 bg-amber-50' : 'border-slate-100 bg-slate-50'}`}>
+            <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-2">
+              Serviços deste profissional
+            </label>
+            {(profile.servicos || []).length === 0 ? (
+              <p className="text-xs text-slate-400">Adicione serviços primeiro na aba <strong>Serviços</strong>.</p>
+            ) : (
               <div className="space-y-2">
                 {profile.servicos.map(s => (
                   <label key={s.nome} className="flex items-center gap-3 cursor-pointer">
@@ -1054,12 +1071,15 @@ function AdminEquipa({ user, profile, setProfile }) {
                       checked={(newProf.servicos || []).includes(s.nome)}
                       onChange={() => toggleNewServico(s.nome)}
                       className="w-4 h-4 accent-violet-600" />
-                    <span className="text-sm text-slate-700">{s.nome}</span>
+                    <div className="flex-1">
+                      <span className="text-sm text-slate-700 font-medium">{s.nome}</span>
+                      {s.preco && <span className="text-xs text-slate-400 ml-2">R$ {Number(s.preco).toFixed(2)}</span>}
+                    </div>
                   </label>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
           <div>
             <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Tipo de agenda</label>
             <div className="flex gap-2">
@@ -1352,8 +1372,13 @@ function ClientPortal({ lojaUid, profile }) {
     }
   }, [lojaUid, profile.intervalo]);
 
+  // Professionals who offer the selected service.
+  // If no professional has that service assigned, show ALL professionals.
   const profForService = selectedService
-    ? profissionals.filter(p => (p.servicos || []).includes(selectedService.nome))
+    ? (() => {
+        const assigned = profissionals.filter(p => (p.servicos || []).includes(selectedService.nome));
+        return assigned.length > 0 ? assigned : profissionals;
+      })()
     : profissionals;
 
   const goToStep = (newStep) => {
@@ -1367,13 +1392,12 @@ function ClientPortal({ lojaUid, profile }) {
     setSelectedService(s);
     setSelectedProfissional(null);
     setSelectedHora('');
-    const profs = profissionals.filter(p => (p.servicos || []).includes(s.nome));
-    if (profs.length === 0) {
-      // No professionals for this service, skip professional step
+    // Always go to professional step if there are any professionals
+    if (profissionals.length > 0) {
+      setStep('professional');
+    } else {
       fetchSlots(selectedDate, s, null);
       setStep('datetime');
-    } else {
-      setStep('professional');
     }
   };
 
@@ -1532,28 +1556,26 @@ function ClientPortal({ lojaUid, profile }) {
         {step === 'professional' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Com quem?</h2>
-            <p className="text-sm text-slate-400 mb-5">Escolha o profissional</p>
+            <p className="text-sm text-slate-400 mb-5">
+              {selectedService ? `Profissionais para "${selectedService.nome}"` : 'Escolha o profissional'}
+            </p>
             <div className="space-y-3">
-              <button onClick={() => selectProfissional(null)}
-                className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
-                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  <User className="w-6 h-6 text-slate-400" />
-                </div>
-                <div>
-                  <p className="font-bold text-slate-900">Sem preferência</p>
-                  <p className="text-xs text-slate-400">Primeiro disponível</p>
-                </div>
-              </button>
               {profForService.map(p => (
                 <button key={p.id} onClick={() => selectProfissional(p)}
                   className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-xl flex-shrink-0"
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-2xl flex-shrink-0"
                     style={{ backgroundColor: p.cor || '#7c3aed' }}>
                     {(p.nome || '?')[0].toUpperCase()}
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <p className="font-bold text-slate-900">{p.nome}</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {(p.servicos || []).slice(0, 3).map(s => (
+                        <span key={s} className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded-full font-medium">{s}</span>
+                      ))}
+                    </div>
                   </div>
+                  <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
                 </button>
               ))}
             </div>
