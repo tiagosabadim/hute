@@ -801,6 +801,15 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
       return { hora, state: 'google_busy', googleEvent, isFirstGoogleSlot: isFirst };
     }
 
+    // Past slot on today — no longer bookable
+    if (dateISO === todayISO) {
+      const [h, m] = hora.split(':').map(Number);
+      const now = new Date();
+      if (h * 60 + m <= now.getHours() * 60 + now.getMinutes()) {
+        return { hora, state: 'past' };
+      }
+    }
+
     return { hora, state: 'free' };
   });
 
@@ -1012,6 +1021,16 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
                 </div>
               );
             }
+
+            // Past slot — show as disabled/lost
+            if (state === 'past') return (
+              <div key={hora} className="flex items-center rounded-xl border border-dashed border-slate-100 bg-slate-50/50 opacity-50">
+                <div className="w-[60px] flex-shrink-0 flex items-center justify-center py-3">
+                  <span className="text-xs font-semibold text-slate-300">{hora}</span>
+                </div>
+                <p className="flex-1 text-left px-3 text-[11px] text-slate-300 font-medium">Horário perdido</p>
+              </div>
+            );
 
             // Free
             const isActive = activeSlot === hora;
