@@ -2494,6 +2494,42 @@ function ClientPortal({ lojaUid, profile }) {
     return () => unsub();
   }, []);
 
+  // Dynamic PWA manifest — use establishment branding when client visits
+  useEffect(() => {
+    if (!profile?.nome) return;
+    const icons = profile.logo
+      ? [{ src: profile.logo, sizes: 'any', type: 'image/png', purpose: 'any' }]
+      : [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }];
+    const manifest = {
+      name: profile.nome,
+      short_name: profile.nome,
+      description: `Agende com ${profile.nome}`,
+      start_url: window.location.href,
+      display: 'standalone',
+      background_color: '#f8fafc',
+      theme_color: '#7c3aed',
+      orientation: 'portrait',
+      icons,
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.querySelector('link[rel="manifest"]');
+    if (link) link.href = blobUrl;
+    // iOS uses meta tags instead of manifest for name + icon
+    const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (metaTitle) metaTitle.content = profile.nome;
+    if (profile.logo) {
+      let touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
+      if (!touchIcon) {
+        touchIcon = document.createElement('link');
+        touchIcon.rel = 'apple-touch-icon';
+        document.head.appendChild(touchIcon);
+      }
+      touchIcon.href = profile.logo;
+    }
+    return () => URL.revokeObjectURL(blobUrl);
+  }, [profile?.nome, profile?.logo]);
+
   // Capture PWA install prompt (Android/Desktop) and detect install
   useEffect(() => {
     const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
