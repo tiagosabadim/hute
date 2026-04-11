@@ -124,7 +124,7 @@ exports.handler = async (event) => {
 
     if (process.env.N8N_WEBHOOK_URL) {
       console.log('N8N_WEBHOOK_URL:', process.env.N8N_WEBHOOK_URL);
-      fetch(process.env.N8N_WEBHOOK_URL, {
+      await fetch(process.env.N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
