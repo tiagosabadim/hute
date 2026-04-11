@@ -2766,8 +2766,14 @@ function ClientPortal({ lojaUid, profile }) {
   };
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const upcomingAppts = clientAppts.filter(a => new Date(a.data + 'T23:59:59') >= today);
-  const pastAppts    = clientAppts.filter(a => new Date(a.data + 'T23:59:59') <  today);
+  function apptEndTime(a) {
+    const [h, m] = (a.hora || '0:0').split(':').map(Number);
+    const start = new Date(`${a.data}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+    return new Date(start.getTime() + (Number(a.duracao) || 60) * 60 * 1000);
+  }
+  const now = new Date();
+  const upcomingAppts = clientAppts.filter(a => apptEndTime(a) > now);
+  const pastAppts    = clientAppts.filter(a => apptEndTime(a) <= now);
 
   if (!authChecked) return (
     <div className="h-screen flex items-center justify-center bg-slate-50">
