@@ -117,12 +117,17 @@ exports.handler = async (event) => {
     }
 
     // ── n8n webhook (fire-and-forget) ──────────────────────
+    const telefoneNormalizado = (() => {
+      const digits = (clienteWhats || '').replace(/\D/g, '');
+      return digits.startsWith('55') ? digits : `55${digits}`;
+    })();
+
     if (process.env.N8N_WEBHOOK_URL) {
       fetch(process.env.N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          telefoneCliente: clienteWhats || '',
+          telefoneCliente: telefoneNormalizado,
           nomeCliente: clienteNome || '',
           servico: servico || '',
           data: data || '',
