@@ -3185,20 +3185,23 @@ function ClientPortal({ lojaUid, profile }) {
                       </button>
                       <button onClick={async () => {
                           if (!window.confirm('Cancelar esta marcação?')) return;
-                          fetch(`${BACKEND_URL}/cancelAppointment`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              lojaId: lojaUid,
-                              appointmentId: a.id,
-                              clienteWhats: a.clienteWhats || '',
-                              nomeCliente: a.clienteNome || '',
-                              servico: a.servico || '',
-                              data: a.data || '',
-                              hora: a.hora || '',
-                              profissionalNome: a.profissionalNome || '',
-                            }),
-                          }).catch(() => alert('Erro ao cancelar.'));
+                          try {
+                            const res = await fetch(`${BACKEND_URL}/cancelAppointment`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                lojaId: lojaUid,
+                                appointmentId: a.id,
+                                clienteWhats: a.clienteWhats || '',
+                                nomeCliente: a.clienteNome || '',
+                                servico: a.servico || '',
+                                data: a.data || '',
+                                hora: a.hora || '',
+                                profissionalNome: a.profissionalNome || '',
+                              }),
+                            });
+                            if (!res.ok) alert('Erro ao cancelar.');
+                          } catch { alert('Erro ao cancelar.'); }
                         }}
                         className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center">
                         Cancelar
