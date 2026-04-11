@@ -787,14 +787,14 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
     const fimMin = toMin(effEnd);
 
     const addGap = (gStart, gEnd) => {
-      if (gStart >= gEnd) return;
-      if (nowMin >= 0 && gEnd <= nowMin) {
-        timeline.push({ tipo:'past', hora:toStr(gStart), endHora:toStr(gEnd) });
-      } else if (nowMin >= 0 && gStart < nowMin) {
-        timeline.push({ tipo:'past', hora:toStr(gStart), endHora:toStr(nowMin) });
-        if (nowMin < gEnd) timeline.push({ tipo:'free', hora:toStr(nowMin), endHora:toStr(gEnd) });
-      } else {
-        timeline.push({ tipo:'free', hora:toStr(gStart), endHora:toStr(gEnd) });
+      // Generate individual intervalo-sized slots within the free gap.
+      // If an appointment ends at a non-grid time (e.g. 10:45), slots restart
+      // from there: 10:45, 11:45, 12:45… using intervalo as the step.
+      let cur = gStart;
+      while (cur + intervalo <= gEnd) {
+        const isPast = nowMin >= 0 && cur < nowMin;
+        timeline.push({ tipo: isPast ? 'past' : 'free', hora: toStr(cur), endHora: toStr(cur + intervalo) });
+        cur += intervalo;
       }
     };
 
@@ -947,8 +947,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
                     <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-2.5">
                       <span className="text-xs font-semibold text-slate-400">{item.hora}</span>
                     </div>
-                    <p className="flex-1 text-left px-3 text-[11px] text-slate-300 font-medium">Disponível até {item.endHora}</p>
-                    {isActive && <ChevronRight className="w-3.5 h-3.5 text-violet-400 mr-3" />}
+                    <p className="flex-1 text-left px-3 text-[11px] text-slate-400 font-medium">Disponível</p>
+                    {isActive
+                      ? <ChevronRight className="w-3.5 h-3.5 text-violet-400 mr-3" />
+                      : <span className="text-[10px] text-slate-200 mr-3">{item.endHora}</span>}
                   </button>
                   {isActive && (
                     <div className="flex gap-2 mt-1 mb-0.5">
