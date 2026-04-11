@@ -2118,6 +2118,9 @@ function AdminServicos({ user, profile, setProfile }) {
   const [preco, setPreco] = useState('');
   const [duracao, setDuracao] = useState(60);
   const [novaFoto, setNovaFoto] = useState(null);
+  const [tipoAviso, setTipoAviso] = useState('nenhum');
+  const [diasAviso, setDiasAviso] = useState('');
+  const [servicoManutencao, setServicoManutencao] = useState('');
   const [saving, setSaving] = useState(false);
   const [editIdx, setEditIdx] = useState(null);
   const [editData, setEditData] = useState({});
@@ -2133,10 +2136,33 @@ function AdminServicos({ user, profile, setProfile }) {
     }
   };
 
-  const addServico = async () => {
-    if (!nome.trim()) return;
-    await saveServicos([...servicos, { nome: nome.trim(), preco: preco ? Number(preco) : null, duracao: Number(duracao), foto: novaFoto || null }]);
-    setNome(''); setPreco(''); setDuracao(60); setNovaFoto(null);
+  const addServico = async (overrides = {}) => {
+    const nomeVal = (overrides.nome || nome).trim();
+    if (!nomeVal) return;
+    const novo = {
+      nome: nomeVal,
+      preco: overrides.preco !== undefined ? overrides.preco : (preco ? Number(preco) : null),
+      duracao: overrides.duracao !== undefined ? overrides.duracao : Number(duracao),
+      foto: overrides.foto !== undefined ? overrides.foto : (novaFoto || null),
+      tipoAviso: overrides.tipoAviso !== undefined ? overrides.tipoAviso : (tipoAviso !== 'nenhum' ? tipoAviso : undefined),
+      diasAviso: overrides.diasAviso !== undefined ? overrides.diasAviso : (tipoAviso !== 'nenhum' && diasAviso ? Number(diasAviso) : undefined),
+      servicoManutencao: overrides.servicoManutencao !== undefined ? overrides.servicoManutencao : (tipoAviso === 'manutencao' ? servicoManutencao || undefined : undefined),
+    };
+    // Remove undefined keys
+    Object.keys(novo).forEach(k => novo[k] === undefined && delete novo[k]);
+    const updated = [...servicos, novo];
+    await saveServicos(updated);
+    if (!overrides.nome) {
+      setNome(''); setPreco(''); setDuracao(60); setNovaFoto(null);
+      setTipoAviso('nenhum'); setDiasAviso(''); setServicoManutencao('');
+    }
+    return novo;
+  };
+
+  const criarServicoManutencaoRapido = async () => {
+    const nomeManut = `Manutenção${nome.trim() ? ` de ${nome.trim()}` : ''}`;
+    await saveServicos([...servicos, { nome: nomeManut, preco: null, duracao: 30, foto: null }]);
+    setServicoManutencao(nomeManut);
   };
 
   const removeServico = async (i) => {
@@ -2146,11 +2172,20 @@ function AdminServicos({ user, profile, setProfile }) {
 
   const startEdit = (i) => {
     setEditIdx(i);
-    setEditData({ ...servicos[i] });
+    setEditData({ tipoAviso: 'nenhum', diasAviso: '', servicoManutencao: '', ...servicos[i] });
   };
 
   const saveEdit = async () => {
-    const updated = servicos.map((s, i) => i === editIdx ? { ...editData } : s);
+    const d = { ...editData };
+    if (d.tipoAviso === 'nenhum' || !d.tipoAviso) {
+      delete d.tipoAviso; delete d.diasAviso; delete d.servicoManutencao;
+    } else if (d.tipoAviso === 'reagendamento') {
+      delete d.servicoManutencao;
+      if (d.diasAviso) d.diasAviso = Number(d.diasAviso);
+    } else {
+      if (d.diasAviso) d.diasAviso = Number(d.diasAviso);
+    }
+    const updated = servicos.map((s, i) => i === editIdx ? d : s);
     await saveServicos(updated);
     setEditIdx(null);
   };
@@ -2186,6 +2221,41 @@ function AdminServicos({ user, profile, setProfile }) {
                     </div>
                   </div>
                 </div>
+                {/* Aviso de retorno — edit */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Aviso de retorno</label>
+                  <select value={editData.tipoAviso || 'nenhum'} onChange={e => setEditData(p => ({ ...p, tipoAviso: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                    <option value="nenhum">Nenhum</option>
+                    <option value="reagendamento">Reagendamento</option>
+                    <option value="manutencao">Manutenção</option>
+                  </select>
+                  {(editData.tipoAviso && editData.tipoAviso !== 'nenhum') && (
+                    <input type="number" value={editData.diasAviso || ''} onChange={e => setEditData(p => ({ ...p, diasAviso: e.target.value }))}
+                      placeholder="Intervalo em dias (ex: 15)"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                  )}
+                  {editData.tipoAviso === 'manutencao' && (
+                    <div className="space-y-1.5">
+                      <select value={editData.servicoManutencao || ''} onChange={e => setEditData(p => ({ ...p, servicoManutencao: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                        <option value="">Selecionar serviço de manutenção</option>
+                        {servicos.filter((_, idx) => idx !== editIdx).map(s => (
+                          <option key={s.nome} value={s.nome}>{s.nome}</option>
+                        ))}
+                      </select>
+                      {!editData.servicoManutencao && (
+                        <button onClick={async () => {
+                          const nomeManut = `Manutenção${editData.nome ? ` de ${editData.nome}` : ''}`;
+                          await saveServicos([...servicos, { nome: nomeManut, preco: null, duracao: 30, foto: null }]);
+                          setEditData(p => ({ ...p, servicoManutencao: nomeManut }));
+                        }} className="w-full py-2 border border-dashed border-violet-300 text-violet-600 rounded-xl text-xs font-bold hover:bg-violet-50 transition-colors flex items-center justify-center gap-1.5">
+                          <Plus className="w-3.5 h-3.5" /> Criar serviço de manutenção
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div className="flex gap-2">
                   <button onClick={saveEdit} disabled={saving}
                     className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
@@ -2214,6 +2284,11 @@ function AdminServicos({ user, profile, setProfile }) {
                     {s.duracao && (
                       <span className="text-xs text-slate-400 flex items-center gap-1">
                         <Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}
+                      </span>
+                    )}
+                    {s.tipoAviso && s.tipoAviso !== 'nenhum' && s.diasAviso && (
+                      <span className="text-xs text-violet-600 font-bold bg-violet-50 px-2 py-0.5 rounded-full">
+                        {s.tipoAviso === 'reagendamento' ? 'Reagend.' : 'Manut.'} · {s.diasAviso}d
                       </span>
                     )}
                   </div>
@@ -2255,7 +2330,38 @@ function AdminServicos({ user, profile, setProfile }) {
             </div>
           </div>
         </div>
-        <button onClick={addServico} disabled={!nome.trim() || saving}
+        {/* Aviso de retorno — add */}
+        <div className="space-y-2">
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Aviso de retorno</label>
+          <select value={tipoAviso} onChange={e => { setTipoAviso(e.target.value); setDiasAviso(''); setServicoManutencao(''); }}
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+            <option value="nenhum">Nenhum</option>
+            <option value="reagendamento">Reagendamento</option>
+            <option value="manutencao">Manutenção</option>
+          </select>
+          {tipoAviso !== 'nenhum' && (
+            <input type="number" value={diasAviso} onChange={e => setDiasAviso(e.target.value)}
+              placeholder="Intervalo em dias (ex: 15)"
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          )}
+          {tipoAviso === 'manutencao' && (
+            <div className="space-y-1.5">
+              <select value={servicoManutencao} onChange={e => setServicoManutencao(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                <option value="">Selecionar serviço de manutenção</option>
+                {servicos.map(s => (
+                  <option key={s.nome} value={s.nome}>{s.nome}</option>
+                ))}
+              </select>
+              {!servicoManutencao && (
+                <button onClick={criarServicoManutencaoRapido} className="w-full py-2.5 border border-dashed border-violet-300 text-violet-600 rounded-xl text-xs font-bold hover:bg-violet-50 transition-colors flex items-center justify-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5" /> Criar serviço de manutenção
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        <button onClick={() => addServico()} disabled={!nome.trim() || saving}
           className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition-colors">
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
           Adicionar serviço
