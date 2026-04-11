@@ -44,13 +44,18 @@ exports.handler = async (event) => {
     // Delete appointment from Firestore
     await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, appointmentId));
 
-    // ── n8n cancel webhook (fire-and-forget) ───────────────
+    // ── n8n cancel webhook ─────────────────────────────────
+    const telefoneNormalizado = (() => {
+      const digits = (clienteWhats || '').replace(/\D/g, '');
+      return digits.startsWith('55') ? digits : `55${digits}`;
+    })();
+
     if (process.env.N8N_CANCEL_WEBHOOK_URL) {
-      fetch(process.env.N8N_CANCEL_WEBHOOK_URL, {
+      await fetch(process.env.N8N_CANCEL_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          telefoneCliente: clienteWhats || '',
+          telefoneCliente: telefoneNormalizado,
           nomeCliente: nomeCliente || '',
           servico: servico || '',
           data: data || '',
