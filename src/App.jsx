@@ -811,10 +811,22 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
     addGap(cursor, fimMin);
   }
 
-  const cancelar = async (id) => {
+  const cancelar = async (appt) => {
     if (!window.confirm('Cancelar este agendamento?')) return;
-    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`, id))
-      .catch(() => alert('Erro ao cancelar.'));
+    fetch(`${BACKEND_URL}/cancelAppointment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lojaId: colId,
+        appointmentId: appt.id,
+        clienteWhats: appt.clienteWhats || '',
+        nomeCliente: appt.clienteNome || '',
+        servico: appt.servico || '',
+        data: appt.data || '',
+        hora: appt.hora || '',
+        profissionalNome: appt.profissionalNome || '',
+      }),
+    }).catch(() => alert('Erro ao cancelar.'));
   };
 
   const removeBlock = async (id) => {
@@ -998,7 +1010,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
                             )}
                           </div>
                         </div>
-                        <button onClick={() => cancelar(a.id)} className="p-1 text-slate-200 hover:text-red-400 transition-colors flex-shrink-0">
+                        <button onClick={() => cancelar(a)} className="p-1 text-slate-200 hover:text-red-400 transition-colors flex-shrink-0">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -3173,7 +3185,20 @@ function ClientPortal({ lojaUid, profile }) {
                       </button>
                       <button onClick={async () => {
                           if (!window.confirm('Cancelar esta marcação?')) return;
-                          await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`, a.id)).catch(() => alert('Erro ao cancelar.'));
+                          fetch(`${BACKEND_URL}/cancelAppointment`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              lojaId: lojaUid,
+                              appointmentId: a.id,
+                              clienteWhats: a.clienteWhats || '',
+                              nomeCliente: a.clienteNome || '',
+                              servico: a.servico || '',
+                              data: a.data || '',
+                              hora: a.hora || '',
+                              profissionalNome: a.profissionalNome || '',
+                            }),
+                          }).catch(() => alert('Erro ao cancelar.'));
                         }}
                         className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center">
                         Cancelar
