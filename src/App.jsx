@@ -206,6 +206,7 @@ export default function App() {
   const [resolvedLojaUid, setResolvedLojaUid] = useState(null);
   const [inviteToken, setInviteToken] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [deepLinkApptId, setDeepLinkApptId] = useState(null);
 
   const fetchProfile = useCallback(async (uid) => {
     const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid));
@@ -221,6 +222,27 @@ export default function App() {
     if (hash.startsWith('invite/')) {
       setInviteToken(raw.replace(/^invite\//i, ''));
       setAuthLoading(false);
+      return;
+    }
+
+    // ── Deep link: /#slug/agendamento/ID ─────────────────
+    const apptLinkMatch = raw.match(/^([^/]+)\/agendamento\/([^/]+)$/i);
+    if (apptLinkMatch) {
+      const slugPart = apptLinkMatch[1].toLowerCase();
+      const apptId = apptLinkMatch[2];
+      setDeepLinkApptId(apptId);
+      getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slugPart))
+        .then(snap => {
+          if (snap.exists()) {
+            const uid = snap.data().uid;
+            setResolvedLojaUid(uid);
+            getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid))
+              .then(p => { if (p.exists()) setLojaProfile(p.data()); });
+            setIsClientMode(true);
+          }
+        })
+        .catch(console.error)
+        .finally(() => setAuthLoading(false));
       return;
     }
 
@@ -300,7 +322,7 @@ export default function App() {
 
   if (authLoading) return <Loading />;
   if (inviteToken) return <InviteAcceptScreen token={inviteToken} onDone={() => setInviteToken(null)} />;
-  if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} />;
+  if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} deepLinkApptId={deepLinkApptId} />;
   if (!user) return <LoginScreen />;
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
   if (!profile) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
@@ -1173,7 +1195,7 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
         criadoPorAdmin: true,
       };
 
-      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`), apptData);
+      const apptRef = await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`), apptData);
 
       // Upsert client (dedup by phone)
       const phone = clienteWhats.trim().replace(/\D/g, '');
@@ -1191,11 +1213,11 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
         }, { merge: true });
       }
 
-      // Fire-and-forget Google Calendar sync
+      // Fire-and-forget Google Calendar sync + n8n webhook
       fetch(`${BACKEND_URL}/createAppointment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lojaId, ...apptData }),
+        body: JSON.stringify({ lojaId, ...apptData, appointmentId: apptRef.id }),
       }).catch(() => {});
 
       onSaved();
@@ -2444,9 +2466,10 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
 }
 
 // ── Client Portal ─────────────────────────────────────────
-function ClientPortal({ lojaUid, profile }) {
+function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
   // Booking flow
-  const [step, setStep] = useState('service');
+  const [step, setStep] = useState(deepLinkApptId ? 'apptDetail' : 'service');
+  const [deepLinkAppt, setDeepLinkAppt] = useState(null);
   const [selectedService, setSelectedService] = useState(null);
   const [selectedProfissional, setSelectedProfissional] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -2553,6 +2576,16 @@ function ClientPortal({ lojaUid, profile }) {
       window.removeEventListener('appinstalled', installed);
     };
   }, []);
+
+  // Load appointment from deep link
+  useEffect(() => {
+    if (!deepLinkApptId || !lojaUid) return;
+    getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`, deepLinkApptId))
+      .then(snap => {
+        if (snap.exists()) setDeepLinkAppt({ id: snap.id, ...snap.data() });
+      })
+      .catch(console.error);
+  }, [deepLinkApptId, lojaUid]);
 
   // Subscribe to client's appointments on home step
   useEffect(() => {
@@ -2694,7 +2727,7 @@ function ClientPortal({ lojaUid, profile }) {
       fetch(`${BACKEND_URL}/createAppointment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lojaId: lojaUid, ...apptData }),
+        body: JSON.stringify({ lojaId: lojaUid, ...apptData, appointmentId: apptRef.id }),
       }).catch(() => {});
     } catch (err) {
       alert('Erro ao confirmar marcação. Tente novamente.');
@@ -3090,6 +3123,84 @@ function ClientPortal({ lojaUid, profile }) {
             <button onClick={startNewBooking} className="w-full border border-violet-200 text-violet-600 font-bold py-3.5 rounded-2xl text-sm hover:bg-violet-50 transition-colors">
               Nova marcação
             </button>
+          </div>
+        )}
+
+        {/* ── APPT DETAIL — deep link view ──────────────────── */}
+        {step === 'apptDetail' && (
+          <div>
+            {!deepLinkAppt ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-6 h-6 animate-spin text-violet-400" />
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#7c3aed15' }}>
+                    <Scissors className="w-5 h-5 text-violet-600" />
+                  </div>
+                  <div>
+                    <p className="font-black text-slate-900 text-lg leading-tight">{deepLinkAppt.servico}</p>
+                    {deepLinkAppt.profissionalNome && <p className="text-sm text-slate-400">com {deepLinkAppt.profissionalNome}</p>}
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3 mb-6">
+                  <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Cliente</span><span className="text-sm font-bold text-slate-900">{deepLinkAppt.clienteNome}</span></div>
+                  <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Data</span><span className="text-sm font-bold text-slate-900">{fmtData(deepLinkAppt.data)}</span></div>
+                  <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Hora</span><span className="text-sm font-bold text-slate-900">{deepLinkAppt.hora}</span></div>
+                  {deepLinkAppt.valor && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span><span className="text-sm font-bold text-violet-600">R$ {Number(deepLinkAppt.valor).toFixed(2)}</span></div>}
+                </div>
+                {apptEndTime(deepLinkAppt) > new Date() && (
+                  <div className="flex gap-3">
+                    <button onClick={() => {
+                      const svc = (profile.servicos || []).find(s => s.nome === deepLinkAppt.servico) || { nome: deepLinkAppt.servico, duracao: profile.intervalo };
+                      const prof = (profile.profissionals || []).find(p => p.id === deepLinkAppt.profissionalId) || null;
+                      setSelectedService(svc);
+                      setSelectedProfissional(prof);
+                      setSelectedDate(new Date());
+                      setSelectedHora('');
+                      setNome(deepLinkAppt.clienteNome || '');
+                      setWhats(deepLinkAppt.clienteWhats || '');
+                      setNascimento(deepLinkAppt.clienteNascimento || '');
+                      setConfirmedAppt(null);
+                      setStep('datetime');
+                    }} className="flex-1 py-3 rounded-2xl bg-slate-50 border border-slate-100 text-sm font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all">
+                      Remarcar
+                    </button>
+                    <button onClick={async () => {
+                      if (!window.confirm('Cancelar esta marcação?')) return;
+                      try {
+                        const res = await fetch(`${BACKEND_URL}/cancelAppointment`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            lojaId: lojaUid,
+                            appointmentId: deepLinkAppt.id,
+                            clienteWhats: deepLinkAppt.clienteWhats || '',
+                            nomeCliente: deepLinkAppt.clienteNome || '',
+                            servico: deepLinkAppt.servico || '',
+                            data: deepLinkAppt.data || '',
+                            hora: deepLinkAppt.hora || '',
+                            profissionalNome: deepLinkAppt.profissionalNome || '',
+                          }),
+                        });
+                        if (res.ok) {
+                          setDeepLinkAppt(null);
+                          setStep('service');
+                        } else {
+                          alert('Erro ao cancelar.');
+                        }
+                      } catch { alert('Erro ao cancelar.'); }
+                    }} className="flex-1 py-3 rounded-2xl bg-red-50 border border-red-100 text-sm font-bold text-red-500 hover:bg-red-100 transition-all">
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+                <button onClick={() => setStep('service')} className="w-full mt-3 py-3 rounded-2xl border border-slate-100 text-sm font-bold text-slate-400 hover:text-violet-600 hover:border-violet-200 transition-all">
+                  Nova marcação
+                </button>
+              </>
+            )}
           </div>
         )}
 

@@ -43,6 +43,7 @@ exports.handler = async (event) => {
       data,
       hora,
       dataHoraInternacional,
+      appointmentId,
     } = body;
 
     if (!lojaId || !dataHoraInternacional) {
@@ -136,6 +137,7 @@ exports.handler = async (event) => {
           profissionalNome: profissionalNome || '',
           slug,
           lojaId,
+          linkAgendamento: appointmentId ? `https://hute.netlify.app/#${slug}/agendamento/${appointmentId}` : '',
         }),
       }).catch(err => console.error('Erro webhook n8n:', err));
     }
