@@ -123,6 +123,7 @@ exports.handler = async (event) => {
     })();
 
     if (process.env.N8N_WEBHOOK_URL) {
+      console.log('N8N_WEBHOOK_URL:', process.env.N8N_WEBHOOK_URL);
       fetch(process.env.N8N_WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -136,7 +137,7 @@ exports.handler = async (event) => {
           slug,
           lojaId,
         }),
-      }).catch(err => console.error('n8n webhook error:', err.message));
+      }).catch(err => console.error('Erro webhook n8n:', err));
     }
 
     return {
