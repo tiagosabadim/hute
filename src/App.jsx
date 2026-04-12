@@ -292,7 +292,14 @@ export default function App() {
             const lp = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', sr.lojaId));
             if (lp.exists()) setLojaProfile(lp.data());
           } else {
-            const p = await fetchProfile(u.uid);
+            let p = await fetchProfile(u.uid);
+            // Backfill createdAt from Firebase Auth if missing (migration for pre-existing profiles)
+            if (p && !p.createdAt && u.metadata?.creationTime) {
+              const createdAt = new Date(u.metadata.creationTime).toISOString();
+              await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', u.uid), { createdAt }, { merge: true });
+              p = { ...p, createdAt };
+              setProfile(p);
+            }
             if (!p) {
               // No admin profile — check if this is a B2C client account on admin URL
               try {
@@ -334,8 +341,9 @@ export default function App() {
   if (!user) return <LoginScreen />;
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
   if (!profile) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
-  const _trialActive = !profile.plan && profile.createdAt &&
-    (Date.now() - new Date(profile.createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+  const _createdAt = profile.createdAt || user.metadata?.creationTime;
+  const _trialActive = !profile.plan && _createdAt &&
+    (Date.now() - new Date(_createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
   if (profile.status !== 'active' && !_trialActive) {
     return <PlansScreen user={user} profile={profile} onActivated={async () => {
       const p = await fetchProfile(user.uid);
