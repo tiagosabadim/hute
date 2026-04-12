@@ -678,7 +678,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 
       <main className="p-5">
         {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
-        {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} />}
+        {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
         {view === 'equipa'   && <AdminEquipa user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
         {view === 'settings' && <AdminSettings user={user} profile={profile} setProfile={setProfile} onLogout={handleLogout} />}
@@ -1492,7 +1492,7 @@ function BlockModal({ lojaId, filterProfId, profile, prefilledHora, prefilledDat
 }
 
 // ── Admin Clients ─────────────────────────────────────────
-function AdminClients({ user, lojaId, filterProfId }) {
+function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
   const [apptMap, setApptMap] = useState({});
   const [directMap, setDirectMap] = useState({});
   const [selectedClient, setSelectedClient] = useState(null);
@@ -1549,6 +1549,12 @@ function AdminClients({ user, lojaId, filterProfId }) {
     });
     return Object.values(merged).sort((a, b) => (b.ultimaVisita || '').localeCompare(a.ultimaVisita || ''));
   }, [apptMap, directMap]);
+
+  const handleDeleteClient = async (c, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Excluir ${c.nome}? Esta ação não pode ser desfeita.`)) return;
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${colId}`, c.key));
+  };
 
   const handleAddClient = async () => {
     if (!newNome.trim()) return;
@@ -1629,21 +1635,27 @@ function AdminClients({ user, lojaId, filterProfId }) {
       ) : (
         <div className="space-y-2">
           {clients.map(c => (
-            <button key={c.key} onClick={() => setSelectedClient(c)}
-              className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 flex items-center gap-3 hover:shadow-md transition-shadow text-left">
-              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
-                style={{ backgroundColor: '#7c3aed' }}>
-                {(c.nome || '?')[0].toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-slate-900 truncate">{c.nome}</p>
-                <p className="text-xs text-slate-400 truncate">{c.whats}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p className="text-xs font-bold text-violet-600">{(c.visitas||[]).length} visita{(c.visitas||[]).length !== 1 ? 's' : ''}</p>
-                {c.ultimaVisita && <p className="text-[10px] text-slate-400">última: {fmtData(c.ultimaVisita)}</p>}
-              </div>
-            </button>
+            <div key={c.key} className="bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3 hover:shadow-md transition-shadow">
+              <button onClick={() => setSelectedClient(c)} className="flex items-center gap-3 flex-1 min-w-0 p-4 text-left">
+                <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
+                  style={{ backgroundColor: '#7c3aed' }}>
+                  {(c.nome || '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-900 truncate">{c.nome}</p>
+                  <p className="text-xs text-slate-400 truncate">{c.whats}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs font-bold text-violet-600">{(c.visitas||[]).length} visita{(c.visitas||[]).length !== 1 ? 's' : ''}</p>
+                  {c.ultimaVisita && <p className="text-[10px] text-slate-400">última: {fmtData(c.ultimaVisita)}</p>}
+                </div>
+              </button>
+              {isAdmin && (
+                <button onClick={(e) => handleDeleteClient(c, e)} className="p-3 text-slate-300 hover:text-red-400 transition-colors flex-shrink-0 pr-4">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -3658,7 +3670,7 @@ function StaffPanel({ user, staffRecord, lojaProfile }) {
 
       <main className="p-5">
         {view === 'agenda'  && <AdminAgenda user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} profile={lojaProfile} />}
-        {view === 'clients' && <AdminClients user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} />}
+        {view === 'clients' && <AdminClients user={user} lojaId={staffRecord.lojaId} filterProfId={staffRecord.profissionalId} isAdmin={false} />}
       </main>
 
       <nav className="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-slate-100 flex justify-around py-2 px-1 z-20">
