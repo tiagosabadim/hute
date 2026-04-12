@@ -2447,7 +2447,10 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   // ── WhatsApp Connection ──────────────────────────────────────────────────────
   const [waStatus, setWaStatus] = useState(null); // null | 'open' | 'connecting' | 'close'
   const [waQrCode, setWaQrCode] = useState(null);
+  const [waPairingCode, setWaPairingCode] = useState(null);
+  const [waConnectMode, setWaConnectMode] = useState('qr'); // 'qr' | 'code'
   const [waLoading, setWaLoading] = useState(false);
+  const [waError, setWaError] = useState(null);
   const waPollRef = useRef(null);
 
   const checkWaStatus = useCallback(async () => {
@@ -2458,6 +2461,7 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
       if (data.state === 'open') {
         clearInterval(waPollRef.current);
         setWaQrCode(null);
+        setWaPairingCode(null);
       }
     } catch {}
   }, [user.uid]);
@@ -2467,9 +2471,16 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
     return () => clearInterval(waPollRef.current);
   }, [profile.evolutionInstanceName, checkWaStatus]);
 
+  const startPolling = useCallback(() => {
+    clearInterval(waPollRef.current);
+    waPollRef.current = setInterval(checkWaStatus, 4000);
+  }, [checkWaStatus]);
+
   const handleConnectWA = async () => {
     setWaLoading(true);
     setWaQrCode(null);
+    setWaPairingCode(null);
+    setWaError(null);
     try {
       const res = await fetch(`${BACKEND_URL}/whatsappConnect`, {
         method: 'POST',
@@ -2477,12 +2488,12 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
         body: JSON.stringify({ action: 'create', lojaId: user.uid }),
       });
       const data = await res.json();
+      if (data.error) { setWaError(data.error); return; }
       if (data.qrcode) setWaQrCode(data.qrcode);
       setWaStatus('connecting');
-      clearInterval(waPollRef.current);
-      waPollRef.current = setInterval(checkWaStatus, 4000);
+      startPolling();
     } catch (e) {
-      console.error('WA connect error', e);
+      setWaError('Erro ao conectar. Tente novamente.');
     } finally {
       setWaLoading(false);
     }
@@ -2490,10 +2501,47 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
 
   const handleRefreshQr = async () => {
     setWaLoading(true);
+    setWaError(null);
     try {
       const res = await fetch(`${BACKEND_URL}/whatsappConnect?action=qrcode&lojaId=${user.uid}`);
       const data = await res.json();
       if (data.qrcode) setWaQrCode(data.qrcode);
+    } finally {
+      setWaLoading(false);
+    }
+  };
+
+  const handlePairingCode = async () => {
+    const number = (whatsappNumber || profile.whatsappNumber || '').replace(/\D/g, '');
+    if (!number) {
+      setWaError('Preencha o campo "WhatsApp do estabelecimento" antes de usar esta opção.');
+      return;
+    }
+    setWaLoading(true);
+    setWaQrCode(null);
+    setWaPairingCode(null);
+    setWaError(null);
+    try {
+      // Ensure instance exists first
+      await fetch(`${BACKEND_URL}/whatsappConnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', lojaId: user.uid }),
+      });
+      const res = await fetch(`${BACKEND_URL}/whatsappConnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pairingCode', lojaId: user.uid, number }),
+      });
+      const data = await res.json();
+      if (data.error) { setWaError(data.error); return; }
+      if (data.code) {
+        setWaPairingCode(data.code);
+        setWaStatus('connecting');
+        startPolling();
+      }
+    } catch (e) {
+      setWaError('Erro ao obter código. Tente novamente.');
     } finally {
       setWaLoading(false);
     }
@@ -2632,6 +2680,12 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
           )}
         </div>
 
+        {waError && (
+          <div className="bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2 rounded-xl">
+            {waError}
+          </div>
+        )}
+
         {waStatus === 'open' ? (
           <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
             <CheckCircle className="w-4 h-4" />
@@ -2652,16 +2706,60 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
               QR expirou? Clique para gerar novo
             </button>
           </div>
+        ) : waPairingCode ? (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500 text-center leading-relaxed">
+              Abra o WhatsApp → Dispositivos vinculados → Vincular dispositivo → Vincular por número de telefone → Digite o código abaixo
+            </p>
+            <div className="flex justify-center">
+              <span className="font-mono text-3xl font-black tracking-[0.25em] text-slate-800 bg-slate-50 border border-slate-200 px-6 py-4 rounded-2xl select-all">
+                {waPairingCode}
+              </span>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Aguardando vinculação...
+            </div>
+          </div>
         ) : (
-          <button onClick={handleConnectWA} disabled={waLoading}
-            className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
-            {waLoading
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Criando instância...</>
-              : profile.evolutionInstanceName
-                ? <><Smartphone className="w-4 h-4" /> Reconectar WhatsApp</>
-                : <><Smartphone className="w-4 h-4" /> Conectar WhatsApp</>
-            }
-          </button>
+          <div className="space-y-3">
+            {/* Mode toggle */}
+            <div className="flex rounded-xl border border-slate-200 overflow-hidden text-xs font-semibold">
+              <button
+                onClick={() => { setWaConnectMode('qr'); setWaError(null); }}
+                className={`flex-1 py-2 transition-colors ${waConnectMode === 'qr' ? 'bg-emerald-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                QR Code
+              </button>
+              <button
+                onClick={() => { setWaConnectMode('code'); setWaError(null); }}
+                className={`flex-1 py-2 transition-colors ${waConnectMode === 'code' ? 'bg-emerald-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                Código de telefone
+              </button>
+            </div>
+
+            {waConnectMode === 'qr' ? (
+              <button onClick={handleConnectWA} disabled={waLoading}
+                className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+                {waLoading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Criando instância...</>
+                  : profile.evolutionInstanceName
+                    ? <><Smartphone className="w-4 h-4" /> Reconectar WhatsApp</>
+                    : <><Smartphone className="w-4 h-4" /> Conectar WhatsApp</>
+                }
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">O número deve ser o mesmo configurado no campo WhatsApp acima.</p>
+                <button onClick={handlePairingCode} disabled={waLoading}
+                  className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+                  {waLoading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Gerando código...</>
+                    : <><Smartphone className="w-4 h-4" /> Gerar código de vinculação</>
+                  }
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
