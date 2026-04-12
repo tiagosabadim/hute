@@ -117,28 +117,28 @@ exports.handler = async (event) => {
   }
 
   const { message = '' } = body;
-  let { phone = '', lojaId = '', slug = '' } = body;
+  let { phone = '', connectedPhone = '' } = body;
 
   phone = phone.replace(/\D/g, '');
   if (phone && !phone.startsWith('55')) phone = `55${phone}`;
+
+  const connectedNormalized = connectedPhone.replace(/\D/g, '');
 
   const msg = message.trim();
 
   try {
     const db = getDb();
 
-    // Resolve slug → lojaId if needed
-    if (!lojaId && slug) {
-      const slugSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slug.toLowerCase()));
-      if (!slugSnap.exists()) {
-        return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: 'Estabelecimento não encontrado' }) };
-      }
-      lojaId = slugSnap.data().uid;
+    if (!phone || !connectedNormalized) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'phone e connectedPhone são obrigatórios' }) };
     }
 
-    if (!phone || !lojaId) {
-      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'phone e lojaId (ou slug) são obrigatórios' }) };
+    // Resolve connectedPhone → lojaId
+    const whatsSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'whatsappNumbers', connectedNormalized));
+    if (!whatsSnap.exists()) {
+      return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: 'Estabelecimento não encontrado para este número' }) };
     }
+    const lojaId = whatsSnap.data().lojaId;
 
     const profileDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', lojaId));
     if (!profileDoc.exists()) {

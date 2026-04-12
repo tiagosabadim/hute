@@ -2388,6 +2388,7 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   const [nome, setNome] = useState(profile.nome || '');
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
   const [slug, setSlug] = useState(profile.slug || '');
+  const [whatsappNumber, setWhatsappNumber] = useState(profile.whatsappNumber || '');
   const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
   const [horaFim, setHoraFim] = useState(profile.horaFim || '19:00');
   const [intervalo, setIntervalo] = useState(profile.intervalo || 30);
@@ -2402,10 +2403,14 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   const saveAll = async () => {
     setSaving(true);
     try {
-      const data = { nome, subtitulo, slug, horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
+      const normalizedWhats = whatsappNumber.replace(/\D/g, '');
+      const data = { nome, subtitulo, slug, whatsappNumber: normalizedWhats, horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), data, { merge: true });
       if (slug !== profile.slug) {
         await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slug), { uid: user.uid, nome });
+      }
+      if (normalizedWhats && normalizedWhats !== (profile.whatsappNumber || '').replace(/\D/g, '')) {
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'whatsappNumbers', normalizedWhats), { lojaId: user.uid });
       }
       setProfile(prev => ({ ...prev, ...data }));
       setSaved(true);
@@ -2497,6 +2502,13 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
             <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="studio-da-ana"
               className="flex-1 px-2 py-3 text-slate-800 outline-none text-sm bg-transparent" />
           </div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp do estabelecimento</label>
+          <input type="tel" value={whatsappNumber} onChange={e => setWhatsappNumber(e.target.value)}
+            placeholder="(11) 99999-9999"
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+          <p className="text-[10px] text-slate-400 mt-1">Usado pelo chatbot para identificar seu estabelecimento.</p>
         </div>
       </div>
 
