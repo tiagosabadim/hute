@@ -12,7 +12,7 @@ import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
-  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone
+  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone, CreditCard, Zap, Shield
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -276,6 +276,14 @@ export default function App() {
           }
           setUser(u);
 
+          // Handle Stripe return
+          if (params.get('stripe_success')) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+          if (params.get('stripe_cancel')) {
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+
           // Check if this is a staff (professional) account
           const staffSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'staff', u.uid));
           if (staffSnap.exists()) {
@@ -326,7 +334,210 @@ export default function App() {
   if (!user) return <LoginScreen />;
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
   if (!profile) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
+  if (profile.status !== 'active') {
+    return <PlansScreen user={user} profile={profile} onActivated={async () => {
+      const p = await fetchProfile(user.uid);
+      setProfile(p);
+    }} />;
+  }
   return <AdminPanel user={user} profile={profile} setProfile={setProfile} fetchProfile={fetchProfile} />;
+}
+
+// ── Plans Screen (Paywall) ────────────────────────────────
+const PLANS = [
+  {
+    key: 'starter',
+    priceId: 'price_1TLS3ZDUFQvcxobb6mC46BWC',
+    name: 'Starter',
+    price: 'R$ 49',
+    period: '/mês',
+    color: 'violet',
+    icon: Zap,
+    features: [
+      'Agenda online',
+      'Chatbot WhatsApp',
+      '1 profissional',
+      'Portal do cliente',
+      'Até 100 agendamentos/mês',
+    ],
+  },
+  {
+    key: 'premium',
+    priceId: 'price_1TLS2vDUFQvcxobbihForvNM',
+    name: 'Premium',
+    price: 'R$ 99',
+    period: '/mês',
+    color: 'emerald',
+    icon: Star,
+    highlight: true,
+    features: [
+      'Tudo do Starter',
+      'Até 5 profissionais',
+      'Google Calendar',
+      'Agendamentos ilimitados',
+      'Notificações automáticas',
+    ],
+  },
+  {
+    key: 'pro',
+    priceId: 'price_1TLS2NDUFQvcxobbmuzorKxa',
+    name: 'Pro',
+    price: 'R$ 199',
+    period: '/mês',
+    color: 'amber',
+    icon: Shield,
+    features: [
+      'Tudo do Premium',
+      'Profissionais ilimitados',
+      'Relatórios avançados',
+      'Suporte prioritário',
+      'White-label',
+    ],
+  },
+];
+
+function PlansScreen({ user, profile, onActivated }) {
+  const [loading, setLoading] = useState(null); // priceId being processed
+  const [error, setError] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const pollRef = useRef(null);
+
+  // If returning from Stripe success, poll Firestore until status=active
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('stripe_success')) {
+      setChecking(true);
+      pollRef.current = setInterval(async () => {
+        try {
+          const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid));
+          if (snap.exists() && snap.data().status === 'active') {
+            clearInterval(pollRef.current);
+            onActivated();
+          }
+        } catch {}
+      }, 2500);
+    }
+    return () => clearInterval(pollRef.current);
+  }, [user.uid, onActivated]);
+
+  const handleSubscribe = async (priceId) => {
+    setLoading(priceId);
+    setError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/stripeCheckout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId: user.uid, priceId }),
+      });
+      const data = await res.json();
+      if (data.error) { setError(data.error); return; }
+      window.location.href = data.url;
+    } catch (e) {
+      setError('Erro ao iniciar checkout. Tente novamente.');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleLogout = () => signOut(auth);
+
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-violet-600 to-violet-900 flex flex-col items-center justify-center p-6">
+        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-4">
+          <Loader2 className="w-8 h-8 text-white animate-spin" />
+        </div>
+        <p className="text-white font-black text-xl mb-1">Verificando pagamento...</p>
+        <p className="text-violet-200 text-sm text-center">Aguarde enquanto confirmamos a sua assinatura.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-violet-600 via-violet-700 to-violet-900 p-6 pb-12">
+      <div className="max-w-[480px] mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8 pt-6">
+          <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
+            <Sparkles className="w-7 h-7 text-white" />
+          </div>
+          <h1 className="text-white font-black text-3xl tracking-tight">hute</h1>
+          <p className="text-violet-200 text-sm mt-2">Escolha o plano ideal para o seu negócio</p>
+          {profile?.nome && (
+            <p className="text-violet-300 text-xs mt-1">Olá, {profile.nome} 👋</p>
+          )}
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-100 text-red-600 text-xs px-4 py-3 rounded-2xl mb-4 text-center">
+            {error}
+          </div>
+        )}
+
+        {/* Plan cards */}
+        <div className="space-y-4">
+          {PLANS.map((plan) => {
+            const Icon = plan.icon;
+            const isHighlight = plan.highlight;
+            const isLoading = loading === plan.priceId;
+            return (
+              <div key={plan.key}
+                className={`rounded-3xl p-5 ${isHighlight ? 'bg-white shadow-2xl shadow-violet-900/30 ring-2 ring-emerald-400' : 'bg-white/10 backdrop-blur-sm'}`}>
+                {isHighlight && (
+                  <div className="flex justify-center mb-3">
+                    <span className="text-[10px] bg-emerald-500 text-white font-black px-3 py-1 rounded-full uppercase tracking-widest">
+                      Mais popular
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${isHighlight ? 'bg-emerald-50' : 'bg-white/20'}`}>
+                      <Icon className={`w-5 h-5 ${isHighlight ? 'text-emerald-600' : 'text-white'}`} />
+                    </div>
+                    <div>
+                      <p className={`font-black text-base ${isHighlight ? 'text-slate-900' : 'text-white'}`}>{plan.name}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className={`font-black text-2xl ${isHighlight ? 'text-slate-900' : 'text-white'}`}>{plan.price}</span>
+                    <span className={`text-xs ${isHighlight ? 'text-slate-400' : 'text-violet-200'}`}>{plan.period}</span>
+                  </div>
+                </div>
+
+                <ul className="space-y-2 mb-5">
+                  {plan.features.map(f => (
+                    <li key={f} className="flex items-center gap-2">
+                      <CheckCircle className={`w-4 h-4 flex-shrink-0 ${isHighlight ? 'text-emerald-500' : 'text-violet-300'}`} />
+                      <span className={`text-xs ${isHighlight ? 'text-slate-600' : 'text-violet-100'}`}>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <button
+                  onClick={() => handleSubscribe(plan.priceId)}
+                  disabled={!!loading}
+                  className={`w-full py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-60
+                    ${isHighlight
+                      ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
+                      : 'bg-white/20 hover:bg-white/30 text-white'}`}>
+                  {isLoading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> A processar...</>
+                    : <><CreditCard className="w-4 h-4" /> Assinar {plan.name}</>
+                  }
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <button onClick={handleLogout}
+          className="w-full mt-6 py-3 text-violet-300 hover:text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5">
+          <LogOut className="w-3.5 h-3.5" /> Sair da conta
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ── Login Screen ──────────────────────────────────────────
