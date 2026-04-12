@@ -97,6 +97,11 @@ async function fetchGCalEvents(refreshToken, data) {
  * @returns {{ slots: string[], googleSync: boolean, blocked?: boolean }}
  */
 async function computeSlots(db, lojaId, profile, data, duracaoServico, profissionalId) {
+  // Ensure duration is always a number to prevent string concatenation bugs
+  const duracao = Number(duracaoServico) || Number(profile.intervalo) || 60;
+
+  console.log(`[slotEngine] computeSlots lojaId=${lojaId} data=${data} duracao=${duracao} profissionalId=${profissionalId}`);
+
   // ── Blocks ──────────────────────────────────────────────────────────────────
   const blocksSnap = await getDocs(
     collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${lojaId}`)
@@ -106,13 +111,14 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
     .filter(b => b.date === data && (!b.profissionalId || b.profissionalId === profissionalId));
 
   if (relevantBlocks.some(b => b.type === 'day_off')) {
+    console.log('[slotEngine] day_off block found → 0 slots');
     return { slots: [], googleSync: false, blocked: true };
   }
 
   const customHours = relevantBlocks.find(b => b.type === 'custom_hours');
   const horaInicio = customHours ? customHours.horaInicio : (profile.horaInicio || '09:00');
   const horaFim    = customHours ? customHours.horaFim    : (profile.horaFim    || '18:00');
-  const busyBlocks = busyFromBlocks(relevantBlocks.filter(b => b.type === 'slot'), duracaoServico);
+  const busyBlocks = busyFromBlocks(relevantBlocks.filter(b => b.type === 'slot'), duracao);
 
   // ── Firestore appointments (always included, regardless of GCal) ────────────
   const apptSnap = await getDocs(
@@ -121,7 +127,10 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
   const marcacoes = apptSnap.docs
     .map(d => d.data())
     .filter(a => a.data === data && (!profissionalId || a.profissionalId === profissionalId));
-  const busyMarcacoes = busyFromMarcacoes(marcacoes, duracaoServico);
+
+  console.log(`[slotEngine] marcacoes encontradas: ${marcacoes.length}`, marcacoes.map(a => `${a.hora}(prof=${a.profissionalId})`));
+
+  const busyMarcacoes = busyFromMarcacoes(marcacoes, duracao);
 
   // ── Per-professional Google Calendar ────────────────────────────────────────
   if (profissionalId) {
@@ -131,18 +140,21 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
       );
       if (profCalDoc.exists() && profCalDoc.data().googleCalendarConnected && profCalDoc.data().googleRefreshToken) {
         const eventos = await fetchGCalEvents(profCalDoc.data().googleRefreshToken, data);
-        const slots = gerarSlots(horaInicio, horaFim, duracaoServico, [
-          ...busyFromGoogleEvents(eventos),
-          ...busyBlocks,
-          ...busyMarcacoes,
-        ]);
+        console.log(`[slotEngine] GCal prof eventos: ${eventos.length}`, eventos.map(e => e.summary));
+        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...busyMarcacoes];
+        console.log('[slotEngine] busy intervals:', JSON.stringify(busy));
+        const slots = gerarSlots(horaInicio, horaFim, duracao, busy);
+        console.log('[slotEngine] slots resultado (gcal prof):', slots);
         return { slots, googleSync: true };
       }
     } catch (err) {
       console.error('slotEngine GCal prof error:', err.message);
     }
     // Fallback: Firestore only
-    const slots = gerarSlots(horaInicio, horaFim, duracaoServico, [...busyBlocks, ...busyMarcacoes]);
+    const busy = [...busyBlocks, ...busyMarcacoes];
+    console.log('[slotEngine] busy intervals (firestore only):', JSON.stringify(busy));
+    const slots = gerarSlots(horaInicio, horaFim, duracao, busy);
+    console.log('[slotEngine] slots resultado (firestore):', slots);
     return { slots, googleSync: false };
   }
 
@@ -150,7 +162,7 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
   if (profile.googleRefreshToken) {
     try {
       const eventos = await fetchGCalEvents(profile.googleRefreshToken, data);
-      const slots = gerarSlots(horaInicio, horaFim, duracaoServico, [
+      const slots = gerarSlots(horaInicio, horaFim, duracao, [
         ...busyFromGoogleEvents(eventos),
         ...busyBlocks,
         ...busyMarcacoes,
@@ -162,7 +174,7 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
   }
 
   // ── Firestore only fallback ──────────────────────────────────────────────────
-  const slots = gerarSlots(horaInicio, horaFim, duracaoServico, [...busyBlocks, ...busyMarcacoes]);
+  const slots = gerarSlots(horaInicio, horaFim, duracao, [...busyBlocks, ...busyMarcacoes]);
   return { slots, googleSync: false };
 }
 
