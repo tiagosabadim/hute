@@ -1,8 +1,12 @@
+const { google } = require('googleapis');
 const { initializeApp, getApps } = require('firebase/app');
 const {
   getFirestore, doc, getDoc, setDoc, deleteDoc,
   collection, getDocs, addDoc,
 } = require('firebase/firestore/lite');
+
+const CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     || '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com';
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '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';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -51,11 +55,34 @@ function gerarSlots(horaInicio, horaFim, duracaoMin, busyIntervals) {
   return slots;
 }
 
+function busyFromGoogleEvents(eventos) {
+  return eventos.map(e => {
+    const s  = new Date(e.start.dateTime || `${e.start.date}T00:00:00`);
+    const en = new Date(e.end.dateTime   || `${e.end.date}T23:59:59`);
+    return { start: s.getHours() * 60 + s.getMinutes(), end: en.getHours() * 60 + en.getMinutes() };
+  });
+}
+
+async function fetchGoogleEvents(refreshToken, data) {
+  const oauth2 = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET);
+  oauth2.setCredentials({ refresh_token: refreshToken });
+  const calendar = google.calendar({ version: 'v3', auth: oauth2 });
+  const res = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin: new Date(`${data}T00:00:00`).toISOString(),
+    timeMax: new Date(`${data}T23:59:59`).toISOString(),
+    singleEvents: true,
+    orderBy: 'startTime',
+  });
+  return res.data.items || [];
+}
+
 async function fetchSlots(db, lojaId, profile, data, duracaoMin, profissionalId) {
-  const duracao = duracaoMin || profile.intervalo || 60;
+  const duracao    = duracaoMin || profile.intervalo || 60;
   const horaInicio = profile.horaInicio || '09:00';
   const horaFim    = profile.horaFim    || '18:00';
 
+  // Blocks (day_off / custom_hours / slot)
   const blocksSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${lojaId}`));
   const relevantBlocks = blocksSnap.docs.map(d => d.data())
     .filter(b => b.date === data && (!b.profissionalId || b.profissionalId === profissionalId));
@@ -69,11 +96,42 @@ async function fetchSlots(db, lojaId, profile, data, duracaoMin, profissionalId)
   const busyBlocks = relevantBlocks.filter(b => b.type === 'slot')
     .map(b => ({ start: toMin(b.hora), end: toMin(b.hora) + (b.duracao || duracao) }));
 
+  // Firestore appointments
   const apptSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`));
   const marcacoes = apptSnap.docs.map(d => d.data())
     .filter(a => a.data === data && (!profissionalId || a.profissionalId === profissionalId))
     .map(a => ({ start: toMin(a.hora), end: toMin(a.hora) + (Number(a.duracao) || duracao) }));
 
+  // Google Calendar — professional level
+  if (profissionalId) {
+    try {
+      const profCalDoc = await getDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'prof_cals', `${lojaId}_${profissionalId}`)
+      );
+      if (profCalDoc.exists() && profCalDoc.data().googleCalendarConnected && profCalDoc.data().googleRefreshToken) {
+        const eventos = await fetchGoogleEvents(profCalDoc.data().googleRefreshToken, data);
+        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+        return gerarSlots(hInicio, hFim, duracao, busy);
+      }
+    } catch (err) {
+      console.error('Google Calendar prof error:', err.message);
+    }
+    // Fallback: Firestore only
+    return gerarSlots(hInicio, hFim, duracao, [...busyBlocks, ...marcacoes]);
+  }
+
+  // Google Calendar — establishment level
+  if (profile.googleRefreshToken) {
+    try {
+      const eventos = await fetchGoogleEvents(profile.googleRefreshToken, data);
+      const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+      return gerarSlots(hInicio, hFim, duracao, busy);
+    } catch (err) {
+      console.error('Google Calendar estab error:', err.message);
+    }
+  }
+
+  // Fallback: Firestore only
   return gerarSlots(hInicio, hFim, duracao, [...busyBlocks, ...marcacoes]);
 }
 
