@@ -56,11 +56,15 @@ function gerarSlots(horaInicio, horaFim, duracaoMin, busyIntervals) {
 }
 
 function busyFromGoogleEvents(eventos) {
-  return eventos.map(e => {
-    const s  = new Date(e.start.dateTime || `${e.start.date}T00:00:00`);
-    const en = new Date(e.end.dateTime   || `${e.end.date}T23:59:59`);
-    return { start: s.getHours() * 60 + s.getMinutes(), end: en.getHours() * 60 + en.getMinutes() };
-  });
+  // Parse time directly from ISO string to avoid UTC conversion on Netlify server
+  const toLocalMin = (str) => {
+    const m = (str || '').match(/T(\d{2}):(\d{2})/);
+    return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
+  };
+  return eventos.map(e => ({
+    start: toLocalMin(e.start.dateTime || e.start.date),
+    end:   toLocalMin(e.end.dateTime   || e.end.date),
+  }));
 }
 
 async function fetchGoogleEvents(refreshToken, data) {
@@ -110,7 +114,8 @@ async function fetchSlots(db, lojaId, profile, data, duracaoMin, profissionalId)
       );
       if (profCalDoc.exists() && profCalDoc.data().googleCalendarConnected && profCalDoc.data().googleRefreshToken) {
         const eventos = await fetchGoogleEvents(profCalDoc.data().googleRefreshToken, data);
-        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+        // Always include Firestore appointments too (GCal may not have all bookings)
+        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...marcacoes];
         return gerarSlots(hInicio, hFim, duracao, busy);
       }
     } catch (err) {
@@ -124,7 +129,8 @@ async function fetchSlots(db, lojaId, profile, data, duracaoMin, profissionalId)
   if (profile.googleRefreshToken) {
     try {
       const eventos = await fetchGoogleEvents(profile.googleRefreshToken, data);
-      const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+      // Always include Firestore appointments too
+      const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...marcacoes];
       return gerarSlots(hInicio, hFim, duracao, busy);
     } catch (err) {
       console.error('Google Calendar estab error:', err.message);

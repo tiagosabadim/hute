@@ -42,11 +42,15 @@ function gerarSlotsDisponiveis(horaInicio, horaFim, duracaoMin, busyIntervals) {
 }
 
 function busyFromGoogleEvents(eventos) {
-  return eventos.map(e => {
-    const s = new Date(e.start.dateTime || `${e.start.date}T00:00:00`);
-    const en = new Date(e.end.dateTime || `${e.end.date}T23:59:59`);
-    return { start: s.getHours() * 60 + s.getMinutes(), end: en.getHours() * 60 + en.getMinutes() };
-  });
+  // Parse time directly from ISO string to avoid UTC conversion on Netlify server
+  const toLocalMin = (str) => {
+    const m = (str || '').match(/T(\d{2}):(\d{2})/);
+    return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
+  };
+  return eventos.map(e => ({
+    start: toLocalMin(e.start.dateTime || e.start.date),
+    end:   toLocalMin(e.end.dateTime   || e.end.date),
+  }));
 }
 
 function busyFromMarcacoes(marcacoes, duracaoDefault) {
@@ -116,6 +120,13 @@ exports.handler = async (event) => {
         doc(db, 'artifacts', APP_ID, 'public', 'data', 'prof_cals', `${lojaId}_${profissionalId}`)
       );
 
+      const apptCollection = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`);
+      const apptSnap = await getDocs(apptCollection);
+      const marcacoes = apptSnap.docs
+        .map(d => d.data())
+        .filter(a => a.profissionalId === profissionalId && a.data === data);
+      const busyMarcacoes = busyFromMarcacoes(marcacoes, duracaoServico);
+
       if (profCalDoc.exists() && profCalDoc.data().googleCalendarConnected && profCalDoc.data().googleRefreshToken) {
         const refreshToken = profCalDoc.data().googleRefreshToken;
         const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET);
@@ -134,18 +145,13 @@ exports.handler = async (event) => {
         });
 
         const eventos = resposta.data.items || [];
-        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+        // Always include Firestore appointments too (GCal may not have all bookings)
+        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...busyMarcacoes];
         const slotsLivres = gerarSlotsDisponiveis(horaInicio, horaFim, duracaoServico, busy);
 
         return { statusCode: 200, headers, body: JSON.stringify({ slots: slotsLivres, googleSync: true }) };
       } else {
-        const apptCollection = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`);
-        const apptSnap = await getDocs(apptCollection);
-        const marcacoes = apptSnap.docs
-          .map(d => d.data())
-          .filter(a => a.profissionalId === profissionalId && a.data === data);
-
-        const busy = [...busyFromMarcacoes(marcacoes, duracaoServico), ...busyBlocks];
+        const busy = [...busyMarcacoes, ...busyBlocks];
         const slotsLivres = gerarSlotsDisponiveis(horaInicio, horaFim, duracaoServico, busy);
 
         return { statusCode: 200, headers, body: JSON.stringify({ slots: slotsLivres, googleSync: false, nativa: true }) };
@@ -178,8 +184,14 @@ exports.handler = async (event) => {
       orderBy: 'startTime',
     });
 
+    // Always include Firestore appointments too (GCal may not have all bookings)
+    const apptCollection2 = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`);
+    const apptSnap2 = await getDocs(apptCollection2);
+    const marcacoes2 = apptSnap2.docs.map(d => d.data()).filter(a => a.data === data);
+    const busyMarcacoes2 = busyFromMarcacoes(marcacoes2, duracaoServico);
+
     const eventos = resposta.data.items || [];
-    const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks];
+    const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...busyMarcacoes2];
     const slotsLivres = gerarSlotsDisponiveis(horaInicio, horaFim, duracaoServico, busy);
 
     return { statusCode: 200, headers, body: JSON.stringify({ slots: slotsLivres, googleSync: true }) };
