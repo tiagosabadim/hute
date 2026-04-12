@@ -113,7 +113,7 @@ exports.handler = async (event) => {
 
     // "0" always resets
     if (msg === '0') {
-      await clearSession(db, phone, lojaId);
+      await saveSession(db, phone, lojaId, { step: 'menu' });
       return reply(menuText(nomeEstab));
     }
 
