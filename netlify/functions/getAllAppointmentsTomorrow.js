@@ -42,8 +42,9 @@ exports.handler = async (event) => {
     // Fetch tomorrow's appointments for all lojas in parallel
     const results = await Promise.all(
       profiles.map(async (prof) => {
-        const { lojaId, slug, nome: nomeEstabelecimento } = prof;
+        const { lojaId, slug, nome: nomeEstabelecimento, whatsappNumber } = prof;
         const slugFinal = slug || lojaId;
+        const connectedPhone = whatsappNumber || '';
         try {
           const snap = await getDocs(
             collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`)
@@ -59,6 +60,7 @@ exports.handler = async (event) => {
               hora: a.hora || '',
               profissionalNome: a.profissionalNome || '',
               nomeEstabelecimento: nomeEstabelecimento || '',
+              connectedPhone,
               linkAgendamento: `https://hute.netlify.app/#${slugFinal}/agendamento/${a.id}`,
             }));
         } catch {
