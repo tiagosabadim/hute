@@ -11,7 +11,8 @@ function getDb() {
   return getFirestore();
 }
 
-const APP_ID = 'hutex-saas';
+const APP_ID   = 'hutex-saas';
+const EVO_BASE = 'https://evolution-api-production-2290.up.railway.app';
 
 exports.handler = async (event) => {
   const corsHeaders = {
@@ -53,37 +54,60 @@ exports.handler = async (event) => {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'lojaId ou connectedPhone é obrigatório' }) };
     }
 
-    // Fetch Z-API credentials from profile
     const profileDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', lojaId));
     if (!profileDoc.exists()) {
       return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: 'Estabelecimento não encontrado' }) };
     }
 
-    const { zapiInstanceId, zapiToken, zapiClientToken } = profileDoc.data();
+    const profile = profileDoc.data();
 
-    if (!zapiInstanceId || !zapiToken || !zapiClientToken) {
-      return { statusCode: 422, headers: corsHeaders, body: JSON.stringify({ error: 'Credenciais Z-API não configuradas para este estabelecimento' }) };
+    // ── Evolution API (primary) ────────────────────────────────────────────────
+    if (profile.evolutionInstanceName && process.env.EVOLUTION_API_KEY) {
+      const url = `${EVO_BASE}/message/sendText/${profile.evolutionInstanceName}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': process.env.EVOLUTION_API_KEY,
+        },
+        body: JSON.stringify({ number: phone, text: message }),
+      });
+
+      const resBody = await res.json().catch(() => ({}));
+
+      if (res.ok) {
+        return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true, provider: 'evolution', response: resBody }) };
+      }
+
+      console.error('Evolution API error:', res.status, JSON.stringify(resBody));
+      // Fall through to Z-API fallback
     }
 
-    // Send via Z-API
-    const zapiUrl = `https://api.z-api.io/instances/${zapiInstanceId}/token/${zapiToken}/send-text`;
-    const zapiRes = await fetch(zapiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Client-Token': zapiClientToken,
-      },
-      body: JSON.stringify({ phone, message }),
-    });
+    // ── Z-API (fallback) ───────────────────────────────────────────────────────
+    const { zapiInstanceId, zapiToken, zapiClientToken } = profile;
 
-    const zapiBody = await zapiRes.json().catch(() => ({}));
+    if (zapiInstanceId && zapiToken && zapiClientToken) {
+      const zapiUrl = `https://api.z-api.io/instances/${zapiInstanceId}/token/${zapiToken}/send-text`;
+      const zapiRes = await fetch(zapiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Client-Token': zapiClientToken,
+        },
+        body: JSON.stringify({ phone, message }),
+      });
 
-    if (!zapiRes.ok) {
+      const zapiBody = await zapiRes.json().catch(() => ({}));
+
+      if (zapiRes.ok) {
+        return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true, provider: 'zapi', response: zapiBody }) };
+      }
+
       console.error('Z-API error:', zapiRes.status, JSON.stringify(zapiBody));
       return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: 'Falha ao enviar via Z-API', detail: zapiBody }) };
     }
 
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true, zapiResponse: zapiBody }) };
+    return { statusCode: 422, headers: corsHeaders, body: JSON.stringify({ error: 'Nenhuma integração WhatsApp configurada para este estabelecimento' }) };
 
   } catch (error) {
     console.error('Erro sendWhatsApp:', error.message);

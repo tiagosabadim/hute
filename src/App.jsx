@@ -12,7 +12,7 @@ import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
-  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search
+  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -2435,9 +2435,6 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
   const [slug, setSlug] = useState(profile.slug || '');
   const [whatsappNumber, setWhatsappNumber] = useState(profile.whatsappNumber || '');
-  const [zapiInstanceId, setZapiInstanceId] = useState(profile.zapiInstanceId || '');
-  const [zapiToken, setZapiToken] = useState(profile.zapiToken || '');
-  const [zapiClientToken, setZapiClientToken] = useState(profile.zapiClientToken || '');
   const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
   const [horaFim, setHoraFim] = useState(profile.horaFim || '19:00');
   const [intervalo, setIntervalo] = useState(profile.intervalo || 30);
@@ -2447,13 +2444,68 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // ── WhatsApp Connection ──────────────────────────────────────────────────────
+  const [waStatus, setWaStatus] = useState(null); // null | 'open' | 'connecting' | 'close'
+  const [waQrCode, setWaQrCode] = useState(null);
+  const [waLoading, setWaLoading] = useState(false);
+  const waPollRef = useRef(null);
+
+  const checkWaStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/whatsappConnect?action=status&lojaId=${user.uid}`);
+      const data = await res.json();
+      setWaStatus(data.state);
+      if (data.state === 'open') {
+        clearInterval(waPollRef.current);
+        setWaQrCode(null);
+      }
+    } catch {}
+  }, [user.uid]);
+
+  useEffect(() => {
+    if (profile.evolutionInstanceName) checkWaStatus();
+    return () => clearInterval(waPollRef.current);
+  }, [profile.evolutionInstanceName, checkWaStatus]);
+
+  const handleConnectWA = async () => {
+    setWaLoading(true);
+    setWaQrCode(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/whatsappConnect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', lojaId: user.uid }),
+      });
+      const data = await res.json();
+      if (data.qrcode) setWaQrCode(data.qrcode);
+      setWaStatus('connecting');
+      clearInterval(waPollRef.current);
+      waPollRef.current = setInterval(checkWaStatus, 4000);
+    } catch (e) {
+      console.error('WA connect error', e);
+    } finally {
+      setWaLoading(false);
+    }
+  };
+
+  const handleRefreshQr = async () => {
+    setWaLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/whatsappConnect?action=qrcode&lojaId=${user.uid}`);
+      const data = await res.json();
+      if (data.qrcode) setWaQrCode(data.qrcode);
+    } finally {
+      setWaLoading(false);
+    }
+  };
+
   const link = `https://hute.netlify.app/#${profile.slug || ''}`;
 
   const saveAll = async () => {
     setSaving(true);
     try {
       const normalizedWhats = whatsappNumber.replace(/\D/g, '');
-      const data = { nome, subtitulo, slug, whatsappNumber: normalizedWhats, zapiInstanceId: zapiInstanceId.trim(), zapiToken: zapiToken.trim(), zapiClientToken: zapiClientToken.trim(), horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
+      const data = { nome, subtitulo, slug, whatsappNumber: normalizedWhats, horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), data, { merge: true });
       if (slug !== profile.slug) {
         await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slug), { uid: user.uid, nome });
@@ -2561,35 +2613,55 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
         </div>
       </div>
 
-      {/* ── Z-API ── */}
+      {/* ── WhatsApp Connection ── */}
       <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
-        <div>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Z-API (WhatsApp)</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">Credenciais para envio de mensagens pelo seu número.</p>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Instance ID</label>
-          <input value={zapiInstanceId} onChange={e => setZapiInstanceId(e.target.value)}
-            placeholder="Ex: 3DF1234567890"
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Token</label>
-          <input value={zapiToken} onChange={e => setZapiToken(e.target.value)}
-            placeholder="Token da instância Z-API"
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm font-mono" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Client-Token</label>
-          <input value={zapiClientToken} onChange={e => setZapiClientToken(e.target.value)}
-            placeholder="Client-Token da conta Z-API"
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm font-mono" />
-        </div>
-        {zapiInstanceId && zapiToken && zapiClientToken && (
-          <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-xs font-semibold">
-            <CheckCircle className="w-3.5 h-3.5" />
-            Z-API configurado
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-bold text-slate-900 text-sm">WhatsApp</p>
+            <p className="text-xs text-slate-400 mt-0.5">Conecte o número do seu estabelecimento</p>
           </div>
+          {waStatus === 'open' && (
+            <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+              <CheckCircle className="w-3 h-3" /> Conectado
+            </span>
+          )}
+          {waStatus === 'connecting' && (
+            <span className="text-[10px] bg-amber-50 text-amber-600 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Aguardando
+            </span>
+          )}
+        </div>
+
+        {waStatus === 'open' ? (
+          <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
+            <CheckCircle className="w-4 h-4" />
+            WhatsApp conectado e pronto para uso
+          </div>
+        ) : waQrCode ? (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-500 text-center">Escaneie com o WhatsApp do estabelecimento</p>
+            <div className="flex justify-center">
+              <img src={waQrCode} alt="QR Code WhatsApp" className="w-48 h-48 rounded-xl border border-slate-200" />
+            </div>
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Aguardando leitura do QR Code...
+            </div>
+            <button onClick={handleRefreshQr} disabled={waLoading}
+              className="w-full py-2 text-xs text-slate-500 hover:text-slate-700 underline disabled:opacity-50">
+              QR expirou? Clique para gerar novo
+            </button>
+          </div>
+        ) : (
+          <button onClick={handleConnectWA} disabled={waLoading}
+            className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+            {waLoading
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Criando instância...</>
+              : profile.evolutionInstanceName
+                ? <><Smartphone className="w-4 h-4" /> Reconectar WhatsApp</>
+                : <><Smartphone className="w-4 h-4" /> Conectar WhatsApp</>
+            }
+          </button>
         )}
       </div>
 
