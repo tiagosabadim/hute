@@ -334,13 +334,101 @@ export default function App() {
   if (!user) return <LoginScreen />;
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
   if (!profile) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
-  if (profile.status !== 'active') {
+  const _trialActive = !profile.plan && profile.createdAt &&
+    (Date.now() - new Date(profile.createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+  if (profile.status !== 'active' && !_trialActive) {
     return <PlansScreen user={user} profile={profile} onActivated={async () => {
       const p = await fetchProfile(user.uid);
       setProfile(p);
     }} />;
   }
   return <AdminPanel user={user} profile={profile} setProfile={setProfile} fetchProfile={fetchProfile} />;
+}
+
+// ── Plan Limits Hook ──────────────────────────────────────
+function usePlanLimits(profile) {
+  return useMemo(() => {
+    const plan = profile?.plan;
+    const createdAt = profile?.createdAt;
+    const trialActive = !plan && createdAt &&
+      (Date.now() - new Date(createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+    const trialDaysLeft = trialActive
+      ? Math.ceil((7 * 24 * 60 * 60 * 1000 - (Date.now() - new Date(createdAt).getTime())) / 86400000)
+      : 0;
+    const effectivePlan = plan || (trialActive ? 'premium' : 'starter');
+    return {
+      effectivePlan,
+      isTrial: !!trialActive,
+      trialDaysLeft,
+      maxProfissionals: effectivePlan === 'pro' ? Infinity : effectivePlan === 'premium' ? 5 : 1,
+      maxAppointmentsPerMonth: effectivePlan === 'starter' ? 100 : Infinity,
+      hasGoogleCalendar: effectivePlan === 'premium' || effectivePlan === 'pro',
+    };
+  }, [profile?.plan, profile?.createdAt]);
+}
+
+// ── Upgrade Modal ─────────────────────────────────────────
+function UpgradeModal({ lojaId, title, message, requiredPlan = 'premium', onClose }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const targetPlan = PLANS.find(p => p.key === requiredPlan) || PLANS[1];
+
+  const handleUpgrade = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/stripeCheckout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId, priceId: targetPlan.priceId }),
+      });
+      const data = await res.json();
+      if (data.error) { setError(data.error); return; }
+      window.location.href = data.url;
+    } catch {
+      setError('Erro ao processar. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-5" onClick={onClose}>
+      <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="w-10 h-10 rounded-2xl bg-violet-50 flex items-center justify-center">
+            <Zap className="w-5 h-5 text-violet-600" />
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <h3 className="font-black text-slate-900 text-lg mb-1">{title}</h3>
+        <p className="text-sm text-slate-500 mb-5">{message}</p>
+        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+        <div className="bg-violet-50 rounded-2xl p-4 mb-5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-black text-violet-700 text-sm">{targetPlan.name}</span>
+            <span className="font-black text-violet-700">{targetPlan.price}<span className="text-xs font-normal text-violet-400">/mês</span></span>
+          </div>
+          <ul className="space-y-1">
+            {targetPlan.features.map(f => (
+              <li key={f} className="flex items-center gap-1.5 text-xs text-violet-600">
+                <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />{f}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <button onClick={handleUpgrade} disabled={loading}
+          className="w-full py-3 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors">
+          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> A processar...</> : <><CreditCard className="w-4 h-4" /> Fazer upgrade para {targetPlan.name}</>}
+        </button>
+        <button onClick={onClose} className="w-full mt-2 py-2 text-xs text-slate-400 hover:text-slate-600">
+          Agora não
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ── Plans Screen (Paywall) ────────────────────────────────
@@ -691,6 +779,7 @@ function OnboardingScreen({ user, onComplete }) {
         servicos: [],
         profissionals,
         googleCalendarConnected: false,
+        createdAt: new Date().toISOString(),
       };
       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), profileData, { merge: true });
       // Register slug
@@ -1337,6 +1426,7 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
   const [slots, setSlots] = useState(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [apptLimitReached, setApptLimitReached] = useState(false);
 
   // Client search by phone
   useEffect(() => {
@@ -1381,10 +1471,22 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
     return assigned.length > 0 ? assigned : (profile.profissionals || []);
   }, [selectedService, filterProfId, profile.profissionals]);
 
+  const apptLimits = usePlanLimits(profile);
+
   const handleSave = async () => {
     if (!clienteNome.trim() || !selectedService || !data || !hora) return;
     setSaving(true);
     try {
+      // Check monthly appointment limit for Starter plan
+      if (apptLimits.maxAppointmentsPerMonth < Infinity) {
+        const currentMonth = data.slice(0, 7); // YYYY-MM
+        const snap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`));
+        const monthCount = snap.docs.filter(d => (d.data().data || '').startsWith(currentMonth)).length;
+        if (monthCount >= apptLimits.maxAppointmentsPerMonth) {
+          setApptLimitReached(true);
+          return;
+        }
+      }
       const selectedProf = (profile.profissionals || []).find(p => p.id === selectedProfId) || null;
       const [h, m] = hora.split(':').map(Number);
       const dtDate = new Date(`${data}T00:00:00`);
@@ -1439,6 +1541,18 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
   };
 
   const canSave = clienteNome.trim() && selectedService && data && hora && !saving;
+
+  if (apptLimitReached) {
+    return (
+      <UpgradeModal
+        lojaId={lojaId}
+        title="Limite de agendamentos atingido"
+        message="O seu plano Starter permite 100 agendamentos por mês. Faça upgrade para Premium ou Pro para agendamentos ilimitados."
+        requiredPlan="premium"
+        onClose={() => { setApptLimitReached(false); setSaving(false); onClose(); }}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center" onClick={onClose}>
@@ -2027,10 +2141,12 @@ function ClientDetail({ user, lojaId, clientData, onBack }) {
 
 // ── Admin Equipa ──────────────────────────────────────────
 function AdminEquipa({ user, profile, setProfile }) {
+  const limits = usePlanLimits(profile);
   const [profissionals, setProfissionals] = useState(profile.profissionals || []);
   const [expandedId, setExpandedId] = useState(null);
   const [editData, setEditData] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [newProf, setNewProf] = useState({ nome: '', cor: PROF_COLORS[0], servicos: [], agendaTipo: 'nativa' });
   const [calStatus, setCalStatus] = useState({}); // profId -> { connected: bool }
   const [inviteLinks, setInviteLinks] = useState({}); // profId -> invite URL
@@ -2095,6 +2211,11 @@ function AdminEquipa({ user, profile, setProfile }) {
 
   const addProf = async () => {
     if (!newProf.nome.trim()) return;
+    if (profissionals.length >= limits.maxProfissionals) {
+      setShowAddForm(false);
+      setShowUpgradeModal(true);
+      return;
+    }
     const prof = { ...newProf, id: newId(), nome: newProf.nome.trim() };
     await saveProfissionals([...profissionals, prof]);
     setNewProf({ nome: '', cor: PROF_COLORS[0], servicos: [], agendaTipo: 'nativa' });
@@ -2370,11 +2491,27 @@ function AdminEquipa({ user, profile, setProfile }) {
           </div>
         </div>
       ) : (
-        <button onClick={() => setShowAddForm(true)}
+        <button
+          onClick={() => profissionals.length >= limits.maxProfissionals ? setShowUpgradeModal(true) : setShowAddForm(true)}
           className="w-full flex items-center justify-center gap-2 py-4 border-2 border-dashed border-violet-200 text-violet-600 font-semibold rounded-2xl hover:bg-violet-50 transition-colors text-sm">
           <Plus className="w-4 h-4" />
           Adicionar Profissional
+          {profissionals.length >= limits.maxProfissionals && (
+            <span className="text-[10px] bg-violet-100 text-violet-600 font-black px-1.5 py-0.5 rounded-full ml-1">
+              {limits.effectivePlan === 'starter' ? 'Premium' : 'Pro'}
+            </span>
+          )}
         </button>
+      )}
+
+      {showUpgradeModal && (
+        <UpgradeModal
+          lojaId={user.uid}
+          title="Limite de profissionais atingido"
+          message={`O seu plano ${limits.effectivePlan === 'starter' ? 'Starter permite 1 profissional. Faça upgrade para Premium para ter até 5.' : 'Premium permite 5 profissionais. Faça upgrade para Pro para ter profissionais ilimitados.'}`}
+          requiredPlan={limits.effectivePlan === 'starter' ? 'premium' : 'pro'}
+          onClose={() => setShowUpgradeModal(false)}
+        />
       )}
     </div>
   );
@@ -2642,6 +2779,7 @@ function AdminServicos({ user, profile, setProfile }) {
 
 // ── Admin Settings ────────────────────────────────────────
 function AdminSettings({ user, profile, setProfile, onLogout }) {
+  const settingsLimits = usePlanLimits(profile);
   const [nome, setNome] = useState(profile.nome || '');
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
   const [slug, setSlug] = useState(profile.slug || '');
@@ -3038,12 +3176,20 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
             <CheckCircle className="w-4 h-4" />
             Sincronização ativa — marcações vão para o Google Agenda
           </div>
-        ) : (
+        ) : settingsLimits.hasGoogleCalendar ? (
           <button onClick={startGoogleAuth}
             className="w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
             <Calendar className="w-4 h-4" />
             Ligar Google Agenda
           </button>
+        ) : (
+          <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3 rounded-xl">
+            <div className="flex items-center gap-2 text-slate-400 text-sm font-semibold">
+              <Calendar className="w-4 h-4" />
+              Ligar Google Agenda
+            </div>
+            <span className="text-[10px] bg-violet-100 text-violet-600 font-black px-2 py-1 rounded-full whitespace-nowrap">Premium</span>
+          </div>
         )}
       </div>
 
