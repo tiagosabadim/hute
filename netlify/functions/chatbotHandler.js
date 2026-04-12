@@ -1,12 +1,9 @@
-const { google } = require('googleapis');
 const { initializeApp, getApps } = require('firebase/app');
 const {
   getFirestore, doc, getDoc, setDoc, deleteDoc,
   collection, getDocs, addDoc,
 } = require('firebase/firestore/lite');
-
-const CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     || '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com';
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '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';
+const { computeSlots } = require('./utils/slotEngine');
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -37,108 +34,6 @@ function fmtData(iso) {
   if (!iso) return '';
   const [y, mo, d] = iso.split('-');
   return `${d}/${mo}/${y}`;
-}
-
-// ── Slot helpers ──────────────────────────────────────────
-const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
-const toStr = n => `${String(Math.floor(n / 60)).padStart(2,'0')}:${String(n % 60).padStart(2,'0')}`;
-
-function gerarSlots(horaInicio, horaFim, duracaoMin, busyIntervals) {
-  const busy = busyIntervals.slice().sort((a, b) => a.start - b.start);
-  const slots = [];
-  let cur = toMin(horaInicio);
-  const fim = toMin(horaFim);
-  while (cur + duracaoMin <= fim) {
-    const overlap = busy.find(b => cur < b.end && cur + duracaoMin > b.start);
-    if (overlap) { cur = overlap.end; } else { slots.push(toStr(cur)); cur += duracaoMin; }
-  }
-  return slots;
-}
-
-function busyFromGoogleEvents(eventos) {
-  // Parse time directly from ISO string to avoid UTC conversion on Netlify server
-  const toLocalMin = (str) => {
-    const m = (str || '').match(/T(\d{2}):(\d{2})/);
-    return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
-  };
-  return eventos.map(e => ({
-    start: toLocalMin(e.start.dateTime || e.start.date),
-    end:   toLocalMin(e.end.dateTime   || e.end.date),
-  }));
-}
-
-async function fetchGoogleEvents(refreshToken, data) {
-  const oauth2 = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET);
-  oauth2.setCredentials({ refresh_token: refreshToken });
-  const calendar = google.calendar({ version: 'v3', auth: oauth2 });
-  const res = await calendar.events.list({
-    calendarId: 'primary',
-    timeMin: new Date(`${data}T00:00:00`).toISOString(),
-    timeMax: new Date(`${data}T23:59:59`).toISOString(),
-    singleEvents: true,
-    orderBy: 'startTime',
-  });
-  return res.data.items || [];
-}
-
-async function fetchSlots(db, lojaId, profile, data, duracaoMin, profissionalId) {
-  const duracao    = duracaoMin || profile.intervalo || 60;
-  const horaInicio = profile.horaInicio || '09:00';
-  const horaFim    = profile.horaFim    || '18:00';
-
-  // Blocks (day_off / custom_hours / slot)
-  const blocksSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${lojaId}`));
-  const relevantBlocks = blocksSnap.docs.map(d => d.data())
-    .filter(b => b.date === data && (!b.profissionalId || b.profissionalId === profissionalId));
-
-  if (relevantBlocks.some(b => b.type === 'day_off')) return [];
-
-  const customHours = relevantBlocks.find(b => b.type === 'custom_hours');
-  const hInicio = customHours ? customHours.horaInicio : horaInicio;
-  const hFim    = customHours ? customHours.horaFim    : horaFim;
-
-  const busyBlocks = relevantBlocks.filter(b => b.type === 'slot')
-    .map(b => ({ start: toMin(b.hora), end: toMin(b.hora) + (b.duracao || duracao) }));
-
-  // Firestore appointments
-  const apptSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`));
-  const marcacoes = apptSnap.docs.map(d => d.data())
-    .filter(a => a.data === data && (!profissionalId || a.profissionalId === profissionalId))
-    .map(a => ({ start: toMin(a.hora), end: toMin(a.hora) + (Number(a.duracao) || duracao) }));
-
-  // Google Calendar — professional level
-  if (profissionalId) {
-    try {
-      const profCalDoc = await getDoc(
-        doc(db, 'artifacts', APP_ID, 'public', 'data', 'prof_cals', `${lojaId}_${profissionalId}`)
-      );
-      if (profCalDoc.exists() && profCalDoc.data().googleCalendarConnected && profCalDoc.data().googleRefreshToken) {
-        const eventos = await fetchGoogleEvents(profCalDoc.data().googleRefreshToken, data);
-        // Always include Firestore appointments too (GCal may not have all bookings)
-        const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...marcacoes];
-        return gerarSlots(hInicio, hFim, duracao, busy);
-      }
-    } catch (err) {
-      console.error('Google Calendar prof error:', err.message);
-    }
-    // Fallback: Firestore only
-    return gerarSlots(hInicio, hFim, duracao, [...busyBlocks, ...marcacoes]);
-  }
-
-  // Google Calendar — establishment level
-  if (profile.googleRefreshToken) {
-    try {
-      const eventos = await fetchGoogleEvents(profile.googleRefreshToken, data);
-      // Always include Firestore appointments too
-      const busy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...marcacoes];
-      return gerarSlots(hInicio, hFim, duracao, busy);
-    } catch (err) {
-      console.error('Google Calendar estab error:', err.message);
-    }
-  }
-
-  // Fallback: Firestore only
-  return gerarSlots(hInicio, hFim, duracao, [...busyBlocks, ...marcacoes]);
 }
 
 // ── Session helpers ───────────────────────────────────────
@@ -360,7 +255,7 @@ exports.handler = async (event) => {
         return reply(`😕 Essa data já passou. Digite uma data futura (dd/mm/aaaa):`);
       }
 
-      const slots = await fetchSlots(
+      const { slots } = await computeSlots(
         db, lojaId, profile, dataISO,
         session.servico?.duracao || profile.intervalo || 60,
         session.profissional?.id || null
