@@ -58,6 +58,7 @@ exports.handler = async (event) => {
     const profileDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', lojaId));
     const profileData = profileDoc.exists() ? profileDoc.data() : {};
     const slug = profileData.slug || lojaId;
+    const connectedPhone = profileData.whatsappNumber || '';
 
     let refreshToken = null;
 
@@ -138,6 +139,7 @@ exports.handler = async (event) => {
           profissionalNome: profissionalNome || '',
           slug,
           lojaId,
+          connectedPhone,
           linkAgendamento: appointmentId ? `https://hute.netlify.app/#${slug}/agendamento/${appointmentId}` : '',
         }),
       }).catch(err => console.error('Erro webhook n8n:', err));

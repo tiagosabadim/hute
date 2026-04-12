@@ -39,7 +39,9 @@ exports.handler = async (event) => {
 
     // Get slug from profile
     const profileDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', lojaId));
-    const slug = profileDoc.exists() ? (profileDoc.data().slug || lojaId) : lojaId;
+    const profileData = profileDoc.exists() ? profileDoc.data() : {};
+    const slug = profileData.slug || lojaId;
+    const connectedPhone = profileData.whatsappNumber || '';
 
     // Delete appointment from Firestore
     await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, appointmentId));
@@ -63,6 +65,7 @@ exports.handler = async (event) => {
           profissionalNome: profissionalNome || '',
           slug,
           lojaId,
+          connectedPhone,
         }),
       }).catch(err => console.error('n8n cancel webhook error:', err.message));
     }
