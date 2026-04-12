@@ -2435,6 +2435,9 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
   const [slug, setSlug] = useState(profile.slug || '');
   const [whatsappNumber, setWhatsappNumber] = useState(profile.whatsappNumber || '');
+  const [zapiInstanceId, setZapiInstanceId] = useState(profile.zapiInstanceId || '');
+  const [zapiToken, setZapiToken] = useState(profile.zapiToken || '');
+  const [zapiClientToken, setZapiClientToken] = useState(profile.zapiClientToken || '');
   const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
   const [horaFim, setHoraFim] = useState(profile.horaFim || '19:00');
   const [intervalo, setIntervalo] = useState(profile.intervalo || 30);
@@ -2450,7 +2453,7 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
     setSaving(true);
     try {
       const normalizedWhats = whatsappNumber.replace(/\D/g, '');
-      const data = { nome, subtitulo, slug, whatsappNumber: normalizedWhats, horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
+      const data = { nome, subtitulo, slug, whatsappNumber: normalizedWhats, zapiInstanceId: zapiInstanceId.trim(), zapiToken: zapiToken.trim(), zapiClientToken: zapiClientToken.trim(), horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), data, { merge: true });
       if (slug !== profile.slug) {
         await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slug), { uid: user.uid, nome });
@@ -2556,6 +2559,38 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
             className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
           <p className="text-[10px] text-slate-400 mt-1">Usado pelo chatbot para identificar seu estabelecimento.</p>
         </div>
+      </div>
+
+      {/* ── Z-API ── */}
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+        <div>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Z-API (WhatsApp)</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">Credenciais para envio de mensagens pelo seu número.</p>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Instance ID</label>
+          <input value={zapiInstanceId} onChange={e => setZapiInstanceId(e.target.value)}
+            placeholder="Ex: 3DF1234567890"
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Token</label>
+          <input value={zapiToken} onChange={e => setZapiToken(e.target.value)}
+            placeholder="Token da instância Z-API"
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm font-mono" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Client-Token</label>
+          <input value={zapiClientToken} onChange={e => setZapiClientToken(e.target.value)}
+            placeholder="Client-Token da conta Z-API"
+            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm font-mono" />
+        </div>
+        {zapiInstanceId && zapiToken && zapiClientToken && (
+          <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-xs font-semibold">
+            <CheckCircle className="w-3.5 h-3.5" />
+            Z-API configurado
+          </div>
+        )}
       </div>
 
       {/* ── Horário ── */}
