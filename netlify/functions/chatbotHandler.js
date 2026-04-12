@@ -257,7 +257,7 @@ exports.handler = async (event) => {
 
       const { slots } = await computeSlots(
         db, lojaId, profile, dataISO,
-        session.servico?.duracao || profile.intervalo || 60,
+        profile.intervalo || 60,
         session.profissional?.id || null
       );
 
