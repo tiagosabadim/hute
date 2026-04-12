@@ -12,7 +12,7 @@ import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
-  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link
+  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -1495,12 +1495,15 @@ function BlockModal({ lojaId, filterProfId, profile, prefilledHora, prefilledDat
 function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
   const [apptMap, setApptMap] = useState({});
   const [directMap, setDirectMap] = useState({});
+  const [deletedKeys, setDeletedKeys] = useState(new Set());
   const [selectedClient, setSelectedClient] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newNome, setNewNome] = useState('');
   const [newWhats, setNewWhats] = useState('');
   const [newNasc, setNewNasc] = useState('');
   const [addSaving, setAddSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
   const colId = lojaId || user.uid;
 
   // Appointments-derived clients
@@ -1526,14 +1529,20 @@ function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
     return () => unsub();
   }, [user, colId, filterProfId]);
 
-  // Direct clients collection
+  // Direct clients collection — track deleted flag
   useEffect(() => {
     if (!user) return;
     const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `clients_${colId}`);
     const unsub = onSnapshot(q, (snap) => {
       const map = {};
-      snap.docs.forEach(d => { map[d.id] = { key: d.id, visitas: [], ...d.data() }; });
+      const deleted = new Set();
+      snap.docs.forEach(d => {
+        const data = d.data();
+        if (data.deleted) { deleted.add(d.id); return; }
+        map[d.id] = { key: d.id, visitas: [], ...data };
+      });
       setDirectMap(map);
+      setDeletedKeys(deleted);
     });
     return () => unsub();
   }, [user, colId]);
@@ -1541,19 +1550,39 @@ function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
   const clients = useMemo(() => {
     const merged = { ...directMap };
     Object.values(apptMap).forEach(c => {
+      if (deletedKeys.has(c.key)) return;
       if (merged[c.key]) {
         merged[c.key] = { ...merged[c.key], visitas: c.visitas, ultimaVisita: c.ultimaVisita };
       } else {
         merged[c.key] = c;
       }
     });
-    return Object.values(merged).sort((a, b) => (b.ultimaVisita || '').localeCompare(a.ultimaVisita || ''));
-  }, [apptMap, directMap]);
+    return Object.values(merged);
+  }, [apptMap, directMap, deletedKeys]);
+
+  const displayedClients = useMemo(() => {
+    let list = clients;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(c =>
+        (c.nome || '').toLowerCase().includes(q) ||
+        (c.whats || '').includes(q)
+      );
+    }
+    if (sortBy === 'alpha')   return [...list].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
+    if (sortBy === 'oldest')  return [...list].sort((a, b) => (a.ultimaVisita || '').localeCompare(b.ultimaVisita || ''));
+    return [...list].sort((a, b) => (b.ultimaVisita || '').localeCompare(a.ultimaVisita || ''));
+  }, [clients, search, sortBy]);
 
   const handleDeleteClient = async (c, e) => {
     e.stopPropagation();
     if (!window.confirm(`Excluir ${c.nome}? Esta ação não pode ser desfeita.`)) return;
-    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${colId}`, c.key));
+    // Soft-delete: write deleted:true so apptMap-derived clients also disappear
+    await setDoc(
+      doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${colId}`, c.key),
+      { deleted: true },
+      { merge: true }
+    );
   };
 
   const handleAddClient = async () => {
@@ -1580,7 +1609,7 @@ function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-xl font-black text-slate-900">Clientes</h2>
           <p className="text-xs text-slate-400">{clients.length} cliente{clients.length !== 1 ? 's' : ''} registado{clients.length !== 1 ? 's' : ''}</p>
@@ -1589,6 +1618,23 @@ function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
           className="p-2 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
           <Plus className="w-4 h-4" />
         </button>
+      </div>
+
+      {/* Search + filters */}
+      <div className="mb-4 space-y-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome ou WhatsApp"
+            className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+        </div>
+        <div className="flex gap-2">
+          {[['recent','Mais recentes'],['oldest','Mais antigos'],['alpha','A–Z']].map(([val, label]) => (
+            <button key={val} onClick={() => setSortBy(val)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${sortBy === val ? 'bg-violet-600 text-white' : 'bg-white border border-slate-200 text-slate-500 hover:border-violet-300'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {showAddForm && (
@@ -1624,18 +1670,18 @@ function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
         </div>
       )}
 
-      {clients.length === 0 ? (
+      {displayedClients.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Users className="w-8 h-8 text-slate-300" />
           </div>
-          <p className="text-slate-400 text-sm font-medium">Ainda sem clientes registados.</p>
-          <button onClick={() => setShowAddForm(true)} className="mt-3 text-violet-500 text-xs font-semibold">+ Adicionar cliente</button>
+          <p className="text-slate-400 text-sm font-medium">{search ? 'Nenhum cliente encontrado.' : 'Ainda sem clientes registados.'}</p>
+          {!search && <button onClick={() => setShowAddForm(true)} className="mt-3 text-violet-500 text-xs font-semibold">+ Adicionar cliente</button>}
         </div>
       ) : (
         <div className="space-y-2">
-          {clients.map(c => (
-            <div key={c.key} className="bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3 hover:shadow-md transition-shadow">
+          {displayedClients.map(c => (
+            <div key={c.key} className="bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center hover:shadow-md transition-shadow">
               <button onClick={() => setSelectedClient(c)} className="flex items-center gap-3 flex-1 min-w-0 p-4 text-left">
                 <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
                   style={{ backgroundColor: '#7c3aed' }}>
