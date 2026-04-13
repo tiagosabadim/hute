@@ -376,6 +376,55 @@ function usePlanLimits(profile) {
 }
 
 // ── Upgrade Modal ─────────────────────────────────────────
+function PlansCheckoutCard({ plan, lojaId, Icon }) {
+  const [loading, setLoading] = useState(false);
+  const handleSubscribe = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/stripeCheckout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId, priceId: plan.priceId }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } finally {
+      setLoading(false);
+    }
+  };
+  const isHighlight = plan.highlight;
+  return (
+    <div className={`rounded-2xl p-4 ${isHighlight ? 'bg-emerald-50 ring-2 ring-emerald-400' : 'bg-slate-50'}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isHighlight ? 'bg-emerald-100' : 'bg-slate-100'}`}>
+            <Icon className={`w-4 h-4 ${isHighlight ? 'text-emerald-600' : 'text-slate-500'}`} />
+          </div>
+          <div>
+            <span className={`font-black text-sm ${isHighlight ? 'text-emerald-700' : 'text-slate-800'}`}>{plan.name}</span>
+            {isHighlight && <span className="ml-1.5 text-[9px] bg-emerald-500 text-white font-black px-1.5 py-0.5 rounded-full">POPULAR</span>}
+          </div>
+        </div>
+        <span className={`font-black text-base ${isHighlight ? 'text-emerald-700' : 'text-slate-800'}`}>
+          {plan.price}<span className="text-xs font-normal text-slate-400">/mês</span>
+        </span>
+      </div>
+      <ul className="space-y-1 mb-3">
+        {plan.features.map(f => (
+          <li key={f} className="flex items-center gap-1.5 text-xs text-slate-500">
+            <CheckCircle className={`w-3.5 h-3.5 flex-shrink-0 ${isHighlight ? 'text-emerald-500' : 'text-slate-300'}`} />{f}
+          </li>
+        ))}
+      </ul>
+      <button onClick={handleSubscribe} disabled={loading}
+        className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors
+          ${isHighlight ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}>
+        {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> A processar...</> : <><CreditCard className="w-4 h-4" /> Assinar {plan.name}</>}
+      </button>
+    </div>
+  );
+}
+
 function UpgradeModal({ lojaId, title, message, requiredPlan = 'premium', onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -951,6 +1000,9 @@ function OnboardingScreen({ user, onComplete }) {
 // ── Admin Panel Shell ─────────────────────────────────────
 function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const [view, setView] = useState('agenda');
+  const [showPlansModal, setShowPlansModal] = useState(false);
+  const { isTrial, trialDaysLeft } = usePlanLimits(profile);
+  const trialUrgent = isTrial && trialDaysLeft <= 2;
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -983,6 +1035,44 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
           </button>
         </div>
       </header>
+
+      {isTrial && (
+        <div className={`px-4 py-2.5 flex items-center justify-between gap-3 ${trialUrgent ? 'bg-red-500' : 'bg-amber-400'}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${trialUrgent ? 'text-white' : 'text-amber-900'}`} />
+            <p className={`text-xs font-semibold truncate ${trialUrgent ? 'text-white' : 'text-amber-900'}`}>
+              {trialDaysLeft > 0
+                ? `Período de teste: ${trialDaysLeft} dia${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}. Assine para continuar.`
+                : 'Período de teste expirado. Assine para continuar usando.'}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowPlansModal(true)}
+            className={`text-[11px] font-black px-2.5 py-1 rounded-full flex-shrink-0 transition-colors
+              ${trialUrgent ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-amber-900/20 text-amber-900 hover:bg-amber-900/30'}`}>
+            Ver planos
+          </button>
+        </div>
+      )}
+
+      {showPlansModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={() => setShowPlansModal(false)}>
+          <div className="bg-white rounded-t-3xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 pb-10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-black text-slate-900 text-lg">Escolha um plano</h2>
+              <button onClick={() => setShowPlansModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              {PLANS.map(plan => {
+                const Icon = plan.icon;
+                return (
+                  <PlansCheckoutCard key={plan.key} plan={plan} lojaId={user.uid} Icon={Icon} />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="p-5">
         {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
