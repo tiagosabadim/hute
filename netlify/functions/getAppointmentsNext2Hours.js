@@ -1,5 +1,5 @@
 const { initializeApp, getApps } = require('firebase/app');
-const { getFirestore, collection, getDocs } = require('firebase/firestore/lite');
+const { getFirestore, collection, getDocs, doc, updateDoc } = require('firebase/firestore/lite');
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -46,25 +46,33 @@ exports.handler = async (event) => {
           const snap = await getDocs(
             collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`)
           );
-          return snap.docs
+          const matched = snap.docs
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(a => {
-              if (!a.data || !a.hora) return false;
+              if (!a.data || !a.hora || a.lembreteEnviado) return false;
               const [h, m] = a.hora.split(':').map(Number);
               const apptTime = new Date(`${a.data}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
               return apptTime >= now && apptTime <= twoHoursLater;
-            })
-            .map(a => ({
-              telefoneCliente: normalizePhone(a.clienteWhats),
-              nomeCliente: a.clienteNome || '',
-              servico: a.servico || '',
-              data: a.data || '',
-              hora: a.hora || '',
-              profissionalNome: a.profissionalNome || '',
-              nomeEstabelecimento: nomeEstabelecimento || '',
-              connectedPhone,
-              linkAgendamento: `https://hute.netlify.app/#${slugFinal}/agendamento/${a.id}`,
-            }));
+            });
+
+          // Mark as sent so repeated runs don't re-send
+          await Promise.all(
+            matched.map(a =>
+              updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, a.id), { lembreteEnviado: true })
+            )
+          );
+
+          return matched.map(a => ({
+            telefoneCliente: normalizePhone(a.clienteWhats),
+            nomeCliente: a.clienteNome || '',
+            servico: a.servico || '',
+            data: a.data || '',
+            hora: a.hora || '',
+            profissionalNome: a.profissionalNome || '',
+            nomeEstabelecimento: nomeEstabelecimento || '',
+            connectedPhone,
+            linkAgendamento: `https://hute.netlify.app/#${slugFinal}/agendamento/${a.id}`,
+          }));
         } catch {
           return [];
         }

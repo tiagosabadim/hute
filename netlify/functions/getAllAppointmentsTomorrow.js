@@ -1,5 +1,5 @@
 const { initializeApp, getApps } = require('firebase/app');
-const { getFirestore, collection, getDocs } = require('firebase/firestore/lite');
+const { getFirestore, collection, getDocs, doc, updateDoc } = require('firebase/firestore/lite');
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -49,20 +49,28 @@ exports.handler = async (event) => {
           const snap = await getDocs(
             collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`)
           );
-          return snap.docs
+          const matched = snap.docs
             .map(d => ({ id: d.id, ...d.data() }))
-            .filter(a => a.data === tomorrowISO)
-            .map(a => ({
-              telefoneCliente: normalizePhone(a.clienteWhats),
-              nomeCliente: a.clienteNome || '',
-              servico: a.servico || '',
-              data: a.data || '',
-              hora: a.hora || '',
-              profissionalNome: a.profissionalNome || '',
-              nomeEstabelecimento: nomeEstabelecimento || '',
-              connectedPhone,
-              linkAgendamento: `https://hute.netlify.app/#${slugFinal}/agendamento/${a.id}`,
-            }));
+            .filter(a => a.data === tomorrowISO && !a.lembreteEnviado);
+
+          // Mark as sent so repeated runs don't re-send
+          await Promise.all(
+            matched.map(a =>
+              updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, a.id), { lembreteEnviado: true })
+            )
+          );
+
+          return matched.map(a => ({
+            telefoneCliente: normalizePhone(a.clienteWhats),
+            nomeCliente: a.clienteNome || '',
+            servico: a.servico || '',
+            data: a.data || '',
+            hora: a.hora || '',
+            profissionalNome: a.profissionalNome || '',
+            nomeEstabelecimento: nomeEstabelecimento || '',
+            connectedPhone,
+            linkAgendamento: `https://hute.netlify.app/#${slugFinal}/agendamento/${a.id}`,
+          }));
         } catch {
           return [];
         }

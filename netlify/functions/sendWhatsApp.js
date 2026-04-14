@@ -29,6 +29,9 @@ exports.handler = async (event) => {
 
   let { lojaId, connectedPhone, phone, message } = body;
 
+  // Convert literal \n text sequences to real newlines
+  if (message) message = message.replace(/\\n/g, '\n');
+
   if (!phone || !message) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'phone e message são obrigatórios' }) };
   }
