@@ -12,7 +12,8 @@ import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
-  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone, CreditCard, Zap, Shield, Menu
+  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone, CreditCard, Zap, Shield, Menu,
+  BarChart2, TrendingUp, ShoppingBag
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -1011,10 +1012,11 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   };
 
   const navItems = [
-    { key: 'agenda',   icon: Calendar,  label: 'Agenda' },
-    { key: 'clients',  icon: Users,     label: 'Clientes' },
-    { key: 'equipa',   icon: Briefcase, label: 'Equipa' },
-    { key: 'servicos', icon: Tag,       label: 'Serviços' },
+    { key: 'agenda',    icon: Calendar,   label: 'Agenda' },
+    { key: 'clients',   icon: Users,      label: 'Clientes' },
+    { key: 'dashboard', icon: BarChart2,  label: 'Dashboard' },
+    { key: 'equipa',    icon: Briefcase,  label: 'Equipa' },
+    { key: 'servicos',  icon: Tag,        label: 'Serviços' },
   ];
 
   return (
@@ -1077,6 +1079,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       <main className="p-5">
         {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
         {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
+        {view === 'dashboard' && <AdminDashboard user={user} profile={profile} />}
         {view === 'equipa'   && <AdminEquipa user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
       </main>
@@ -2858,6 +2861,70 @@ function AdminServicos({ user, profile, setProfile }) {
                     </div>
                   )}
                 </div>
+                {/* Serviços complementares */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Serviços complementares</label>
+                  {servicos.filter((_, idx) => idx !== editIdx).length === 0
+                    ? <p className="text-xs text-slate-300 italic">Adicione mais serviços para configurar complementares</p>
+                    : servicos.filter((_, idx) => idx !== editIdx).map(s => {
+                        const current = (editData.crossSell || []).find(c => c.servicoNome === s.nome);
+                        return (
+                          <div key={s.nome} className="flex items-center gap-2 p-2 rounded-xl bg-slate-50">
+                            <input type="checkbox" checked={!!current}
+                              onChange={e => {
+                                const prev = editData.crossSell || [];
+                                setEditData(p => ({
+                                  ...p,
+                                  crossSell: e.target.checked
+                                    ? [...prev, { servicoNome: s.nome, desconto: 10 }]
+                                    : prev.filter(c => c.servicoNome !== s.nome),
+                                }));
+                              }}
+                              className="accent-violet-600 w-4 h-4 flex-shrink-0" />
+                            <span className="text-sm flex-1 text-slate-700">{s.nome}</span>
+                            {current && (
+                              <div className="flex items-center gap-1">
+                                <input type="number" min="0" max="100" value={current.desconto}
+                                  onChange={e => setEditData(p => ({
+                                    ...p,
+                                    crossSell: p.crossSell.map(c => c.servicoNome === s.nome ? { ...c, desconto: Number(e.target.value) } : c),
+                                  }))}
+                                  className="w-14 px-2 py-1 border border-slate-200 rounded-lg text-sm text-center" />
+                                <span className="text-xs text-slate-400">% off</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                  }
+                </div>
+
+                {/* Produtos para oferecer */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Produtos para oferecer</label>
+                  {(editData.upsell || []).map((produto, j) => (
+                    <div key={j} className="flex items-center gap-2">
+                      <input value={produto.nome}
+                        onChange={e => setEditData(p => ({ ...p, upsell: p.upsell.map((u, i) => i === j ? { ...u, nome: e.target.value } : u) }))}
+                        placeholder="Ex: Pomada Modeladora"
+                        className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                      <input type="number" min="0" value={produto.preco || ''}
+                        onChange={e => setEditData(p => ({ ...p, upsell: p.upsell.map((u, i) => i === j ? { ...u, preco: Number(e.target.value) } : u) }))}
+                        placeholder="R$"
+                        className="w-20 px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                      <button onClick={() => setEditData(p => ({ ...p, upsell: (p.upsell || []).filter((_, i) => i !== j) }))}
+                        className="p-1.5 text-slate-300 hover:text-red-400 transition-colors flex-shrink-0">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setEditData(p => ({ ...p, upsell: [...(p.upsell || []), { nome: '', preco: 0 }] }))}
+                    className="w-full py-2 border border-dashed border-emerald-300 text-emerald-600 rounded-xl text-xs font-bold hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5" /> Adicionar produto
+                  </button>
+                </div>
+
                 <div className="flex gap-2">
                   <button onClick={saveEdit} disabled={saving}
                     className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-60">
@@ -3394,6 +3461,141 @@ function AdminSettings({ user, profile, setProfile, section }) {
   );
 }
 
+// ── Admin Dashboard ───────────────────────────────────────
+function AdminDashboard({ user, profile }) {
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`),
+      snap => {
+        setAppointments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [user.uid]);
+
+  const now = new Date();
+  const thisMonth = now.getMonth();
+  const thisYear = now.getFullYear();
+  const prevMonth = thisMonth === 0 ? 11 : thisMonth - 1;
+  const prevYear  = thisMonth === 0 ? thisYear - 1 : thisYear;
+  const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+  const inMonth = (data, m, y) => {
+    if (!data) return false;
+    const [dy, dm] = data.split('-').map(Number);
+    return dm - 1 === m && dy === y;
+  };
+
+  const thisMonthAppts = appointments.filter(a => inMonth(a.data, thisMonth, thisYear));
+  const prevMonthAppts = appointments.filter(a => inMonth(a.data, prevMonth, prevYear));
+  const todayISO = toDateISO(now);
+  const todayAppts = appointments.filter(a => a.data === todayISO).sort((a, b) => a.hora > b.hora ? 1 : -1);
+
+  const totalThis = thisMonthAppts.length;
+  const totalPrev = prevMonthAppts.length;
+  const totalPct  = totalPrev > 0 ? Math.round(((totalThis - totalPrev) / totalPrev) * 100) : null;
+
+  const receitaThis = thisMonthAppts.reduce((s, a) => s + (Number(a.valor) || 0), 0);
+  const receitaPrev = prevMonthAppts.reduce((s, a) => s + (Number(a.valor) || 0), 0);
+  const receitaPct  = receitaPrev > 0 ? Math.round(((receitaThis - receitaPrev) / receitaPrev) * 100) : null;
+
+  const serviceCounts = {};
+  appointments.forEach(a => { if (a.servico) serviceCounts[a.servico] = (serviceCounts[a.servico] || 0) + 1; });
+  const topServices = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const maxCount = topServices[0]?.[1] || 1;
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-violet-400" /></div>;
+
+  const PctBadge = ({ pct }) => pct === null ? null : (
+    <p className={`text-xs font-semibold mt-1 ${pct >= 0 ? 'text-emerald-600' : 'text-red-400'}`}>
+      {pct >= 0 ? '↑' : '↓'} {Math.abs(pct)}% vs mês anterior
+    </p>
+  );
+
+  return (
+    <div className="space-y-4 pb-4">
+      <div>
+        <h2 className="text-xl font-black text-slate-900">Dashboard</h2>
+        <p className="text-xs text-slate-400">{monthNames[thisMonth]} {thisYear}</p>
+      </div>
+
+      {/* Cards métricas */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Marcações</p>
+          <p className="text-3xl font-black text-slate-900">{totalThis}</p>
+          <PctBadge pct={totalPct} />
+          <p className="text-xs text-slate-300 mt-0.5">{totalPrev} em {monthNames[prevMonth]}</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Receita est.</p>
+          <p className="text-2xl font-black text-slate-900">R$ {receitaThis.toFixed(0)}</p>
+          <PctBadge pct={receitaPct} />
+          <p className="text-xs text-slate-300 mt-0.5">R$ {receitaPrev.toFixed(0)} em {monthNames[prevMonth]}</p>
+        </div>
+      </div>
+
+      {/* Hoje */}
+      <div className="bg-violet-600 rounded-2xl p-4 shadow-sm">
+        <p className="text-xs font-bold text-violet-200 uppercase tracking-wider mb-1">Hoje</p>
+        <p className="text-4xl font-black text-white">{todayAppts.length}</p>
+        <p className="text-xs text-violet-200 mt-1">marcaç{todayAppts.length === 1 ? 'ão' : 'ões'} hoje</p>
+      </div>
+
+      {/* Agenda do dia */}
+      {todayAppts.length > 0 && (
+        <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 pt-4 pb-2">Agenda de hoje</p>
+          <div className="divide-y divide-slate-50">
+            {todayAppts.map(a => (
+              <div key={a.id} className="px-4 py-3 flex items-center gap-3">
+                <p className="text-sm font-black text-violet-700 w-12 flex-shrink-0">{a.hora}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-slate-900 truncate">{a.clienteNome}</p>
+                  <p className="text-xs text-slate-400 truncate">{a.servico}</p>
+                </div>
+                {a.valor > 0 && <p className="text-xs font-bold text-emerald-600 flex-shrink-0">R$ {Number(a.valor).toFixed(0)}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top serviços */}
+      {topServices.length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Serviços mais agendados</p>
+          <div className="space-y-3">
+            {topServices.map(([nome, count]) => (
+              <div key={nome}>
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-sm font-semibold text-slate-700 truncate flex-1 mr-2">{nome}</span>
+                  <span className="text-xs font-bold text-slate-400">{count}</span>
+                </div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-violet-500 rounded-full" style={{ width: `${Math.round((count / maxCount) * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {appointments.length === 0 && (
+        <div className="text-center py-12">
+          <BarChart2 className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+          <p className="text-slate-400 text-sm font-medium">Sem dados ainda</p>
+          <p className="text-slate-300 text-xs mt-1">As métricas aparecerão assim que tiver marcações</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Client Portal ─────────────────────────────────────────
 function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
   // Booking flow
@@ -3410,6 +3612,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
   const [nascimento, setNascimento] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [confirmedAppt, setConfirmedAppt] = useState(null);
+  const [selectedExtras, setSelectedExtras] = useState([]);
 
   // Client auth
   const [clientUser, setClientUser] = useState(null);
@@ -3632,6 +3835,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
         hora: selectedHora,
         dataHoraInternacional: dtInt.toISOString(),
         createdAt: new Date().toISOString(),
+        ...(selectedExtras.length > 0 ? { extras: selectedExtras } : {}),
         ...(clientUser ? { clientUid: clientUser.uid } : {}),
       };
 
@@ -3716,15 +3920,18 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
     setStep('service');
   };
 
-  const stepIndex = { service: 0, professional: 1, datetime: 2, form: 3 };
+  const serviceHasExtras = !!(selectedService?.crossSell?.length || selectedService?.upsell?.length);
+
+  const stepIndex = { service: 0, professional: 1, datetime: 2, upsell: 3, form: 3 };
   const totalSteps = profissionals.length > 0 ? 4 : 3;
   const currentIdx = stepIndex[step] ?? 0;
 
-  const canGoBack = ['professional', 'datetime', 'form'].includes(step);
+  const canGoBack = ['professional', 'datetime', 'upsell', 'form'].includes(step);
   const handleBack = () => {
     if (step === 'professional') setStep('service');
     else if (step === 'datetime') setStep(profForService.length > 0 ? 'professional' : 'service');
-    else if (step === 'form') setStep('datetime');
+    else if (step === 'upsell') setStep('datetime');
+    else if (step === 'form') setStep(serviceHasExtras ? 'upsell' : 'datetime');
   };
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -3908,12 +4115,100 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
                     </button>
                   ))}
                 </div>
-                <button onClick={() => { if (selectedHora) goToStep('form'); }} disabled={!selectedHora}
+                <button onClick={() => {
+                  if (!selectedHora) return;
+                  goToStep(serviceHasExtras ? 'upsell' : 'form');
+                }} disabled={!selectedHora}
                   className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors">
                   Continuar
                 </button>
               </>
             )}
+          </div>
+        )}
+
+        {/* ── UPSELL ────────────────────────────────────────── */}
+        {step === 'upsell' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-1">Aproveite!</h2>
+            <p className="text-sm text-slate-400 mb-4">Adicione ao seu serviço com desconto</p>
+
+            <div className="space-y-3 mb-5">
+              {/* Cross-sell: serviços complementares */}
+              {(selectedService?.crossSell || []).map(cs => {
+                const svc = servicos.find(s => s.nome === cs.servicoNome);
+                if (!svc) return null;
+                const precoOriginal = svc.preco ? Number(svc.preco) : null;
+                const precoDesconto = precoOriginal ? Math.round(precoOriginal * (1 - cs.desconto / 100) * 100) / 100 : null;
+                const added = selectedExtras.some(e => e.tipo === 'servico' && e.nome === svc.nome);
+                return (
+                  <div key={cs.servicoNome} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                        <Scissors className="w-4 h-4 text-violet-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-900 text-sm">{svc.nome}</p>
+                        {precoDesconto && (
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-slate-400 line-through">R$ {precoOriginal.toFixed(2)}</span>
+                            <span className="text-sm font-black text-emerald-600">R$ {precoDesconto.toFixed(2)}</span>
+                            <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full">{cs.desconto}% off</span>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setSelectedExtras(prev =>
+                          added
+                            ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome))
+                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesconto || precoOriginal || 0 }]
+                        )}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors flex-shrink-0 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'}`}>
+                        {added ? '✓ Adicionado' : 'Adicionar'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Upsell: produtos */}
+              {(selectedService?.upsell || []).map((produto, i) => {
+                const added = selectedExtras.some(e => e.tipo === 'produto' && e.nome === produto.nome);
+                return (
+                  <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                        <ShoppingBag className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-900 text-sm">{produto.nome}</p>
+                        {produto.preco > 0 && (
+                          <p className="text-sm font-black text-violet-700 mt-0.5">R$ {Number(produto.preco).toFixed(2)}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setSelectedExtras(prev =>
+                          added
+                            ? prev.filter(e => !(e.tipo === 'produto' && e.nome === produto.nome))
+                            : [...prev, { tipo: 'produto', nome: produto.nome, preco: produto.preco || 0 }]
+                        )}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors flex-shrink-0 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'}`}>
+                        {added ? '✓ Adicionado' : 'Adicionar'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button onClick={() => setStep('form')}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors">
+              Continuar {selectedExtras.length > 0 ? `(+${selectedExtras.length} item${selectedExtras.length > 1 ? 's' : ''})` : ''}
+            </button>
+            <button onClick={() => { setSelectedExtras([]); setStep('form'); }}
+              className="w-full mt-2 py-3 text-slate-400 text-sm hover:text-slate-600 transition-colors">
+              Não, obrigado
+            </button>
           </div>
         )}
 
@@ -3945,6 +4240,17 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
                 <div className="flex justify-between items-center pt-1 border-t border-violet-100">
                   <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Preço</span>
                   <span className="text-base font-black text-violet-900">R$ {Number(selectedService.preco).toFixed(2)}</span>
+                </div>
+              )}
+              {selectedExtras.length > 0 && (
+                <div className="pt-1 border-t border-violet-100 space-y-1">
+                  <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Extras</span>
+                  {selectedExtras.map((e, i) => (
+                    <div key={i} className="flex justify-between items-center">
+                      <span className="text-xs text-violet-700">{e.nome}</span>
+                      {e.preco > 0 && <span className="text-xs font-bold text-violet-900">+R$ {Number(e.preco).toFixed(2)}</span>}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

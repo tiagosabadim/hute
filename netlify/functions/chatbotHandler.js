@@ -287,7 +287,7 @@ exports.handler = async (event) => {
       const dtInt = new Date(`${data}T00:00:00`);
       dtInt.setHours(h, m, 0, 0);
 
-      const apptData = {
+      const pendingAppt = {
         clienteNome,
         clienteWhats: phone,
         clienteNascimento: '',
@@ -303,9 +303,37 @@ exports.handler = async (event) => {
         criadoPorChatbot: true,
       };
 
+      // Build upsell/cross-sell offers
+      const allOffers = [];
+      for (const cs of (servico.crossSell || [])) {
+        const svc = (profile.servicos || []).find(s => s.nome === cs.servicoNome);
+        if (!svc) continue;
+        const precoOriginal = svc.preco || null;
+        const precoDesconto = precoOriginal ? Math.round(precoOriginal * (1 - cs.desconto / 100) * 100) / 100 : null;
+        allOffers.push({ tipo: 'servico', nome: svc.nome, precoOriginal, precoDesconto, desconto: cs.desconto });
+      }
+      for (const u of (servico.upsell || [])) {
+        allOffers.push({ tipo: 'produto', nome: u.nome, preco: u.preco || null });
+      }
+
+      if (allOffers.length > 0) {
+        const offerLines = allOffers.map((o, i) => {
+          if (o.tipo === 'servico') {
+            const priceText = o.precoDesconto ? `R$ ${o.precoDesconto.toFixed(2)} (${o.desconto}% off)` : '';
+            return `${numEmoji(i)} ${o.nome}${priceText ? ` — ${priceText}` : ''}`;
+          }
+          return `${numEmoji(i)} ${o.nome}${o.preco ? ` — R$ ${Number(o.preco).toFixed(2)}` : ''}`;
+        });
+        offerLines.push(`${numEmoji(allOffers.length)} Não, obrigado`);
+
+        await saveSession(db, phone, lojaId, { ...session, step: 'oferta_upsell', pendingAppt, allOffers });
+        return reply(`✨ *Aproveite antes de confirmar!*\n\n${offerLines.join('\n')}\n\nEscolha uma opção:`);
+      }
+
+      // No offers — save directly
       const apptRef = await addDoc(
         collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`),
-        apptData
+        pendingAppt
       );
 
       const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}`;
@@ -329,9 +357,60 @@ exports.handler = async (event) => {
       }
 
       await clearSession(db, phone, lojaId);
-
       const profText = profissional ? ` com ${profissional.nome}` : '';
       return reply(`✅ Agendamento confirmado!\n\n📋 *${servico.nome}*${profText}\n📅 ${fmtData(data)} às ${hora}\n\nAcesse seus detalhes:\n${linkAgendamento}\n\nAté logo! 😊`);
+    }
+
+    // ── OFERTA UPSELL ─────────────────────────────────────
+    if (step === 'oferta_upsell') {
+      const { allOffers, pendingAppt } = session;
+      const idx = parseInt(msg) - 1;
+      const validRange = idx >= 0 && idx <= allOffers.length;
+
+      if (!validRange) {
+        const offerLines = allOffers.map((o, i) => {
+          if (o.tipo === 'servico') {
+            const priceText = o.precoDesconto ? `R$ ${o.precoDesconto.toFixed(2)} (${o.desconto}% off)` : '';
+            return `${numEmoji(i)} ${o.nome}${priceText ? ` — ${priceText}` : ''}`;
+          }
+          return `${numEmoji(i)} ${o.nome}${o.preco ? ` — R$ ${Number(o.preco).toFixed(2)}` : ''}`;
+        });
+        offerLines.push(`${numEmoji(allOffers.length)} Não, obrigado`);
+        return reply(`Opção inválida. Escolha:\n\n${offerLines.join('\n')}`);
+      }
+
+      const extras = idx < allOffers.length ? [allOffers[idx]] : [];
+      const apptData = { ...pendingAppt, ...(extras.length > 0 ? { extras } : {}) };
+
+      const apptRef = await addDoc(
+        collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`),
+        apptData
+      );
+
+      const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}`;
+
+      if (process.env.N8N_WEBHOOK_URL) {
+        fetch(process.env.N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            telefoneCliente: phone,
+            nomeCliente: pendingAppt.clienteNome,
+            servico: pendingAppt.servico,
+            data: pendingAppt.data,
+            hora: pendingAppt.hora,
+            profissionalNome: pendingAppt.profissionalNome || '',
+            slug: slugFinal,
+            lojaId,
+            linkAgendamento,
+          }),
+        }).catch(() => {});
+      }
+
+      await clearSession(db, phone, lojaId);
+      const profText = pendingAppt.profissionalNome ? ` com ${pendingAppt.profissionalNome}` : '';
+      const extrasText = extras.length > 0 ? `\n➕ *${extras[0].nome}* adicionado!` : '';
+      return reply(`✅ Agendamento confirmado!${extrasText}\n\n📋 *${pendingAppt.servico}*${profText}\n📅 ${fmtData(pendingAppt.data)} às ${pendingAppt.hora}\n\nAcesse seus detalhes:\n${linkAgendamento}\n\nAté logo! 😊`);
     }
 
     // ── CANCELAR — ESCOLHER QUAL ──────────────────────────
