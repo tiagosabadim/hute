@@ -12,7 +12,7 @@ import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
-  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone, CreditCard, Zap, Shield
+  Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone, CreditCard, Zap, Shield, Menu
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -1001,6 +1001,8 @@ function OnboardingScreen({ user, onComplete }) {
 function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const [view, setView] = useState('agenda');
   const [showPlansModal, setShowPlansModal] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuSection, setMenuSection] = useState(null); // null | 'dados' | 'whatsapp' | 'google'
   const { isTrial, trialDaysLeft } = usePlanLimits(profile);
   const trialUrgent = isTrial && trialDaysLeft <= 2;
 
@@ -1013,7 +1015,6 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
     { key: 'clients',  icon: Users,     label: 'Clientes' },
     { key: 'equipa',   icon: Briefcase, label: 'Equipa' },
     { key: 'servicos', icon: Tag,       label: 'Serviços' },
-    { key: 'settings', icon: Settings,  label: 'Config' },
   ];
 
   return (
@@ -1029,9 +1030,8 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
               </div>
             </div>
           </div>
-          <button onClick={handleLogout} className="flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-xs font-medium px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors">
-            <LogOut className="w-4 h-4" />
-            Sair
+          <button onClick={() => setMenuOpen(true)} className="flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
+            <Menu className="w-5 h-5" />
           </button>
         </div>
       </header>
@@ -1079,7 +1079,6 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
         {view === 'equipa'   && <AdminEquipa user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
-        {view === 'settings' && <AdminSettings user={user} profile={profile} setProfile={setProfile} onLogout={handleLogout} />}
       </main>
 
       <nav className="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-slate-100 flex justify-around py-2 px-1 z-20">
@@ -1095,6 +1094,105 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
           );
         })}
       </nav>
+
+      {/* ── Hamburger Menu Overlay ── */}
+      {menuOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 flex flex-col justify-end items-center"
+          onClick={() => { setMenuOpen(false); setMenuSection(null); }}
+        >
+          <div
+            className="bg-white rounded-t-3xl w-full max-w-[480px] flex flex-col"
+            style={{ maxHeight: '90vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Drawer header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
+              {menuSection ? (
+                <button onClick={() => setMenuSection(null)} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors">
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="text-sm font-semibold">Voltar</span>
+                </button>
+              ) : (
+                <h2 className="font-black text-slate-900 text-base">Menu</h2>
+              )}
+              <button onClick={() => { setMenuOpen(false); setMenuSection(null); }} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Drawer body */}
+            <div className="overflow-y-auto flex-1">
+              {!menuSection ? (
+                /* ── Menu list ── */
+                <div className="p-5 space-y-2">
+                  <button
+                    onClick={() => setMenuSection('dados')}
+                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                      <Settings className="w-5 h-5 text-violet-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-900 text-sm">Dados do estabelecimento</p>
+                      <p className="text-xs text-slate-400">Nome, logo, horários e link</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </button>
+
+                  <button
+                    onClick={() => setMenuSection('google')}
+                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <Calendar className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-900 text-sm">Google Agenda</p>
+                      <p className="text-xs text-slate-400">Sincronize as suas marcações</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </button>
+
+                  <button
+                    onClick={() => setMenuSection('whatsapp')}
+                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                      <Smartphone className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-900 text-sm">Integrar WhatsApp</p>
+                      <p className="text-xs text-slate-400">Conecte o WhatsApp do estabelecimento</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </button>
+
+                  <div className="pt-2 border-t border-slate-100">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 hover:bg-red-50 rounded-2xl transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span className="text-sm font-semibold">Terminar sessão</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ── Section content ── */
+                <div className="p-5">
+                  <AdminSettings
+                    user={user}
+                    profile={profile}
+                    setProfile={setProfile}
+                    section={menuSection}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2876,7 +2974,7 @@ function AdminServicos({ user, profile, setProfile }) {
 }
 
 // ── Admin Settings ────────────────────────────────────────
-function AdminSettings({ user, profile, setProfile, onLogout }) {
+function AdminSettings({ user, profile, setProfile, section }) {
   const settingsLimits = usePlanLimits(profile);
   const [nome, setNome] = useState(profile.nome || '');
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
@@ -3031,272 +3129,267 @@ function AdminSettings({ user, profile, setProfile, onLogout }) {
 
   return (
     <div className="space-y-5 pb-4">
-      <div>
-        <h2 className="text-xl font-black text-slate-900">Configurações</h2>
-        <p className="text-xs text-slate-400">Personalize o seu espaço</p>
-      </div>
 
-      {/* ── Identidade Visual ── */}
-      <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
-        <div className="px-5 pt-5 pb-3">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identidade Visual</p>
+      {/* ── Dados do estabelecimento ── */}
+      {section === 'dados' && (
+        <>
+          {/* Identidade Visual */}
+          <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+            <div className="px-5 pt-5 pb-3">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identidade Visual</p>
 
-          {/* Cover photo */}
-          <div className="mb-4">
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Foto de capa</label>
-            <ImageUpload value={coverFoto} onChange={setCoverFoto} aspect="cover" />
-          </div>
+              <div className="mb-4">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Foto de capa</label>
+                <ImageUpload value={coverFoto} onChange={setCoverFoto} aspect="cover" />
+              </div>
 
-          {/* Logo + preview */}
-          <div className="flex items-center gap-4 mb-4">
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Logótipo</label>
-              <ImageUpload value={logo} onChange={setLogo} aspect="logo" />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs text-slate-400 mb-1">Pré-visualização no portal do cliente:</p>
-              <div className="rounded-2xl overflow-hidden border border-slate-100 bg-slate-50">
-                <div className="relative h-20 bg-gradient-to-br from-violet-700 to-violet-900">
-                  {coverFoto && <img src={coverFoto} alt="" className="w-full h-full object-cover absolute inset-0" />}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                  <div className="absolute bottom-2 left-3 flex items-center gap-2">
-                    {logo
-                      ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-cover border-2 border-white/80 shadow" />
-                      : <div className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/60 flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
-                    }
-                    <div>
-                      <p className="font-black text-white text-xs leading-tight">{nome || 'Nome do espaço'}</p>
-                      {subtitulo && <p className="text-white/70 text-[10px] leading-tight">{subtitulo}</p>}
+              <div className="flex items-center gap-4 mb-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Logótipo</label>
+                  <ImageUpload value={logo} onChange={setLogo} aspect="logo" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs text-slate-400 mb-1">Pré-visualização no portal do cliente:</p>
+                  <div className="rounded-2xl overflow-hidden border border-slate-100 bg-slate-50">
+                    <div className="relative h-20 bg-gradient-to-br from-violet-700 to-violet-900">
+                      {coverFoto && <img src={coverFoto} alt="" className="w-full h-full object-cover absolute inset-0" />}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                      <div className="absolute bottom-2 left-3 flex items-center gap-2">
+                        {logo
+                          ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-cover border-2 border-white/80 shadow" />
+                          : <div className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/60 flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+                        }
+                        <div>
+                          <p className="font-black text-white text-xs leading-tight">{nome || 'Nome do espaço'}</p>
+                          {subtitulo && <p className="text-white/70 text-[10px] leading-tight">{subtitulo}</p>}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* ── Informações ── */}
-      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Informações</p>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do estabelecimento</label>
-          <input value={nome} onChange={e => setNome(e.target.value)}
-            placeholder="Ex: Studio da Ana"
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Especialidade</label>
-          <input value={subtitulo} onChange={e => setSubtitulo(e.target.value)}
-            placeholder="Ex: Cabeleireiro & Estética"
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Link do portal (slug)</label>
-          <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
-            <span className="pl-3 pr-1 text-slate-400 text-xs whitespace-nowrap">hute.app/#</span>
-            <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="studio-da-ana"
-              className="flex-1 px-2 py-3 text-slate-800 outline-none text-sm bg-transparent" />
-          </div>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp do estabelecimento</label>
-          <input type="tel" value={whatsappNumber} onChange={e => setWhatsappNumber(e.target.value)}
-            placeholder="(11) 99999-9999"
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-          <p className="text-[10px] text-slate-400 mt-1">Usado pelo chatbot para identificar seu estabelecimento.</p>
-        </div>
-      </div>
-
-      {/* ── WhatsApp Connection ── */}
-      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="font-bold text-slate-900 text-sm">WhatsApp</p>
-            <p className="text-xs text-slate-400 mt-0.5">Conecte o número do seu estabelecimento</p>
-          </div>
-          {waStatus === 'open' && (
-            <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-1 rounded-full flex items-center gap-1">
-              <CheckCircle className="w-3 h-3" /> Conectado
-            </span>
-          )}
-          {waStatus === 'connecting' && (
-            <span className="text-[10px] bg-amber-50 text-amber-600 font-bold px-2 py-1 rounded-full flex items-center gap-1">
-              <Loader2 className="w-3 h-3 animate-spin" /> Aguardando
-            </span>
-          )}
-        </div>
-
-        {waError && (
-          <div className="bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2 rounded-xl">
-            {waError}
-          </div>
-        )}
-
-        {waStatus === 'open' ? (
-          <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
-            <CheckCircle className="w-4 h-4" />
-            WhatsApp conectado e pronto para uso
-          </div>
-        ) : waQrCode ? (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-500 text-center">Escaneie com o WhatsApp do estabelecimento</p>
-            <div className="flex justify-center">
-              <img src={waQrCode} alt="QR Code WhatsApp" className="w-48 h-48 rounded-xl border border-slate-200" />
+          {/* Informações */}
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Informações</p>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do estabelecimento</label>
+              <input value={nome} onChange={e => setNome(e.target.value)}
+                placeholder="Ex: Studio da Ana"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
             </div>
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Aguardando leitura do QR Code...
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Especialidade</label>
+              <input value={subtitulo} onChange={e => setSubtitulo(e.target.value)}
+                placeholder="Ex: Cabeleireiro & Estética"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
             </div>
-            <button onClick={handleRefreshQr} disabled={waLoading}
-              className="w-full py-2 text-xs text-slate-500 hover:text-slate-700 underline disabled:opacity-50">
-              QR expirou? Clique para gerar novo
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Link do portal (slug)</label>
+              <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
+                <span className="pl-3 pr-1 text-slate-400 text-xs whitespace-nowrap">hute.app/#</span>
+                <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="studio-da-ana"
+                  className="flex-1 px-2 py-3 text-slate-800 outline-none text-sm bg-transparent" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp do estabelecimento</label>
+              <input type="tel" value={whatsappNumber} onChange={e => setWhatsappNumber(e.target.value)}
+                placeholder="(11) 99999-9999"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              <p className="text-[10px] text-slate-400 mt-1">Usado pelo chatbot para identificar seu estabelecimento.</p>
+            </div>
+          </div>
+
+          {/* Horário */}
+          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário de funcionamento</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Abertura</label>
+                <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Fecho</label>
+                <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
+              <select value={intervalo} onChange={e => setIntervalo(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                {[15, 20, 30, 45, 60, 90, 120].map(v => (
+                  <option key={v} value={v}>{fmtDuracao(v)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Save */}
+          <button onClick={saveAll} disabled={saving}
+            className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors shadow-lg shadow-violet-200">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
+            {saved ? 'Guardado!' : 'Guardar alterações'}
+          </button>
+
+          {/* Link de reservas */}
+          <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-3xl p-5 shadow-lg shadow-violet-200">
+            <div className="flex items-center gap-2 mb-3">
+              <Link className="w-4 h-4 text-violet-200" />
+              <p className="text-xs font-bold text-violet-200 uppercase tracking-widest">Link de reservas</p>
+            </div>
+            <p className="text-white/90 text-sm font-semibold break-all mb-3">{link}</p>
+            <button
+              onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+              className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
+              {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copied ? 'Copiado!' : 'Copiar link'}
             </button>
           </div>
-        ) : waPairingCode ? (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-500 text-center leading-relaxed">
-              Abra o WhatsApp → Dispositivos vinculados → Vincular dispositivo → Vincular por número de telefone → Digite o código abaixo
-            </p>
-            <div className="flex justify-center">
-              <span className="font-mono text-3xl font-black tracking-[0.25em] text-slate-800 bg-slate-50 border border-slate-200 px-6 py-4 rounded-2xl select-all">
-                {waPairingCode}
-              </span>
-            </div>
-            <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Aguardando vinculação...
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {/* Mode toggle */}
-            <div className="flex rounded-xl border border-slate-200 overflow-hidden text-xs font-semibold">
-              <button
-                onClick={() => { setWaConnectMode('qr'); setWaError(null); }}
-                className={`flex-1 py-2 transition-colors ${waConnectMode === 'qr' ? 'bg-emerald-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
-                QR Code
-              </button>
-              <button
-                onClick={() => { setWaConnectMode('code'); setWaError(null); }}
-                className={`flex-1 py-2 transition-colors ${waConnectMode === 'code' ? 'bg-emerald-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
-                Código de telefone
-              </button>
-            </div>
+        </>
+      )}
 
-            {waConnectMode === 'qr' ? (
-              <button onClick={handleConnectWA} disabled={waLoading}
-                className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
-                {waLoading
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Criando instância...</>
-                  : profile.evolutionInstanceName
-                    ? <><Smartphone className="w-4 h-4" /> Reconectar WhatsApp</>
-                    : <><Smartphone className="w-4 h-4" /> Conectar WhatsApp</>
-                }
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400">O número deve ser o mesmo configurado no campo WhatsApp acima.</p>
-                <button onClick={handlePairingCode} disabled={waLoading}
-                  className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
-                  {waLoading
-                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Gerando código...</>
-                    : <><Smartphone className="w-4 h-4" /> Gerar código de vinculação</>
-                  }
-                </button>
-              </div>
+      {/* ── Integrar WhatsApp ── */}
+      {section === 'whatsapp' && (
+        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="font-bold text-slate-900 text-sm">WhatsApp</p>
+              <p className="text-xs text-slate-400 mt-0.5">Conecte o número do seu estabelecimento</p>
+            </div>
+            {waStatus === 'open' && (
+              <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" /> Conectado
+              </span>
+            )}
+            {waStatus === 'connecting' && (
+              <span className="text-[10px] bg-amber-50 text-amber-600 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> Aguardando
+              </span>
             )}
           </div>
-        )}
-      </div>
 
-      {/* ── Horário ── */}
-      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário de funcionamento</p>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Abertura</label>
-            <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Fecho</label>
-            <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)}
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-          </div>
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
-          <select value={intervalo} onChange={e => setIntervalo(e.target.value)}
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-            {[15, 20, 30, 45, 60, 90, 120].map(v => (
-              <option key={v} value={v}>{fmtDuracao(v)}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+          {waError && (
+            <div className="bg-red-50 border border-red-100 text-red-600 text-xs px-3 py-2 rounded-xl">
+              {waError}
+            </div>
+          )}
 
-      {/* Save button */}
-      <button onClick={saveAll} disabled={saving}
-        className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors shadow-lg shadow-violet-200">
-        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
-        {saved ? 'Guardado!' : 'Guardar alterações'}
-      </button>
+          {waStatus === 'open' ? (
+            <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
+              <CheckCircle className="w-4 h-4" />
+              WhatsApp conectado e pronto para uso
+            </div>
+          ) : waQrCode ? (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-500 text-center">Escaneie com o WhatsApp do estabelecimento</p>
+              <div className="flex justify-center">
+                <img src={waQrCode} alt="QR Code WhatsApp" className="w-48 h-48 rounded-xl border border-slate-200" />
+              </div>
+              <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Aguardando leitura do QR Code...
+              </div>
+              <button onClick={handleRefreshQr} disabled={waLoading}
+                className="w-full py-2 text-xs text-slate-500 hover:text-slate-700 underline disabled:opacity-50">
+                QR expirou? Clique para gerar novo
+              </button>
+            </div>
+          ) : waPairingCode ? (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-500 text-center leading-relaxed">
+                Abra o WhatsApp → Dispositivos vinculados → Vincular dispositivo → Vincular por número de telefone → Digite o código abaixo
+              </p>
+              <div className="flex justify-center">
+                <span className="font-mono text-3xl font-black tracking-[0.25em] text-slate-800 bg-slate-50 border border-slate-200 px-6 py-4 rounded-2xl select-all">
+                  {waPairingCode}
+                </span>
+              </div>
+              <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Aguardando vinculação...
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex rounded-xl border border-slate-200 overflow-hidden text-xs font-semibold">
+                <button
+                  onClick={() => { setWaConnectMode('qr'); setWaError(null); }}
+                  className={`flex-1 py-2 transition-colors ${waConnectMode === 'qr' ? 'bg-emerald-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                  QR Code
+                </button>
+                <button
+                  onClick={() => { setWaConnectMode('code'); setWaError(null); }}
+                  className={`flex-1 py-2 transition-colors ${waConnectMode === 'code' ? 'bg-emerald-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                  Código de telefone
+                </button>
+              </div>
 
-      {/* ── Link de reservas ── */}
-      <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-3xl p-5 shadow-lg shadow-violet-200">
-        <div className="flex items-center gap-2 mb-3">
-          <Link className="w-4 h-4 text-violet-200" />
-          <p className="text-xs font-bold text-violet-200 uppercase tracking-widest">Link de reservas</p>
-        </div>
-        <p className="text-white/90 text-sm font-semibold break-all mb-3">{link}</p>
-        <button
-          onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-          className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
-          {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-          {copied ? 'Copiado!' : 'Copiar link'}
-        </button>
-      </div>
-
-      {/* ── Google Agenda ── */}
-      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <p className="font-bold text-slate-900 text-sm">Google Agenda</p>
-            <p className="text-xs text-slate-400 mt-0.5">Sincronização geral do estabelecimento</p>
-          </div>
-          {profile.googleCalendarConnected && (
-            <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-1 rounded-full">Ligado ✓</span>
+              {waConnectMode === 'qr' ? (
+                <button onClick={handleConnectWA} disabled={waLoading}
+                  className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+                  {waLoading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Criando instância...</>
+                    : profile.evolutionInstanceName
+                      ? <><Smartphone className="w-4 h-4" /> Reconectar WhatsApp</>
+                      : <><Smartphone className="w-4 h-4" /> Conectar WhatsApp</>
+                  }
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-400">Configure o número em <strong>Dados do estabelecimento</strong> antes de usar esta opção.</p>
+                  <button onClick={handlePairingCode} disabled={waLoading}
+                    className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-60">
+                    {waLoading
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Gerando código...</>
+                      : <><Smartphone className="w-4 h-4" /> Gerar código de vinculação</>
+                    }
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
-        {profile.googleCalendarConnected ? (
-          <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
-            <CheckCircle className="w-4 h-4" />
-            Sincronização ativa — marcações vão para o Google Agenda
+      )}
+
+      {/* ── Google Agenda ── */}
+      {section === 'google' && (
+        <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="font-bold text-slate-900 text-sm">Google Agenda</p>
+              <p className="text-xs text-slate-400 mt-0.5">Sincronização geral do estabelecimento</p>
+            </div>
+            {profile.googleCalendarConnected && (
+              <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-1 rounded-full">Ligado ✓</span>
+            )}
           </div>
-        ) : settingsLimits.hasGoogleCalendar ? (
-          <button onClick={startGoogleAuth}
-            className="w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
-            <Calendar className="w-4 h-4" />
-            Ligar Google Agenda
-          </button>
-        ) : (
-          <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3 rounded-xl">
-            <div className="flex items-center gap-2 text-slate-400 text-sm font-semibold">
+          {profile.googleCalendarConnected ? (
+            <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 px-4 py-3 rounded-xl text-sm font-semibold">
+              <CheckCircle className="w-4 h-4" />
+              Sincronização ativa — marcações vão para o Google Agenda
+            </div>
+          ) : settingsLimits.hasGoogleCalendar ? (
+            <button onClick={startGoogleAuth}
+              className="w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
               <Calendar className="w-4 h-4" />
               Ligar Google Agenda
+            </button>
+          ) : (
+            <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3 rounded-xl">
+              <div className="flex items-center gap-2 text-slate-400 text-sm font-semibold">
+                <Calendar className="w-4 h-4" />
+                Ligar Google Agenda
+              </div>
+              <span className="text-[10px] bg-violet-100 text-violet-600 font-black px-2 py-1 rounded-full whitespace-nowrap">Premium</span>
             </div>
-            <span className="text-[10px] bg-violet-100 text-violet-600 font-black px-2 py-1 rounded-full whitespace-nowrap">Premium</span>
-          </div>
-        )}
-      </div>
-
-      {/* ── Logout ── */}
-      <button onClick={onLogout}
-        className="w-full flex items-center justify-center gap-2 py-3.5 border border-slate-200 text-slate-400 font-semibold rounded-2xl hover:bg-slate-50 transition-colors text-sm">
-        <LogOut className="w-4 h-4" />
-        Terminar sessão
-      </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
