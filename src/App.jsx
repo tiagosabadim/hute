@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
@@ -3462,9 +3463,95 @@ function AdminSettings({ user, profile, setProfile, section }) {
 }
 
 // ── Admin Dashboard ───────────────────────────────────────
+const DC = {
+  primary: "#6C3CE1", primaryLight: "#8B5CF6", primaryFaded: "rgba(108,60,225,0.08)",
+  accent: "#10B981", accentFaded: "rgba(16,185,129,0.08)",
+  coral: "#F97066", coralFaded: "rgba(249,112,102,0.08)",
+  amber: "#F59E0B", amberFaded: "rgba(245,158,11,0.08)",
+  blue: "#3B82F6", blueFaded: "rgba(59,130,246,0.08)",
+  bg: "#FAFAF8", card: "#FFFFFF", border: "#F0EDE6",
+  textPrimary: "#1A1A18", textSecondary: "#6B6B68", textTertiary: "#9C9C98",
+};
+const SVC_COLORS = [DC.primary, DC.accent, DC.amber, DC.coral, DC.blue];
+
+const DMetricCard = ({ label, value, sub, trend, icon, color, onClick, active }) => (
+  <div onClick={onClick} style={{
+    background: active ? color + "12" : DC.card,
+    border: `1.5px solid ${active ? color : DC.border}`,
+    borderRadius: 16, padding: "16px 18px",
+    cursor: onClick ? "pointer" : "default",
+    transition: "all 0.2s ease", flex: "1 1 0", minWidth: 140,
+  }}>
+    <div style={{ fontSize: 11, fontWeight: 600, color: DC.textTertiary, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{ fontSize: 14 }}>{icon}</span>{label}
+    </div>
+    <div style={{ fontSize: 28, fontWeight: 700, color: DC.textPrimary, letterSpacing: -1, lineHeight: 1 }}>{value}</div>
+    <div style={{ fontSize: 12, color: DC.textSecondary, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+      {trend !== undefined && trend !== null && (
+        <span style={{ background: trend >= 0 ? DC.accentFaded : DC.coralFaded, color: trend >= 0 ? "#059669" : "#DC2626", fontSize: 11, fontWeight: 600, padding: "2px 6px", borderRadius: 6 }}>
+          {trend >= 0 ? "+" : ""}{trend}%
+        </span>
+      )}
+      {sub}
+    </div>
+  </div>
+);
+
+const DSectionTitle = ({ children, right }) => (
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+    <h3 style={{ fontSize: 15, fontWeight: 600, color: DC.textPrimary, margin: 0, letterSpacing: -0.3 }}>{children}</h3>
+    {right}
+  </div>
+);
+
+const DChartCard = ({ children, style }) => (
+  <div style={{ background: DC.card, border: `1px solid ${DC.border}`, borderRadius: 16, padding: 20, ...style }}>{children}</div>
+);
+
+const DFilterPill = ({ label, active, onClick }) => (
+  <button onClick={onClick} style={{ background: active ? DC.primary : "transparent", color: active ? "#fff" : DC.textSecondary, border: `1px solid ${active ? DC.primary : DC.border}`, borderRadius: 20, padding: "4px 14px", fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.2s" }}>{label}</button>
+);
+
+const DProfRow = ({ p, maxReceita }) => (
+  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${DC.border}` }}>
+    <div style={{ width: 36, height: 36, borderRadius: 10, background: `linear-gradient(135deg, ${DC.primary}, ${DC.primaryLight})`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14 }}>{p.nome[0]}</div>
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: DC.textPrimary }}>{p.nome}</div>
+      <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+        <span style={{ fontSize: 11, color: DC.textTertiary }}>{p.agendamentos} agend.</span>
+        {p.receita > 0 && <span style={{ fontSize: 11, color: "#059669" }}>R$ {p.receita}</span>}
+      </div>
+    </div>
+    <div style={{ textAlign: "right" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, color: DC.accent }}>R$ {p.receita}</div>
+      <div style={{ width: 60, height: 4, borderRadius: 2, background: DC.border, marginTop: 4 }}>
+        <div style={{ width: `${maxReceita > 0 ? Math.round((p.receita / maxReceita) * 100) : 0}%`, height: "100%", borderRadius: 2, background: DC.accent }} />
+      </div>
+    </div>
+  </div>
+);
+
+const DTooltip = ({ active, payload, label, prefix = "" }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#1A1A18", borderRadius: 10, padding: "10px 14px", boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
+      <div style={{ color: "#9C9C98", fontSize: 11, marginBottom: 4 }}>{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>
+          <span style={{ color: p.color, marginRight: 6 }}>●</span>
+          {prefix}{typeof p.value === "number" && prefix === "R$ " ? p.value.toLocaleString("pt-BR") : p.value}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 function AdminDashboard({ user, profile }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState("mes");
+  const [activeMetric, setActiveMetric] = useState(null);
+  const [selectedProf, setSelectedProf] = useState("todos");
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -3477,121 +3564,310 @@ function AdminDashboard({ user, profile }) {
     return () => unsub();
   }, [user.uid]);
 
-  const now = new Date();
-  const thisMonth = now.getMonth();
-  const thisYear = now.getFullYear();
-  const prevMonth = thisMonth === 0 ? 11 : thisMonth - 1;
-  const prevYear  = thisMonth === 0 ? thisYear - 1 : thisYear;
-  const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const days = period === 'sem' ? 7 : period === 'tri' ? 90 : 30;
 
-  const inMonth = (data, m, y) => {
-    if (!data) return false;
-    const [dy, dm] = data.split('-').map(Number);
-    return dm - 1 === m && dy === y;
-  };
+  const dash = useMemo(() => {
+    const now = new Date();
 
-  const thisMonthAppts = appointments.filter(a => inMonth(a.data, thisMonth, thisYear));
-  const prevMonthAppts = appointments.filter(a => inMonth(a.data, prevMonth, prevYear));
-  const todayISO = toDateISO(now);
-  const todayAppts = appointments.filter(a => a.data === todayISO).sort((a, b) => a.hora > b.hora ? 1 : -1);
+    // Daily
+    const daily = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(now); d.setDate(now.getDate() - i);
+      const iso = toDateISO(d);
+      const dayA = appointments.filter(a => a.data === iso);
+      const [, mo, dy] = iso.split('-');
+      daily.push({ label: `${dy}/${mo}`, agendamentos: dayA.length, receita: dayA.reduce((s, a) => s + (Number(a.valor) || 0), 0) });
+    }
 
-  const totalThis = thisMonthAppts.length;
-  const totalPrev = prevMonthAppts.length;
-  const totalPct  = totalPrev > 0 ? Math.round(((totalThis - totalPrev) / totalPrev) * 100) : null;
+    // Weekly (last 4 weeks)
+    const weekly = [];
+    const wCount = Math.min(4, Math.ceil(days / 7));
+    for (let w = wCount - 1; w >= 0; w--) {
+      const wEnd = new Date(now); wEnd.setDate(now.getDate() - w * 7);
+      const wStart = new Date(now); wStart.setDate(now.getDate() - (w + 1) * 7);
+      const wA = appointments.filter(a => { if (!a.data) return false; const d = new Date(a.data + 'T00:00:00'); return d >= wStart && d < wEnd; });
+      weekly.push({ sem: `Sem ${wCount - w}`, receita: wA.reduce((s, a) => s + (Number(a.valor) || 0), 0) });
+    }
 
-  const receitaThis = thisMonthAppts.reduce((s, a) => s + (Number(a.valor) || 0), 0);
-  const receitaPrev = prevMonthAppts.reduce((s, a) => s + (Number(a.valor) || 0), 0);
-  const receitaPct  = receitaPrev > 0 ? Math.round(((receitaThis - receitaPrev) / receitaPrev) * 100) : null;
+    // Period appointments
+    const cutoff = new Date(now); cutoff.setDate(now.getDate() - days);
+    const periodA = appointments.filter(a => { if (!a.data) return false; return new Date(a.data + 'T00:00:00') >= cutoff; });
 
-  const serviceCounts = {};
-  appointments.forEach(a => { if (a.servico) serviceCounts[a.servico] = (serviceCounts[a.servico] || 0) + 1; });
-  const topServices = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  const maxCount = topServices[0]?.[1] || 1;
+    // Services
+    const svcC = {}, svcR = {};
+    periodA.forEach(a => { if (!a.servico) return; svcC[a.servico] = (svcC[a.servico] || 0) + 1; svcR[a.servico] = (svcR[a.servico] || 0) + (Number(a.valor) || 0); });
+    const servicos = Object.entries(svcC).sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([nome, qtd], i) => ({ nome, qtd, receita: Math.round(svcR[nome] || 0), cor: SVC_COLORS[i] }));
 
-  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-violet-400" /></div>;
+    // Profissionais
+    const profC = {}, profR = {};
+    periodA.forEach(a => { const n = a.profissionalNome; if (!n) return; profC[n] = (profC[n] || 0) + 1; profR[n] = (profR[n] || 0) + (Number(a.valor) || 0); });
+    const profissionaisData = Object.entries(profC)
+      .map(([nome, agendamentos]) => ({ nome, agendamentos, receita: Math.round(profR[nome] || 0) }))
+      .sort((a, b) => b.agendamentos - a.agendamentos);
 
-  const PctBadge = ({ pct }) => pct === null ? null : (
-    <p className={`text-xs font-semibold mt-1 ${pct >= 0 ? 'text-emerald-600' : 'text-red-400'}`}>
-      {pct >= 0 ? '↑' : '↓'} {Math.abs(pct)}% vs mês anterior
-    </p>
-  );
+    // Horarios
+    const horaC = {};
+    periodA.forEach(a => { if (!a.hora) return; const h = `${a.hora.split(':')[0]}:00`; horaC[h] = (horaC[h] || 0) + 1; });
+    const horarios = Object.entries(horaC).sort((a, b) => a[0].localeCompare(b[0])).map(([hora, qtd]) => ({ hora, qtd }));
+
+    // Upsell
+    const withExtras = periodA.filter(a => a.extras?.length > 0);
+    const extrasReceita = withExtras.reduce((s, a) => s + (a.extras || []).reduce((es, e) => es + (Number(e.preco) || 0), 0), 0);
+    const comboC = {};
+    withExtras.forEach(a => (a.extras || []).forEach(e => { comboC[e.nome] = (comboC[e.nome] || 0) + 1; }));
+    const topCombo = Object.entries(comboC).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+    const upsell = {
+      ofertas: periodA.length, aceitos: withExtras.length,
+      taxa: periodA.length > 0 ? parseFloat(((withExtras.length / periodA.length) * 100).toFixed(1)) : 0,
+      receitaExtra: Math.round(extrasReceita), topCombo,
+    };
+
+    // Month trends
+    const curM = now.getMonth(), curY = now.getFullYear();
+    const prevM = curM === 0 ? 11 : curM - 1, prevY = curM === 0 ? curY - 1 : curY;
+    const inM = (data, m, y) => { if (!data) return false; const [dy, dm] = data.split('-').map(Number); return dm - 1 === m && dy === y; };
+    const thisMA = appointments.filter(a => inM(a.data, curM, curY));
+    const prevMA = appointments.filter(a => inM(a.data, prevM, prevY));
+    const totalTrend = prevMA.length > 0 ? Math.round(((thisMA.length - prevMA.length) / prevMA.length) * 100) : null;
+    const receitaThis = thisMA.reduce((s, a) => s + (Number(a.valor) || 0), 0);
+    const receitaPrev = prevMA.reduce((s, a) => s + (Number(a.valor) || 0), 0);
+    const receitaTrend = receitaPrev > 0 ? Math.round(((receitaThis - receitaPrev) / receitaPrev) * 100) : null;
+
+    // Retention (month-based)
+    const uClThis = new Set(thisMA.map(a => a.clienteWhats).filter(Boolean));
+    const uClPrev = new Set(prevMA.map(a => a.clienteWhats).filter(Boolean));
+    const recorrentes = [...uClThis].filter(c => uClPrev.has(c)).length;
+    const retencao = { clientesNovos: uClThis.size - recorrentes, clientesRecorrentes: recorrentes };
+
+    const totalPeriod = periodA.length;
+    const receitaPeriod = periodA.reduce((s, a) => s + (Number(a.valor) || 0), 0);
+    const todayISO = toDateISO(now);
+    const todayAppts = appointments.filter(a => a.data === todayISO).sort((a, b) => a.hora > b.hora ? 1 : -1);
+
+    return { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts };
+  }, [appointments, days]);
+
+  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}><Loader2 className="w-6 h-6 animate-spin text-violet-400" /></div>;
+
+  const { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts } = dash;
+  const maxReceita = Math.max(...profissionaisData.map(p => p.receita), 1);
+  const sparkData = daily.slice(-Math.min(14, daily.length));
 
   return (
-    <div className="space-y-4 pb-4">
-      <div>
-        <h2 className="text-xl font-black text-slate-900">Dashboard</h2>
-        <p className="text-xs text-slate-400">{monthNames[thisMonth]} {thisYear}</p>
-      </div>
-
-      {/* Cards métricas */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Marcações</p>
-          <p className="text-3xl font-black text-slate-900">{totalThis}</p>
-          <PctBadge pct={totalPct} />
-          <p className="text-xs text-slate-300 mt-0.5">{totalPrev} em {monthNames[prevMonth]}</p>
+    <div style={{ fontFamily: "'DM Sans','SF Pro Display',-apple-system,sans-serif", background: DC.bg, minHeight: "100vh", padding: "0 0 40px", margin: "0 -20px" }}>
+      {/* Header */}
+      <div style={{ background: `linear-gradient(135deg, ${DC.primary} 0%, #4F21A8 100%)`, padding: "24px 20px 20px", borderRadius: "0 0 24px 24px", color: "#fff", marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 500 }}>Dashboard</div>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.5, marginTop: 2 }}>{profile.nome || 'Estabelecimento'}</div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["sem","7d"],["mes","30d"],["tri","90d"]].map(([p, label]) => (
+              <button key={p} onClick={() => setPeriod(p)} style={{ background: period === p ? "rgba(255,255,255,0.2)" : "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", borderRadius: 8, padding: "4px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>{label}</button>
+            ))}
+          </div>
         </div>
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Receita est.</p>
-          <p className="text-2xl font-black text-slate-900">R$ {receitaThis.toFixed(0)}</p>
-          <PctBadge pct={receitaPct} />
-          <p className="text-xs text-slate-300 mt-0.5">R$ {receitaPrev.toFixed(0)} em {monthNames[prevMonth]}</p>
+        <div style={{ marginTop: 16, height: 48 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={sparkData}>
+              <defs>
+                <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#fff" stopOpacity={0.3}/>
+                  <stop offset="100%" stopColor="#fff" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <Area type="monotone" dataKey="agendamentos" stroke="#fff" strokeWidth={2} fill="url(#sparkGrad)" dot={false}/>
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Hoje */}
-      <div className="bg-violet-600 rounded-2xl p-4 shadow-sm">
-        <p className="text-xs font-bold text-violet-200 uppercase tracking-wider mb-1">Hoje</p>
-        <p className="text-4xl font-black text-white">{todayAppts.length}</p>
-        <p className="text-xs text-violet-200 mt-1">marcaç{todayAppts.length === 1 ? 'ão' : 'ões'} hoje</p>
-      </div>
+      <div style={{ padding: "0 16px" }}>
+        {/* Metric cards */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          <DMetricCard icon="📅" label="Marcações" value={totalPeriod} sub="vs mês anterior" trend={totalTrend}
+            color={DC.primary} onClick={() => setActiveMetric(activeMetric === "agend" ? null : "agend")} active={activeMetric === "agend"} />
+          <DMetricCard icon="💰" label="Receita" value={`R$ ${receitaPeriod.toLocaleString("pt-BR")}`} sub="vs mês anterior" trend={receitaTrend}
+            color={DC.accent} onClick={() => setActiveMetric(activeMetric === "receita" ? null : "receita")} active={activeMetric === "receita"} />
+        </div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+          <DMetricCard icon="📦" label="Extras vendidos" value={upsell.aceitos} sub={`+R$ ${upsell.receitaExtra}`}
+            color={DC.amber} onClick={() => setActiveMetric(activeMetric === "extras" ? null : "extras")} active={activeMetric === "extras"} />
+          <DMetricCard icon="🔄" label="Taxa extras" value={`${upsell.taxa}%`} sub="de aceitação"
+            color={DC.coral} onClick={() => setActiveMetric(activeMetric === "upsell" ? null : "upsell")} active={activeMetric === "upsell"} />
+        </div>
 
-      {/* Agenda do dia */}
-      {todayAppts.length > 0 && (
-        <div className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest px-4 pt-4 pb-2">Agenda de hoje</p>
-          <div className="divide-y divide-slate-50">
+        {/* Today */}
+        {todayAppts.length > 0 && (
+          <DChartCard style={{ marginBottom: 16 }}>
+            <DSectionTitle>Agenda de hoje</DSectionTitle>
             {todayAppts.map(a => (
-              <div key={a.id} className="px-4 py-3 flex items-center gap-3">
-                <p className="text-sm font-black text-violet-700 w-12 flex-shrink-0">{a.hora}</p>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-900 truncate">{a.clienteNome}</p>
-                  <p className="text-xs text-slate-400 truncate">{a.servico}</p>
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: `1px solid ${DC.border}` }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: DC.primary, width: 40, flexShrink: 0 }}>{a.hora}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: DC.textPrimary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.clienteNome}</div>
+                  <div style={{ fontSize: 11, color: DC.textTertiary }}>{a.servico}</div>
                 </div>
-                {a.valor > 0 && <p className="text-xs font-bold text-emerald-600 flex-shrink-0">R$ {Number(a.valor).toFixed(0)}</p>}
+                {a.valor > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: DC.accent, flexShrink: 0 }}>R$ {Number(a.valor).toFixed(0)}</span>}
               </div>
             ))}
-          </div>
-        </div>
-      )}
+          </DChartCard>
+        )}
 
-      {/* Top serviços */}
-      {topServices.length > 0 && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Serviços mais agendados</p>
-          <div className="space-y-3">
-            {topServices.map(([nome, count]) => (
-              <div key={nome}>
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-sm font-semibold text-slate-700 truncate flex-1 mr-2">{nome}</span>
-                  <span className="text-xs font-bold text-slate-400">{count}</span>
-                </div>
-                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-violet-500 rounded-full" style={{ width: `${Math.round((count / maxCount) * 100)}%` }} />
-                </div>
+        {/* Daily movement */}
+        <DChartCard style={{ marginBottom: 16 }}>
+          <DSectionTitle right={
+            <span style={{ color: DC.primary, fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: DC.primary, display: "inline-block" }}/>Agendamentos
+            </span>
+          }>Movimento diário</DSectionTitle>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={sparkData} barGap={2}>
+              <CartesianGrid strokeDasharray="3 3" stroke={DC.border} vertical={false}/>
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: DC.textTertiary }} axisLine={false} tickLine={false}/>
+              <YAxis tick={{ fontSize: 10, fill: DC.textTertiary }} axisLine={false} tickLine={false} width={24} allowDecimals={false}/>
+              <Tooltip content={<DTooltip/>}/>
+              <Bar dataKey="agendamentos" fill={DC.primary} radius={[4,4,0,0]} maxBarSize={16}/>
+            </BarChart>
+          </ResponsiveContainer>
+        </DChartCard>
+
+        {/* Weekly revenue */}
+        {weekly.length > 1 && (
+          <DChartCard style={{ marginBottom: 16 }}>
+            <DSectionTitle>Receita semanal</DSectionTitle>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={weekly}>
+                <CartesianGrid strokeDasharray="3 3" stroke={DC.border} vertical={false}/>
+                <XAxis dataKey="sem" tick={{ fontSize: 11, fill: DC.textTertiary }} axisLine={false} tickLine={false}/>
+                <YAxis tick={{ fontSize: 10, fill: DC.textTertiary }} axisLine={false} tickLine={false} width={40}/>
+                <Tooltip content={<DTooltip prefix="R$ "/>}/>
+                <Bar dataKey="receita" fill={DC.accent} radius={[6,6,0,0]} maxBarSize={28}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </DChartCard>
+        )}
+
+        {/* Services */}
+        {servicos.length > 0 && (
+          <DChartCard style={{ marginBottom: 16 }}>
+            <DSectionTitle>Serviços mais agendados</DSectionTitle>
+            <div style={{ display: "flex", gap: 16 }}>
+              <div style={{ width: 120, height: 120, flexShrink: 0 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={servicos} dataKey="qtd" cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={3} strokeWidth={0}>
+                      {servicos.map((s, i) => <Cell key={i} fill={s.cor}/>)}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                {servicos.map((s, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 4, background: s.cor, flexShrink: 0 }}/>
+                      <span style={{ fontSize: 12, color: DC.textPrimary }}>{s.nome}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: DC.textPrimary }}>{s.qtd}</span>
+                      {s.receita > 0 && <span style={{ fontSize: 11, color: DC.textTertiary }}>R${s.receita}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </DChartCard>
+        )}
 
-      {appointments.length === 0 && (
-        <div className="text-center py-12">
-          <BarChart2 className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-          <p className="text-slate-400 text-sm font-medium">Sem dados ainda</p>
-          <p className="text-slate-300 text-xs mt-1">As métricas aparecerão assim que tiver marcações</p>
-        </div>
-      )}
+        {/* Profissionais */}
+        {profissionaisData.length > 0 && (
+          <DChartCard style={{ marginBottom: 16 }}>
+            <DSectionTitle right={
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <DFilterPill label="Todos" active={selectedProf === "todos"} onClick={() => setSelectedProf("todos")}/>
+                {profissionaisData.map(p => <DFilterPill key={p.nome} label={p.nome} active={selectedProf === p.nome} onClick={() => setSelectedProf(p.nome)}/>)}
+              </div>
+            }>Equipa</DSectionTitle>
+            {profissionaisData.filter(p => selectedProf === "todos" || p.nome === selectedProf).map((p, i) => <DProfRow key={i} p={p} maxReceita={maxReceita}/>)}
+          </DChartCard>
+        )}
+
+        {/* Peak hours */}
+        {horarios.length > 0 && (
+          <DChartCard style={{ marginBottom: 16 }}>
+            <DSectionTitle>Horários mais procurados</DSectionTitle>
+            <ResponsiveContainer width="100%" height={Math.max(100, horarios.length * 28)}>
+              <BarChart data={horarios} layout="vertical" barSize={12}>
+                <XAxis type="number" tick={{ fontSize: 10, fill: DC.textTertiary }} axisLine={false} tickLine={false} allowDecimals={false}/>
+                <YAxis type="category" dataKey="hora" tick={{ fontSize: 11, fill: DC.textSecondary }} axisLine={false} tickLine={false} width={40}/>
+                <Tooltip content={<DTooltip/>}/>
+                <Bar dataKey="qtd" fill={DC.blue} radius={[0,6,6,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </DChartCard>
+        )}
+
+        {/* Intelligence */}
+        <DChartCard style={{ marginBottom: 16 }}>
+          <DSectionTitle>Inteligência</DSectionTitle>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div style={{ background: DC.accentFaded, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#059669" }}>{retencao.clientesRecorrentes}</div>
+              <div style={{ fontSize: 11, color: "#047857", marginTop: 2 }}>Clientes recorrentes</div>
+            </div>
+            <div style={{ background: DC.blueFaded, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: DC.blue }}>{retencao.clientesNovos}</div>
+              <div style={{ fontSize: 11, color: "#1D4ED8", marginTop: 2 }}>Novos este mês</div>
+            </div>
+            <div style={{ background: DC.amberFaded, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: "#B45309" }}>{upsell.aceitos}</div>
+              <div style={{ fontSize: 11, color: "#92400E", marginTop: 2 }}>Extras aceitos</div>
+            </div>
+            <div style={{ background: DC.primaryFaded, borderRadius: 12, padding: 14 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: DC.primary, lineHeight: 1.3 }}>{upsell.topCombo}</div>
+              <div style={{ fontSize: 11, color: "#4338CA", marginTop: 2 }}>Extra mais vendido</div>
+            </div>
+          </div>
+        </DChartCard>
+
+        {/* Upsell donut */}
+        {upsell.ofertas > 0 && (
+          <DChartCard>
+            <DSectionTitle>Performance de extras</DSectionTitle>
+            <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+              <div style={{ position: "relative", width: 80, height: 80, flexShrink: 0 }}>
+                <svg viewBox="0 0 36 36" width="80" height="80" style={{ transform: "rotate(-90deg)" }}>
+                  <circle cx="18" cy="18" r="14" fill="none" stroke={DC.border} strokeWidth="3"/>
+                  <circle cx="18" cy="18" r="14" fill="none" stroke={DC.amber} strokeWidth="3"
+                    strokeDasharray={`${upsell.taxa * 0.88} ${88 - upsell.taxa * 0.88}`} strokeLinecap="round"/>
+                </svg>
+                <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 14, fontWeight: 700, color: DC.textPrimary }}>{upsell.taxa}%</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, color: DC.textSecondary, marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, color: DC.textPrimary }}>{upsell.aceitos}</span> de {upsell.ofertas} agendamentos com extras
+                </div>
+                {upsell.receitaExtra > 0 && (
+                  <div style={{ background: DC.accentFaded, borderRadius: 8, padding: "8px 12px", fontSize: 13, color: "#059669", fontWeight: 600 }}>
+                    +R$ {upsell.receitaExtra} receita extra
+                  </div>
+                )}
+              </div>
+            </div>
+          </DChartCard>
+        )}
+
+        {appointments.length === 0 && (
+          <div style={{ textAlign: "center", padding: "60px 20px" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
+            <p style={{ color: DC.textSecondary, fontSize: 14, fontWeight: 500 }}>Sem dados ainda</p>
+            <p style={{ color: DC.textTertiary, fontSize: 12, marginTop: 4 }}>As métricas aparecerão assim que tiver marcações</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
