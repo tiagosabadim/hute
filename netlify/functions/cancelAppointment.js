@@ -66,6 +66,7 @@ exports.handler = async (event) => {
           slug,
           lojaId,
           connectedPhone,
+          linkAgendamento: appointmentId ? `https://hute.netlify.app/#${slug}/agendamento/${appointmentId}` : '',
         }),
       }).catch(err => console.error('n8n cancel webhook error:', err.message));
     }
