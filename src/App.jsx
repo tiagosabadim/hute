@@ -1016,7 +1016,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
     { key: 'agenda',    icon: Calendar,   label: 'Agenda' },
     { key: 'clients',   icon: Users,      label: 'Clientes' },
     { key: 'dashboard', icon: BarChart2,  label: 'Dashboard' },
-    { key: 'equipa',    icon: Briefcase,  label: 'Equipa' },
+    { key: 'equipa',    icon: Briefcase,  label: 'Equipe' },
     { key: 'servicos',  icon: Tag,        label: 'Serviços' },
   ];
 
@@ -1081,7 +1081,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
         {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
         {view === 'dashboard' && <AdminDashboard user={user} profile={profile} />}
-        {view === 'equipa'   && <AdminEquipa user={user} profile={profile} setProfile={setProfile} />}
+        {view === 'equipa'   && <AdminEquipe user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
       </main>
 
@@ -2339,8 +2339,8 @@ function ClientDetail({ user, lojaId, clientData, onBack }) {
   );
 }
 
-// ── Admin Equipa ──────────────────────────────────────────
-function AdminEquipa({ user, profile, setProfile }) {
+// ── Admin Equipe ──────────────────────────────────────────
+function AdminEquipe({ user, profile, setProfile }) {
   const limits = usePlanLimits(profile);
   const [profissionals, setProfissionals] = useState(profile.profissionals || []);
   const [expandedId, setExpandedId] = useState(null);
@@ -2471,7 +2471,7 @@ function AdminEquipa({ user, profile, setProfile }) {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-xl font-black text-slate-900">Equipa</h2>
+          <h2 className="text-xl font-black text-slate-900">Equipe</h2>
           <p className="text-xs text-slate-400">{profissionals.length} profissional{profissionals.length !== 1 ? 'is' : ''}</p>
         </div>
       </div>
@@ -3790,7 +3790,7 @@ function AdminDashboard({ user, profile }) {
                 <DFilterPill label="Todos" active={selectedProf === "todos"} onClick={() => setSelectedProf("todos")}/>
                 {profissionaisData.map(p => <DFilterPill key={p.nome} label={p.nome} active={selectedProf === p.nome} onClick={() => setSelectedProf(p.nome)}/>)}
               </div>
-            }>Equipa</DSectionTitle>
+            }>Equipe</DSectionTitle>
             {profissionaisData.filter(p => selectedProf === "todos" || p.nome === selectedProf).map((p, i) => <DProfRow key={i} p={p} maxReceita={maxReceita}/>)}
           </DChartCard>
         )}
