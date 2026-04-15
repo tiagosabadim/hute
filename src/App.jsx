@@ -4038,6 +4038,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const [savingWhats, setSavingWhats] = useState(false);
   const [cancelingId, setCancelingId] = useState(null);
 
+  // ── Upsell slot availability ─────────────────────────────
+  const [upsellAvailability, setUpsellAvailability] = useState({});
+  const [upsellSlotLoading, setUpsellSlotLoading] = useState(false);
+
   // ── PWA ──────────────────────────────────────────────────
   const [installPrompt, setInstallPrompt] = useState(null);
   const [pwaHidden, setPwaHidden] = useState(false);
@@ -4093,6 +4097,47 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       setTokenAppt(prev => ({ ...prev, _cancelled: true }));
     }
   }, [clientUser]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Upsell availability check ────────────────────────────
+  useEffect(() => {
+    if (bookingStep !== 'upsell' || !selectedService || !selectedHora) return;
+    const crossSells = selectedService.crossSell || [];
+    if (crossSells.length === 0) return;
+
+    const mainDur = Number(selectedService.duracao || profile.intervalo || 60);
+    const [h, m] = selectedHora.split(':').map(Number);
+    const afterMin = h * 60 + m + mainDur;
+    const afterHora = `${String(Math.floor(afterMin / 60)).padStart(2, '0')}:${String(afterMin % 60).padStart(2, '0')}`;
+
+    setUpsellAvailability({});
+    setUpsellSlotLoading(true);
+
+    Promise.all(
+      crossSells.map(async (cs) => {
+        const svc = (profile.servicos || []).find(s => s.nome === cs.servicoNome);
+        if (!svc) return { nome: cs.servicoNome, available: false };
+        try {
+          const params = new URLSearchParams({
+            lojaId: lojaUid,
+            data: toDateISO(selectedDate),
+            duracao: svc.duracao || profile.intervalo || 60,
+            ...(selectedProfissional?.id ? { profissionalId: selectedProfissional.id } : {}),
+          });
+          const res = await fetch(`${BACKEND_URL}/getSlots?${params}`);
+          const json = await res.json();
+          const slots = json.slots || [];
+          return { nome: cs.servicoNome, available: slots.includes(afterHora) };
+        } catch {
+          return { nome: cs.servicoNome, available: false };
+        }
+      })
+    ).then(results => {
+      const map = {};
+      results.forEach(r => { map[r.nome] = r.available; });
+      setUpsellAvailability(map);
+      setUpsellSlotLoading(false);
+    });
+  }, [bookingStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
@@ -4833,64 +4878,108 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
           </div>
         )}
 
-        {bookingStep === 'upsell' && (
-          <div>
-            <h2 className="text-xl font-black text-slate-900 mb-1">Aproveite!</h2>
-            <p className="text-sm text-slate-400 mb-4">Adicione ao seu serviço com desconto</p>
-            <div className="space-y-3 mb-5">
-              {(selectedService?.crossSell || []).map(cs => {
-                const svc = servicos.find(s => s.nome === cs.servicoNome);
-                if (!svc) return null;
-                const precoOrig = svc.preco ? Number(svc.preco) : null;
-                const precoDesc = precoOrig ? Math.round(precoOrig * (1 - cs.desconto / 100) * 100) / 100 : null;
-                const added = selectedExtras.some(e => e.tipo === 'servico' && e.nome === svc.nome);
-                return (
-                  <div key={cs.servicoNome} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0"><Scissors className="w-4 h-4 text-violet-600" /></div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-900 text-sm">{svc.nome}</p>
-                        {precoDesc && <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-xs text-slate-400 line-through">R$ {precoOrig.toFixed(2)}</span>
-                          <span className="text-sm font-black text-emerald-600">R$ {precoDesc.toFixed(2)}</span>
-                          <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full">{cs.desconto}% off</span>
-                        </div>}
+        {bookingStep === 'upsell' && (() => {
+          const availableCrossSells = (selectedService?.crossSell || []).filter(cs => {
+            const svc = servicos.find(s => s.nome === cs.servicoNome);
+            if (!svc) return false;
+            if (upsellSlotLoading) return true; // show while loading, will hide after
+            return upsellAvailability[cs.servicoNome] === true;
+          });
+          const hasAnything = availableCrossSells.length > 0 || (selectedService?.upsell || []).length > 0;
+          if (!hasAnything && !upsellSlotLoading) {
+            // Nothing to offer — skip straight to confirm
+            setBookingStep('confirm');
+            return null;
+          }
+          return (
+            <div>
+              {/* Selected service recap */}
+              <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 mb-5 flex items-center gap-3">
+                <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Scissors className="w-5 h-5 text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-semibold text-violet-500 uppercase tracking-wider mb-0.5">Já agendado</p>
+                  <p className="font-black text-violet-900 text-sm truncate">{selectedService?.nome}</p>
+                  <p className="text-xs text-violet-600">{selectedHora} · {selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}</p>
+                </div>
+                <CheckCircle className="w-5 h-5 text-violet-500 flex-shrink-0" />
+              </div>
+
+              <h2 className="text-xl font-black text-slate-900 mb-1">Aproveite a visita!</h2>
+              <p className="text-sm text-slate-400 mb-4">Agende mais um serviço logo a seguir com desconto exclusivo</p>
+
+              {upsellSlotLoading ? (
+                <div className="text-center py-8"><Loader2 className="w-5 h-5 animate-spin text-violet-400 mx-auto mb-2" /><p className="text-xs text-slate-400">A verificar disponibilidade...</p></div>
+              ) : (
+                <div className="space-y-3 mb-5">
+                  {availableCrossSells.map(cs => {
+                    const svc = servicos.find(s => s.nome === cs.servicoNome);
+                    if (!svc) return null;
+                    const precoOrig = svc.preco ? Number(svc.preco) : null;
+                    const precoDesc = precoOrig ? Math.round(precoOrig * (1 - cs.desconto / 100) * 100) / 100 : null;
+                    const added = selectedExtras.some(e => e.tipo === 'servico' && e.nome === svc.nome);
+                    return (
+                      <div key={cs.servicoNome} className={`bg-white rounded-2xl overflow-hidden shadow-sm border-2 transition-all ${added ? 'border-emerald-400' : 'border-slate-100 hover:border-violet-200'}`}>
+                        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-2 flex items-center gap-2">
+                          <span className="text-[10px] font-black text-emerald-700 uppercase tracking-wider">🎉 {cs.desconto}% de desconto · só hoje</span>
+                        </div>
+                        <div className="p-4 flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0"><Scissors className="w-5 h-5 text-violet-600" /></div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-slate-900 text-sm">{svc.nome}</p>
+                            {svc.duracao && <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" />{fmtDuracao(svc.duracao)}</p>}
+                            {precoDesc !== null && (
+                              <div className="flex items-center gap-2 mt-1">
+                                {precoOrig && <span className="text-xs text-slate-400 line-through">R$ {precoOrig.toFixed(2)}</span>}
+                                <span className="text-base font-black text-emerald-600">R$ {precoDesc.toFixed(2)}</span>
+                              </div>
+                            )}
+                          </div>
+                          <button onClick={() => setSelectedExtras(prev => added
+                            ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome))
+                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc ?? precoOrig ?? 0 }])}
+                            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-colors flex-shrink-0 flex items-center gap-1.5 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-600 text-white hover:bg-violet-700'}`}>
+                            {added ? <><CheckCircle className="w-3.5 h-3.5" />Adicionado</> : 'Adicionar'}
+                          </button>
+                        </div>
                       </div>
-                      <button onClick={() => setSelectedExtras(prev => added ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome)) : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc || precoOrig || 0 }])}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors flex-shrink-0 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'}`}>
-                        {added ? 'Adicionado' : 'Adicionar'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              {(selectedService?.upsell || []).map((produto, i) => {
-                const added = selectedExtras.some(e => e.tipo === 'produto' && e.nome === produto.nome);
-                return (
-                  <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0"><ShoppingBag className="w-4 h-4 text-amber-600" /></div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-900 text-sm">{produto.nome}</p>
-                        {produto.preco > 0 && <p className="text-sm font-black text-violet-700 mt-0.5">R$ {Number(produto.preco).toFixed(2)}</p>}
+                    );
+                  })}
+                  {(selectedService?.upsell || []).map((produto, i) => {
+                    const added = selectedExtras.some(e => e.tipo === 'produto' && e.nome === produto.nome);
+                    return (
+                      <div key={i} className={`bg-white rounded-2xl p-4 shadow-sm border-2 transition-all ${added ? 'border-emerald-400' : 'border-slate-100 hover:border-amber-200'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0"><ShoppingBag className="w-5 h-5 text-amber-600" /></div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-slate-900 text-sm">{produto.nome}</p>
+                            {produto.descricao && <p className="text-xs text-slate-400 mt-0.5">{produto.descricao}</p>}
+                            {produto.preco > 0 && <p className="text-base font-black text-violet-700 mt-0.5">R$ {Number(produto.preco).toFixed(2)}</p>}
+                          </div>
+                          <button onClick={() => setSelectedExtras(prev => added
+                            ? prev.filter(e => !(e.tipo === 'produto' && e.nome === produto.nome))
+                            : [...prev, { tipo: 'produto', nome: produto.nome, preco: produto.preco || 0 }])}
+                            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-colors flex-shrink-0 ${added ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>
+                            {added ? 'Adicionado' : 'Quero'}
+                          </button>
+                        </div>
                       </div>
-                      <button onClick={() => setSelectedExtras(prev => added ? prev.filter(e => !(e.tipo === 'produto' && e.nome === produto.nome)) : [...prev, { tipo: 'produto', nome: produto.nome, preco: produto.preco || 0 }])}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors flex-shrink-0 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'}`}>
-                        {added ? 'Adicionado' : 'Adicionar'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
+
+              <button onClick={() => setBookingStep('confirm')} disabled={upsellSlotLoading}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors disabled:opacity-40">
+                {selectedExtras.length > 0 ? `Confirmar (+${selectedExtras.length} extra${selectedExtras.length > 1 ? 's' : ''})` : 'Continuar'}
+              </button>
+              <button onClick={() => { setSelectedExtras([]); setBookingStep('confirm'); }} className="w-full mt-2 py-3 text-slate-400 text-sm hover:text-slate-600 transition-colors">
+                Não, obrigado
+              </button>
             </div>
-            <button onClick={() => setBookingStep('confirm')} className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors">
-              Continuar {selectedExtras.length > 0 ? `(+${selectedExtras.length})` : ''}
-            </button>
-            <button onClick={() => { setSelectedExtras([]); setBookingStep('confirm'); }} className="w-full mt-2 py-3 text-slate-400 text-sm hover:text-slate-600 transition-colors">
-              Não, obrigado
-            </button>
-          </div>
-        )}
+          );
+        })()}
 
         {bookingStep === 'confirm' && (
           <div>
