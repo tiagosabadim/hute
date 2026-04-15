@@ -3,7 +3,7 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, X
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, signOut,
-  GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+  GoogleAuthProvider, signInWithRedirect,
   setPersistence, browserLocalPersistence,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -4312,16 +4312,6 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     const hasProducts = (selectedService?.upsell || []).length > 0;
     if (!anyAvailable && !hasProducts) setBookingStep('confirm');
   }, [upsellAvailability]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Handle Google redirect result ───────────────────────
-  useEffect(() => {
-    getRedirectResult(auth).catch(err => {
-      if (err?.code && err.code !== 'auth/no-current-user') {
-        setAuthError('Erro ao entrar com Google. Tente novamente.');
-        setAuthLoading(false);
-      }
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
