@@ -1,7 +1,17 @@
 /**
  * slotEngine.js — shared slot calculation logic
- * Used by getSlots.js (HTTP handler) and chatbotHandler.js (chatbot flow).
- * Single source of truth: fix here, fixed everywhere.
+ * Used by getSlots.js and chatbotHandler.js — single source of truth.
+ *
+ * Slot generation rules:
+ *  - intervalBase: spacing between consecutive free slots
+ *  - duracaoServico: the service being booked; a slot is only valid if
+ *    [slot, slot+duracaoServico] fits within working hours + tolerance
+ *  - After a busy interval ends, next slot starts at overlap.end (real service end),
+ *    then continues with intervalBase spacing
+ *  - Pause (almoço): if [slot, slot+dur] would enter pause → skip to after pause
+ *  - Tolerance: extends the accept window past horaFim; slots that end after
+ *    horaFim are marked "extended". Also adds one boundary slot at
+ *    horaFim+tolerancia-duracaoServico if not already on the grid.
  */
 
 const { google } = require('googleapis');
@@ -13,39 +23,77 @@ const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || 'GOCSPX-qcvfFHHI0Gby37
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
 
-const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+const toMin = s => { const [h, m] = (s || '00:00').split(':').map(Number); return h * 60 + m; };
 const toStr = n => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
 
 /**
- * Generates available time slots, jumping past busy intervals.
- * @param {string} horaInicio - e.g. "09:00"
- * @param {string} horaFim    - e.g. "18:00"
- * @param {number} duracaoMin - slot duration in minutes
- * @param {{ start: number, end: number }[]} busyIntervals - in minutes from midnight
+ * Core slot generator.
+ *
+ * @param {number} inicioMin       - working day start in minutes from midnight
+ * @param {number} fimMin          - working day end in minutes
+ * @param {number} tolerancia      - extra minutes beyond fimMin where services may still end
+ * @param {number} intervalBase    - spacing between consecutive free slots
+ * @param {number} duracao         - duration of the service being booked
+ * @param {{ start: number, end: number }[]} busy - busy intervals in minutes
+ * @param {{ inicio: number, fim: number } | null} pausa - lunch/break in minutes
+ * @returns {{ hora: string, extended: boolean }[]}
  */
-function gerarSlots(horaInicio, horaFim, duracaoMin, busyIntervals) {
-  const busy = busyIntervals.slice().sort((a, b) => a.start - b.start);
+function gerarSlots(inicioMin, fimMin, tolerancia, intervalBase, duracao, busy, pausa) {
+  const sortedBusy = busy.slice().sort((a, b) => a.start - b.start);
+  const limit = fimMin + tolerancia; // absolute end of accepted window
   const slots = [];
-  let cur = toMin(horaInicio);
-  const fim = toMin(horaFim);
-  while (cur + duracaoMin <= fim) {
-    const overlap = busy.find(b => cur < b.end && cur + duracaoMin > b.start);
+  let cur = inicioMin;
+
+  while (cur + duracao <= limit) {
+    // 1. Skip if cursor is inside the pause window
+    if (pausa && cur >= pausa.inicio && cur < pausa.fim) {
+      cur = pausa.fim;
+      continue;
+    }
+    // 2. Skip if the service window [cur, cur+dur] would enter the pause
+    if (pausa && cur < pausa.fim && cur + duracao > pausa.inicio) {
+      cur = pausa.fim;
+      continue;
+    }
+    // 3. Check busy overlap
+    const overlap = sortedBusy.find(b => cur < b.end && cur + duracao > b.start);
     if (overlap) {
-      cur = overlap.end;
-    } else {
-      slots.push(toStr(cur));
-      cur += duracaoMin;
+      cur = overlap.end; // jump to exact end of busy interval (real service end time)
+      continue;
+    }
+    // 4. Valid slot
+    slots.push({ hora: toStr(cur), extended: cur + duracao > fimMin });
+    cur += intervalBase;
+  }
+
+  // 5. Tolerance boundary slot — the latest possible start within the tolerance window.
+  //    Only relevant when tolerancia > 0 AND the boundary isn't already on the regular grid.
+  if (tolerancia > 0) {
+    const boundary = limit - duracao;
+    if (
+      boundary >= inicioMin &&
+      boundary + duracao <= limit &&
+      !slots.some(s => s.hora === toStr(boundary))
+    ) {
+      const inPause = pausa && (
+        (boundary >= pausa.inicio && boundary < pausa.fim) ||
+        (boundary < pausa.fim && boundary + duracao > pausa.inicio)
+      );
+      const blocked = sortedBusy.some(b => boundary < b.end && boundary + duracao > b.start);
+      if (!inPause && !blocked) {
+        slots.push({ hora: toStr(boundary), extended: true });
+        slots.sort((a, b) => toMin(a.hora) - toMin(b.hora));
+      }
     }
   }
+
   return slots;
 }
 
-/**
- * Converts Google Calendar events to busy intervals.
- * Parses time directly from the ISO string to avoid UTC conversion on the server.
- */
+// ── Busy interval builders ────────────────────────────────────────────────────
+
 function busyFromGoogleEvents(eventos) {
-  const toLocalMin = (str) => {
+  const toLocalMin = str => {
     const m = (str || '').match(/T(\d{2}):(\d{2})/);
     return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
   };
@@ -55,17 +103,17 @@ function busyFromGoogleEvents(eventos) {
   }));
 }
 
-function busyFromMarcacoes(marcacoes, duracaoDefault) {
+function busyFromMarcacoes(marcacoes, fallbackDuracao) {
   return marcacoes.map(m => {
     const start = toMin(m.hora);
-    return { start, end: start + (m.duracao ? Number(m.duracao) : duracaoDefault) };
+    return { start, end: start + (m.duracao ? Number(m.duracao) : fallbackDuracao) };
   });
 }
 
-function busyFromBlocks(blocks, duracaoDefault) {
+function busyFromBlocks(blocks, fallbackDuracao) {
   return blocks.map(b => {
     const start = toMin(b.hora);
-    return { start, end: start + (b.duracao || duracaoDefault) };
+    return { start, end: start + (b.duracao || fallbackDuracao) };
   });
 }
 
@@ -83,24 +131,57 @@ async function fetchGCalEvents(refreshToken, data) {
   return res.data.items || [];
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Returns day of week (0=Sun…6=Sat) from a YYYY-MM-DD string without timezone issues */
+function diaDaSemana(data) {
+  const [y, m, d] = data.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/**
+ * Returns { abertura, fechamento } for the given day from diasFuncionamento,
+ * or falls back to horaInicio/horaFim. Returns null if the establishment is
+ * closed that day and diasFuncionamento is explicitly configured.
+ */
+function getEstabHours(profile, dia) {
+  if (profile.diasFuncionamento && profile.diasFuncionamento.length > 0) {
+    const conf = profile.diasFuncionamento.find(d => d.dia === dia);
+    if (!conf) return null; // closed this day
+    return { abertura: conf.abertura, fechamento: conf.fechamento };
+  }
+  // Backward compat — no diasFuncionamento means always open with flat hours
+  return { abertura: profile.horaInicio || '09:00', fechamento: profile.horaFim || '18:00' };
+}
+
 // ── Main exported function ────────────────────────────────────────────────────
 
 /**
  * Computes available slots for a given date, professional, and service duration.
  *
- * @param {object} db             - Firestore instance
- * @param {string} lojaId         - establishment ID
- * @param {object} profile        - establishment profile data
- * @param {string} data           - ISO date string (YYYY-MM-DD)
+ * @param {object} db
+ * @param {string} lojaId
+ * @param {object} profile
+ * @param {string} data           - YYYY-MM-DD
  * @param {number} duracaoServico - service duration in minutes
  * @param {string|null} profissionalId
- * @returns {{ slots: string[], googleSync: boolean, blocked?: boolean }}
+ * @returns {{ slots: string[], extendedSlots: string[], googleSync: boolean, blocked?: boolean }}
  */
 async function computeSlots(db, lojaId, profile, data, duracaoServico, profissionalId) {
-  // Ensure duration is always a number to prevent string concatenation bugs
-  const duracao = Number(duracaoServico) || Number(profile.intervalo) || 60;
+  const duracao     = Number(duracaoServico) || 60;
+  const intervalBase = Number(profile.intervaloBase || profile.intervalo) || 60;
+  const tolerancia  = Number(profile.toleranciaFechamento) || 0;
+  const dia         = diaDaSemana(data);
 
-  // ── Blocks ──────────────────────────────────────────────────────────────────
+  // ── Establishment hours ──────────────────────────────────────────────────────
+  const estabHours = getEstabHours(profile, dia);
+  if (!estabHours) {
+    return { slots: [], extendedSlots: [], googleSync: false, blocked: true };
+  }
+  let horaInicio = estabHours.abertura;
+  let horaFim    = estabHours.fechamento;
+
+  // ── Blocks (day_off, custom_hours, slot blocks) ──────────────────────────────
   const blocksSnap = await getDocs(
     collection(db, 'artifacts', APP_ID, 'public', 'data', `blocks_${lojaId}`)
   );
@@ -109,23 +190,58 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
     .filter(b => b.date === data && (!b.profissionalId || b.profissionalId === profissionalId));
 
   if (relevantBlocks.some(b => b.type === 'day_off')) {
-    return { slots: [], googleSync: false, blocked: true };
+    return { slots: [], extendedSlots: [], googleSync: false, blocked: true };
   }
 
   const customHours = relevantBlocks.find(b => b.type === 'custom_hours');
-  const horaInicio = customHours ? customHours.horaInicio : (profile.horaInicio || '09:00');
-  const horaFim    = customHours ? customHours.horaFim    : (profile.horaFim    || '18:00');
-  const busyBlocks = busyFromBlocks(relevantBlocks.filter(b => b.type === 'slot'), duracao);
+  if (customHours) {
+    horaInicio = customHours.horaInicio;
+    horaFim    = customHours.horaFim;
+  }
 
-  // ── Firestore appointments (always included, regardless of GCal) ────────────
+  const busyBlocks = busyFromBlocks(relevantBlocks.filter(b => b.type === 'slot'), intervalBase);
+
+  // ── Professional schedule ────────────────────────────────────────────────────
+  let pausa = null;
+
+  if (profissionalId) {
+    const profData = (profile.profissionals || []).find(p => p.id === profissionalId);
+    if (profData) {
+      // Check if professional works this day
+      if (profData.diasTrabalho && profData.diasTrabalho.length > 0) {
+        if (!profData.diasTrabalho.includes(dia)) {
+          return { slots: [], extendedSlots: [], googleSync: false, blocked: true };
+        }
+      }
+      // Professional's own hours override establishment hours
+      if (profData.horarioProprio && profData.horarioProprio.abertura) {
+        horaInicio = profData.horarioProprio.abertura;
+        horaFim    = profData.horarioProprio.fechamento;
+      }
+      // Lunch break / pause
+      if (profData.pausa && profData.pausa.inicio && profData.pausa.fim) {
+        pausa = { inicio: toMin(profData.pausa.inicio), fim: toMin(profData.pausa.fim) };
+      }
+    }
+  }
+
+  const inicioMin = toMin(horaInicio);
+  const fimMin    = toMin(horaFim);
+
+  // ── Firestore appointments ───────────────────────────────────────────────────
   const apptSnap = await getDocs(
     collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`)
   );
   const marcacoes = apptSnap.docs
     .map(d => d.data())
     .filter(a => a.data === data && (!profissionalId || a.profissionalId === profissionalId));
+  const busyMarcacoes = busyFromMarcacoes(marcacoes, intervalBase);
 
-  const busyMarcacoes = busyFromMarcacoes(marcacoes, duracao);
+  const _finish = (slotsData, googleSync) => ({
+    slots:         slotsData.map(s => s.hora),
+    extendedSlots: slotsData.filter(s => s.extended).map(s => s.hora),
+    googleSync,
+  });
 
   // ── Per-professional Google Calendar ────────────────────────────────────────
   if (profissionalId) {
@@ -135,39 +251,27 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
       );
       if (profCalDoc.exists() && profCalDoc.data().googleCalendarConnected && profCalDoc.data().googleRefreshToken) {
         const eventos = await fetchGCalEvents(profCalDoc.data().googleRefreshToken, data);
-        const slots = gerarSlots(horaInicio, horaFim, duracao, [
-          ...busyFromGoogleEvents(eventos),
-          ...busyBlocks,
-          ...busyMarcacoes,
-        ]);
-        return { slots, googleSync: true };
+        const allBusy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...busyMarcacoes];
+        return _finish(gerarSlots(inicioMin, fimMin, tolerancia, intervalBase, duracao, allBusy, pausa), true);
       }
     } catch (err) {
       console.error('slotEngine GCal prof error:', err.message);
     }
-    // Fallback: Firestore only
-    const slots = gerarSlots(horaInicio, horaFim, duracao, [...busyBlocks, ...busyMarcacoes]);
-    return { slots, googleSync: false };
+    return _finish(gerarSlots(inicioMin, fimMin, tolerancia, intervalBase, duracao, [...busyBlocks, ...busyMarcacoes], pausa), false);
   }
 
   // ── Establishment-level Google Calendar ─────────────────────────────────────
   if (profile.googleRefreshToken) {
     try {
       const eventos = await fetchGCalEvents(profile.googleRefreshToken, data);
-      const slots = gerarSlots(horaInicio, horaFim, duracao, [
-        ...busyFromGoogleEvents(eventos),
-        ...busyBlocks,
-        ...busyMarcacoes,
-      ]);
-      return { slots, googleSync: true };
+      const allBusy = [...busyFromGoogleEvents(eventos), ...busyBlocks, ...busyMarcacoes];
+      return _finish(gerarSlots(inicioMin, fimMin, tolerancia, intervalBase, duracao, allBusy, pausa), true);
     } catch (err) {
       console.error('slotEngine GCal estab error:', err.message);
     }
   }
 
-  // ── Firestore only fallback ──────────────────────────────────────────────────
-  const slots = gerarSlots(horaInicio, horaFim, duracao, [...busyBlocks, ...busyMarcacoes]);
-  return { slots, googleSync: false };
+  return _finish(gerarSlots(inicioMin, fimMin, tolerancia, intervalBase, duracao, [...busyBlocks, ...busyMarcacoes], pausa), false);
 }
 
 module.exports = { computeSlots };

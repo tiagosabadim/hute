@@ -845,15 +845,62 @@ function LoginScreen() {
   );
 }
 
+// ── DiasHorariosEditor ────────────────────────────────────
+function DiasHorariosEditor({ dias, onChange }) {
+  const NOMES = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const toggleDia = (dia) => {
+    const exists = dias.find(d => d.dia === dia);
+    if (exists) {
+      onChange(dias.filter(d => d.dia !== dia));
+    } else {
+      onChange([...dias, { dia, abertura: '09:00', fechamento: '18:00' }].sort((a,b) => a.dia - b.dia));
+    }
+  };
+  const updateHorario = (dia, field, value) => {
+    onChange(dias.map(d => d.dia === dia ? { ...d, [field]: value } : d));
+  };
+  return (
+    <div className="space-y-2">
+      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Dias de funcionamento</label>
+      {NOMES.map((nome, dia) => {
+        const conf = dias.find(d => d.dia === dia);
+        return (
+          <div key={dia} className={`rounded-xl border transition-colors ${conf ? 'border-violet-200 bg-violet-50' : 'border-slate-100 bg-slate-50'}`}>
+            <label className="flex items-center gap-3 p-3 cursor-pointer">
+              <input type="checkbox" checked={!!conf} onChange={() => toggleDia(dia)} className="w-4 h-4 accent-violet-600" />
+              <span className={`text-sm font-bold ${conf ? 'text-violet-900' : 'text-slate-400'}`}>{nome}</span>
+            </label>
+            {conf && (
+              <div className="flex gap-2 px-3 pb-3">
+                <input type="time" value={conf.abertura} onChange={e => updateHorario(dia, 'abertura', e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                <span className="text-slate-400 self-center text-sm">–</span>
+                <input type="time" value={conf.fechamento} onChange={e => updateHorario(dia, 'fechamento', e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Onboarding Screen ─────────────────────────────────────
 function OnboardingScreen({ user, onComplete }) {
   const [step, setStep] = useState(1);
   const [nome, setNome] = useState('');
   const [subtitulo, setSubtitulo] = useState('');
   const [slug, setSlug] = useState('');
-  const [horaInicio, setHoraInicio] = useState('09:00');
-  const [horaFim, setHoraFim] = useState('19:00');
-  const [intervalo, setIntervalo] = useState(30);
+  const [diasFuncionamento, setDiasFuncionamento] = useState([
+    { dia: 1, abertura: '09:00', fechamento: '18:00' },
+    { dia: 2, abertura: '09:00', fechamento: '18:00' },
+    { dia: 3, abertura: '09:00', fechamento: '18:00' },
+    { dia: 4, abertura: '09:00', fechamento: '18:00' },
+    { dia: 5, abertura: '09:00', fechamento: '18:00' },
+  ]);
+  const [intervaloBase, setIntervaloBase] = useState(60);
+  const [toleranciaFechamento, setTolerancisFechamento] = useState(0);
   const [profNome, setProfNome] = useState('');
   const [profCor, setProfCor] = useState(PROF_COLORS[0]);
   const [saving, setSaving] = useState(false);
@@ -870,9 +917,13 @@ function OnboardingScreen({ user, onComplete }) {
         nome: nome.trim(),
         subtitulo: subtitulo.trim(),
         slug: slug.trim() || slugify(nome),
-        horaInicio,
-        horaFim,
-        intervalo: Number(intervalo),
+        diasFuncionamento,
+        intervaloBase: Number(intervaloBase),
+        toleranciaFechamento: Number(toleranciaFechamento),
+        // backward compat fields derived from diasFuncionamento
+        horaInicio: diasFuncionamento[0]?.abertura || '09:00',
+        horaFim: diasFuncionamento[0]?.fechamento || '18:00',
+        intervalo: Number(intervaloBase),
         servicos: [],
         profissionals,
         googleCalendarConnected: false,
@@ -955,24 +1006,22 @@ function OnboardingScreen({ user, onComplete }) {
 
           {step === 2 && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Abertura</label>
-                  <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
-                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Fecho</label>
-                  <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)}
-                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-                </div>
-              </div>
+              <DiasHorariosEditor dias={diasFuncionamento} onChange={setDiasFuncionamento} />
               <div>
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
-                <select value={intervalo} onChange={e => setIntervalo(e.target.value)}
+                <select value={intervaloBase} onChange={e => setIntervaloBase(e.target.value)}
                   className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-                  {[15, 20, 30, 45, 60, 90, 120].map(v => (
-                    <option key={v} value={v}>{fmtDuracao(v)}</option>
+                  {[[30,'30 min'],[45,'45 min'],[60,'1h'],[90,'1h30'],[120,'2h']].map(([v,l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Tolerância após o fecho</label>
+                <select value={toleranciaFechamento} onChange={e => setTolerancisFechamento(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                  {[[0,'Fecha em ponto'],[15,'+15 min'],[30,'+30 min'],[45,'+45 min'],[60,'+1h']].map(([v,l]) => (
+                    <option key={v} value={v}>{l}</option>
                   ))}
                 </select>
               </div>
@@ -1292,7 +1341,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
     setGoogleFreeSlots(null);
     setGoogleEvents([]);
     const baseParams = { lojaId: colId, data: dateISO, profissionalId: selectedProfId };
-    const slotsParams = new URLSearchParams({ ...baseParams, duracao: profile?.intervalo || 60 });
+    const slotsParams = new URLSearchParams({ ...baseParams, duracao: profile?.intervaloBase || profile?.intervalo || 60 });
     const eventsParams = new URLSearchParams(baseParams);
     Promise.all([
       fetch(`${BACKEND_URL}/getSlots?${slotsParams}`).then(r => r.json()),
@@ -1310,13 +1359,16 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
   const dayBlocks = blocks.filter(b =>
     b.date === dateISO && (!b.profissionalId || b.profissionalId === selectedProfId)
   );
-  const isDayOff = dayBlocks.some(b => b.type === 'day_off');
+  const isDayOff = dayBlocks.some(b => b.type === 'day_off') || _estabFechado;
   const customHours = dayBlocks.find(b => b.type === 'custom_hours');
   const slotBlocks = dayBlocks.filter(b => b.type === 'slot');
 
-  const effStart = customHours ? customHours.horaInicio : (profile?.horaInicio || '09:00');
-  const effEnd   = customHours ? customHours.horaFim    : (profile?.horaFim    || '18:00');
-  const intervalo = profile?.intervalo || 60;
+  const _diaDate = dateISO ? (() => { const [y,m,d] = dateISO.split('-').map(Number); return new Date(y,m-1,d).getDay(); })() : new Date().getDay();
+  const _diaConf = (profile?.diasFuncionamento || []).find(d => d.dia === _diaDate);
+  const _estabFechado = profile?.diasFuncionamento?.length > 0 && !_diaConf;
+  const effStart = customHours ? customHours.horaInicio : (_diaConf ? _diaConf.abertura : (profile?.horaInicio || '09:00'));
+  const effEnd   = customHours ? customHours.horaFim    : (_diaConf ? _diaConf.fechamento : (profile?.horaFim    || '18:00'));
+  const intervalo = profile?.intervaloBase || profile?.intervalo || 60;
 
   const dayAppts = appointments.filter(a =>
     a.data === dateISO && (!selectedProfId || a.profissionalId === selectedProfId)
@@ -1662,6 +1714,7 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
   const [data, setData] = useState(prefilledDate || new Date().toISOString().split('T')[0]);
   const [hora, setHora] = useState(prefilledHora || '');
   const [slots, setSlots] = useState(null);
+  const [extendedSlots, setExtendedSlots] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [apptLimitReached, setApptLimitReached] = useState(false);
@@ -1692,15 +1745,15 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
     const params = new URLSearchParams({
       lojaId,
       data,
-      duracao: selectedService.duracao || profile.intervalo || 60,
+      duracao: selectedService.duracao || profile.intervaloBase || profile.intervalo || 60,
       ...(selectedProfId ? { profissionalId: selectedProfId } : {}),
     });
     fetch(`${BACKEND_URL}/getSlots?${params}`)
       .then(r => r.json())
-      .then(j => setSlots(j.slots || []))
-      .catch(() => setSlots([]))
+      .then(j => { setSlots(j.slots || []); setExtendedSlots(j.extendedSlots || []); })
+      .catch(() => { setSlots([]); setExtendedSlots([]); })
       .finally(() => setSlotsLoading(false));
-  }, [selectedService, selectedProfId, data, lojaId, profile.intervalo]);
+  }, [selectedService, selectedProfId, data, lojaId, profile.intervaloBase, profile.intervalo]);
 
   const profOptions = useMemo(() => {
     if (filterProfId) return (profile.profissionals || []).filter(p => p.id === filterProfId);
@@ -1882,12 +1935,16 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
                 <p className="text-sm text-slate-400 py-2">Sem horários disponíveis. Pode inserir manualmente abaixo.</p>
               ) : slots && (
                 <div className="grid grid-cols-4 gap-2 mb-3">
-                  {slots.map(slot => (
-                    <button key={slot} type="button" onClick={() => setHora(slot)}
-                      className={`py-2.5 rounded-xl text-sm font-bold border-2 transition-all ${hora === slot ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
-                      {slot}
-                    </button>
-                  ))}
+                  {slots.map(slot => {
+                    const isExt = extendedSlots.includes(slot);
+                    return (
+                      <button key={slot} type="button" onClick={() => setHora(slot)}
+                        className={`py-2.5 rounded-xl text-sm font-bold border-2 transition-all relative ${hora === slot ? 'bg-violet-600 text-white border-violet-600' : isExt ? 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
+                        {slot}
+                        {isExt && hora !== slot && <span className="absolute -top-1.5 -right-1 text-[8px] bg-amber-400 text-white px-1 rounded-full font-black leading-4">+</span>}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <div className="relative">
@@ -2603,6 +2660,75 @@ function AdminEquipe({ user, profile, setProfile }) {
                     </div>
                   </div>
 
+                  {/* ── Dias de trabalho ── */}
+                  <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                    <label className="text-xs font-bold text-slate-600 uppercase tracking-wider block mb-3">Dias de trabalho</label>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((nome, dia) => {
+                        const active = !(editData.diasTrabalho?.length > 0) || editData.diasTrabalho.includes(dia);
+                        return (
+                          <button key={dia} type="button" onClick={() => {
+                            const current = editData.diasTrabalho?.length > 0 ? editData.diasTrabalho : [0,1,2,3,4,5,6];
+                            const next = current.includes(dia) ? current.filter(d => d !== dia) : [...current, dia].sort();
+                            setEditData(prev => ({ ...prev, diasTrabalho: next }));
+                          }} className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${active ? 'bg-violet-600 text-white' : 'bg-white border border-slate-200 text-slate-400'}`}>
+                            {nome}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-2">Sem seleção = todos os dias do estabelecimento</p>
+                  </div>
+
+                  {/* ── Pausa / Almoço ── */}
+                  <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Pausa / Almoço</label>
+                      <button type="button" onClick={() => setEditData(prev => ({
+                        ...prev,
+                        pausa: prev.pausa ? null : { inicio: '12:00', fim: '13:00' }
+                      }))} className={`text-xs font-bold px-3 py-1 rounded-lg transition-colors ${editData.pausa ? 'bg-violet-100 text-violet-700' : 'bg-slate-200 text-slate-500'}`}>
+                        {editData.pausa ? 'Ativo' : 'Inativo'}
+                      </button>
+                    </div>
+                    {editData.pausa && (
+                      <div className="flex gap-2 items-center">
+                        <input type="time" value={editData.pausa.inicio} onChange={e => setEditData(prev => ({ ...prev, pausa: { ...prev.pausa, inicio: e.target.value } }))}
+                          className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                        <span className="text-slate-400 text-sm">–</span>
+                        <input type="time" value={editData.pausa.fim} onChange={e => setEditData(prev => ({ ...prev, pausa: { ...prev.pausa, fim: e.target.value } }))}
+                          className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Horário personalizado ── */}
+                  <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Horário personalizado</label>
+                      <button type="button" onClick={() => setEditData(prev => ({
+                        ...prev,
+                        horarioProprio: prev.horarioProprio ? null : { abertura: '09:00', fechamento: '18:00' }
+                      }))} className={`text-xs font-bold px-3 py-1 rounded-lg transition-colors ${editData.horarioProprio ? 'bg-violet-100 text-violet-700' : 'bg-slate-200 text-slate-500'}`}>
+                        {editData.horarioProprio ? 'Ativo' : 'Segue o estab.'}
+                      </button>
+                    </div>
+                    {editData.horarioProprio && (
+                      <div className="flex gap-2 items-center">
+                        <div className="flex-1">
+                          <p className="text-[10px] text-slate-400 mb-1">Entrada</p>
+                          <input type="time" value={editData.horarioProprio.abertura} onChange={e => setEditData(prev => ({ ...prev, horarioProprio: { ...prev.horarioProprio, abertura: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[10px] text-slate-400 mb-1">Saída</p>
+                          <input type="time" value={editData.horarioProprio.fechamento} onChange={e => setEditData(prev => ({ ...prev, horarioProprio: { ...prev.horarioProprio, fechamento: e.target.value } }))}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {editData.agendaTipo === 'google' && (
                     <div>
                       {googleConnected ? (
@@ -3086,9 +3212,13 @@ function AdminSettings({ user, profile, setProfile, section }) {
   const [subtitulo, setSubtitulo] = useState(profile.subtitulo || '');
   const [slug, setSlug] = useState(profile.slug || '');
   const [whatsappNumber, setWhatsappNumber] = useState(profile.whatsappNumber || '');
-  const [horaInicio, setHoraInicio] = useState(profile.horaInicio || '09:00');
-  const [horaFim, setHoraFim] = useState(profile.horaFim || '19:00');
-  const [intervalo, setIntervalo] = useState(profile.intervalo || 30);
+  const [diasFuncionamento, setDiasFuncionamento] = useState(
+    profile.diasFuncionamento && profile.diasFuncionamento.length > 0
+      ? profile.diasFuncionamento
+      : [1,2,3,4,5].map(dia => ({ dia, abertura: profile.horaInicio || '09:00', fechamento: profile.horaFim || '18:00' }))
+  );
+  const [intervaloBase, setIntervaloBase] = useState(profile.intervaloBase || profile.intervalo || 60);
+  const [toleranciaFechamento, setTolerancisFechamento] = useState(profile.toleranciaFechamento || 0);
   const [coverFoto, setCoverFoto] = useState(profile.coverFoto || null);
   const [logo, setLogo] = useState(profile.logo || null);
   const [saving, setSaving] = useState(false);
@@ -3204,7 +3334,16 @@ function AdminSettings({ user, profile, setProfile, section }) {
     setSaving(true);
     try {
       const normalizedWhats = whatsappNumber.replace(/\D/g, '');
-      const data = { nome, subtitulo, slug, whatsappNumber: normalizedWhats, horaInicio, horaFim, intervalo: Number(intervalo), coverFoto, logo };
+      const data = {
+        nome, subtitulo, slug, whatsappNumber: normalizedWhats, coverFoto, logo,
+        diasFuncionamento,
+        intervaloBase: Number(intervaloBase),
+        toleranciaFechamento: Number(toleranciaFechamento),
+        // backward compat
+        horaInicio: diasFuncionamento[0]?.abertura || '09:00',
+        horaFim: diasFuncionamento[0]?.fechamento || '18:00',
+        intervalo: Number(intervaloBase),
+      };
       await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', user.uid), data, { merge: true });
       if (slug !== profile.slug) {
         await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slug), { uid: user.uid, nome });
@@ -3312,24 +3451,22 @@ function AdminSettings({ user, profile, setProfile, section }) {
           {/* Horário */}
           <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário de funcionamento</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Abertura</label>
-                <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Fecho</label>
-                <input type="time" value={horaFim} onChange={e => setHoraFim(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-              </div>
-            </div>
+            <DiasHorariosEditor dias={diasFuncionamento} onChange={setDiasFuncionamento} />
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
-              <select value={intervalo} onChange={e => setIntervalo(e.target.value)}
+              <select value={intervaloBase} onChange={e => setIntervaloBase(e.target.value)}
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-                {[15, 20, 30, 45, 60, 90, 120].map(v => (
-                  <option key={v} value={v}>{fmtDuracao(v)}</option>
+                {[[30,'30 min'],[45,'45 min'],[60,'1h'],[90,'1h30'],[120,'2h']].map(([v,l]) => (
+                  <option key={v} value={v}>{l}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Tolerância após o fecho</label>
+              <select value={toleranciaFechamento} onChange={e => setTolerancisFechamento(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                {[[0,'Fecha em ponto'],[15,'+15 min'],[30,'+30 min'],[45,'+45 min'],[60,'+1h']].map(([v,l]) => (
+                  <option key={v} value={v}>{l}</option>
                 ))}
               </select>
             </div>
@@ -4019,6 +4156,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedHora, setSelectedHora] = useState('');
   const [slots, setSlots] = useState(null);
+  const [extendedSlots, setExtendedSlots] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [selectedExtras, setSelectedExtras] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -4369,31 +4507,33 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const fetchSlots = useCallback(async (date, servico, profId) => {
     setSlotsLoading(true);
     setSlots(null);
+    setExtendedSlots([]);
     try {
       const params = new URLSearchParams({
         lojaId: lojaUid,
         data: toDateISO(date),
-        duracao: servico?.duracao || profile.intervalo || 60,
+        duracao: servico?.duracao || profile.intervaloBase || profile.intervalo || 60,
         ...(profId ? { profissionalId: profId } : {}),
       });
       const res = await fetch(`${BACKEND_URL}/getSlots?${params}`);
       const json = await res.json();
       let slotList = json.slots || [];
+      let extList = json.extendedSlots || [];
       const isToday = toDateISO(date) === toDateISO(new Date());
       if (isToday) {
         const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-        slotList = slotList.filter(slot => {
-          const [h, m] = slot.split(':').map(Number);
-          return h * 60 + m > nowMin;
-        });
+        slotList = slotList.filter(slot => { const [h, m] = slot.split(':').map(Number); return h * 60 + m > nowMin; });
+        extList = extList.filter(slot => { const [h, m] = slot.split(':').map(Number); return h * 60 + m > nowMin; });
       }
       setSlots(slotList);
+      setExtendedSlots(extList);
     } catch {
       setSlots([]);
+      setExtendedSlots([]);
     } finally {
       setSlotsLoading(false);
     }
-  }, [lojaUid, profile.intervalo]);
+  }, [lojaUid, profile.intervaloBase, profile.intervalo]);
 
   const profForService = selectedService
     ? (() => {
@@ -4894,12 +5034,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 ? <div className="text-center py-10"><CalendarCheck className="w-10 h-10 text-slate-200 mx-auto mb-2" /><p className="text-slate-400 text-sm font-medium">Sem horários neste dia.</p><p className="text-slate-300 text-xs mt-1">Tente outro dia</p></div>
                 : <>
                     <div className="grid grid-cols-3 gap-2 mb-5">
-                      {slots.map(slot => (
-                        <button key={slot} onClick={() => setSelectedHora(slot)}
-                          className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${selectedHora === slot ? 'bg-violet-600 text-white border-violet-600 shadow-lg shadow-violet-200' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
-                          {slot}
-                        </button>
-                      ))}
+                      {slots.map(slot => {
+                        const isExt = extendedSlots.includes(slot);
+                        return (
+                          <button key={slot} onClick={() => setSelectedHora(slot)}
+                            className={`py-3 rounded-xl text-sm font-bold border-2 transition-all relative ${selectedHora === slot ? 'bg-violet-600 text-white border-violet-600 shadow-lg shadow-violet-200' : isExt ? 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
+                            {slot}
+                            {isExt && selectedHora !== slot && <span className="absolute -top-1.5 -right-1 text-[8px] bg-amber-400 text-white px-1 rounded-full font-black leading-4">+</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                     <button onClick={() => { if (!selectedHora) return; setBookingStep(serviceHasExtras ? 'upsell' : 'confirm'); }}
                       disabled={!selectedHora}
