@@ -3,8 +3,7 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, X
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, signOut,
-  GoogleAuthProvider, signInWithRedirect,
-  setPersistence, browserLocalPersistence,
+  GoogleAuthProvider, signInWithPopup,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
@@ -4459,11 +4458,11 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     setAuthError('');
     setAuthLoading(true);
     try {
-      await setPersistence(auth, browserLocalPersistence);
-      await signInWithRedirect(auth, new GoogleAuthProvider());
-      // Page will redirect; authLoading stays true until redirect completes
+      await signInWithPopup(auth, new GoogleAuthProvider());
     } catch (err) {
-      setAuthError('Erro ao iniciar login com Google. Tente novamente.');
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setAuthError('Erro ao entrar com Google. Tente novamente.');
+      }
       setAuthLoading(false);
     }
   };
