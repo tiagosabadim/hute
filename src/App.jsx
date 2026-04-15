@@ -4037,10 +4037,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const [whatsEdit, setWhatsEdit] = useState('');
   const [savingWhats, setSavingWhats] = useState(false);
   const [cancelingId, setCancelingId] = useState(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileNome, setProfileNome] = useState('');
+  const [profileNascDia, setProfileNascDia] = useState('');
+  const [profileNascMes, setProfileNascMes] = useState('');
+  const [profileFoto, setProfileFoto] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // ── Upsell slot availability ─────────────────────────────
-  const [upsellAvailability, setUpsellAvailability] = useState({});
-  const [upsellSlotLoading, setUpsellSlotLoading] = useState(false);
+  // null = not yet checked; {} / map = checked (may be empty)
+  const [upsellAvailability, setUpsellAvailability] = useState(null);
 
   // ── PWA ──────────────────────────────────────────────────
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -4101,16 +4107,20 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   // ── Upsell availability check ────────────────────────────
   useEffect(() => {
     if (bookingStep !== 'upsell' || !selectedService || !selectedHora) return;
+
+    // Reset to "checking" state
+    setUpsellAvailability(null);
+
     const crossSells = selectedService.crossSell || [];
-    if (crossSells.length === 0) return;
+    if (crossSells.length === 0) {
+      setUpsellAvailability({});
+      return;
+    }
 
     const mainDur = Number(selectedService.duracao || profile.intervalo || 60);
     const [h, m] = selectedHora.split(':').map(Number);
     const afterMin = h * 60 + m + mainDur;
     const afterHora = `${String(Math.floor(afterMin / 60)).padStart(2, '0')}:${String(afterMin % 60).padStart(2, '0')}`;
-
-    setUpsellAvailability({});
-    setUpsellSlotLoading(true);
 
     Promise.all(
       crossSells.map(async (cs) => {
@@ -4135,9 +4145,17 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       const map = {};
       results.forEach(r => { map[r.nome] = r.available; });
       setUpsellAvailability(map);
-      setUpsellSlotLoading(false);
     });
   }, [bookingStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-skip upsell when nothing available ───────────────
+  useEffect(() => {
+    if (bookingStep !== 'upsell' || upsellAvailability === null) return;
+    const crossSells = selectedService?.crossSell || [];
+    const anyAvailable = crossSells.some(cs => upsellAvailability[cs.servicoNome] === true);
+    const hasProducts = (selectedService?.upsell || []).length > 0;
+    if (!anyAvailable && !hasProducts) setBookingStep('confirm');
+  }, [upsellAvailability]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
@@ -4879,18 +4897,20 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         )}
 
         {bookingStep === 'upsell' && (() => {
-          const availableCrossSells = (selectedService?.crossSell || []).filter(cs => {
-            const svc = servicos.find(s => s.nome === cs.servicoNome);
-            if (!svc) return false;
-            if (upsellSlotLoading) return true; // show while loading, will hide after
-            return upsellAvailability[cs.servicoNome] === true;
-          });
-          const hasAnything = availableCrossSells.length > 0 || (selectedService?.upsell || []).length > 0;
-          if (!hasAnything && !upsellSlotLoading) {
-            // Nothing to offer — skip straight to confirm
-            setBookingStep('confirm');
-            return null;
+          // Show loading while checking slot availability
+          if (upsellAvailability === null) {
+            return (
+              <div className="text-center py-16">
+                <Loader2 className="w-6 h-6 animate-spin text-violet-400 mx-auto mb-3" />
+                <p className="text-sm text-slate-400">A verificar disponibilidade...</p>
+              </div>
+            );
           }
+
+          const availableCrossSells = (selectedService?.crossSell || []).filter(cs =>
+            upsellAvailability[cs.servicoNome] === true
+          );
+
           return (
             <div>
               {/* Selected service recap */}
@@ -4909,11 +4929,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
               <h2 className="text-xl font-black text-slate-900 mb-1">Aproveite a visita!</h2>
               <p className="text-sm text-slate-400 mb-4">Agende mais um serviço logo a seguir com desconto exclusivo</p>
 
-              {upsellSlotLoading ? (
-                <div className="text-center py-8"><Loader2 className="w-5 h-5 animate-spin text-violet-400 mx-auto mb-2" /><p className="text-xs text-slate-400">A verificar disponibilidade...</p></div>
-              ) : (
-                <div className="space-y-3 mb-5">
-                  {availableCrossSells.map(cs => {
+              <div className="space-y-3 mb-5">
+                {availableCrossSells.map(cs => {
                     const svc = servicos.find(s => s.nome === cs.servicoNome);
                     if (!svc) return null;
                     const precoOrig = svc.preco ? Number(svc.preco) : null;
@@ -4968,10 +4985,9 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                     );
                   })}
                 </div>
-              )}
 
-              <button onClick={() => setBookingStep('confirm')} disabled={upsellSlotLoading}
-                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors disabled:opacity-40">
+              <button onClick={() => setBookingStep('confirm')}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors">
                 {selectedExtras.length > 0 ? `Confirmar (+${selectedExtras.length} extra${selectedExtras.length > 1 ? 's' : ''})` : 'Continuar'}
               </button>
               <button onClick={() => { setSelectedExtras([]); setBookingStep('confirm'); }} className="w-full mt-2 py-3 text-slate-400 text-sm hover:text-slate-600 transition-colors">
@@ -5473,72 +5489,180 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         {/* ── CONTA TAB ───────────────────────────────────── */}
         {tab === 'conta' && (
           <div>
-            <h2 className="text-xl font-black text-slate-900 mb-5">Minha Conta</h2>
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-4">
-              <div className="flex items-center gap-4 mb-5">
-                {clientUser?.photoURL ? (
-                  <img src={clientUser.photoURL} alt="" className="w-14 h-14 rounded-2xl object-cover flex-shrink-0" />
-                ) : (
-                  <div className="w-14 h-14 rounded-2xl bg-violet-100 flex items-center justify-center flex-shrink-0">
-                    <span className="font-black text-violet-600 text-xl">{initials(clientAccount?.nome)}</span>
+            <h2 className="text-xl font-black text-slate-900 mb-5">Meu Perfil</h2>
+
+            {/* ── Profile card ── */}
+            {editingProfile ? (
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-4">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Editar perfil</p>
+
+                {/* Photo */}
+                <div className="flex flex-col items-center mb-5">
+                  <label className="cursor-pointer relative group">
+                    {profileFoto ? (
+                      <img src={profileFoto} alt="" className="w-20 h-20 rounded-2xl object-cover" />
+                    ) : (
+                      <div className="w-20 h-20 rounded-2xl bg-violet-100 flex items-center justify-center">
+                        <span className="font-black text-violet-600 text-2xl">{initials(profileNome || clientAccount?.nome)}</span>
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-black/40 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Camera className="w-6 h-6 text-white" />
+                    </div>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const canvas = document.createElement('canvas');
+                      const img = new window.Image();
+                      img.onload = () => {
+                        const size = 240;
+                        const scale = Math.min(size / img.width, size / img.height, 1);
+                        canvas.width = Math.round(img.width * scale);
+                        canvas.height = Math.round(img.height * scale);
+                        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                        setProfileFoto(canvas.toDataURL('image/jpeg', 0.82));
+                        URL.revokeObjectURL(img.src);
+                      };
+                      img.src = URL.createObjectURL(file);
+                    }} />
+                  </label>
+                  <p className="text-xs text-slate-400 mt-2">Toque para alterar a foto</p>
+                </div>
+
+                {/* Nome */}
+                <div className="mb-3">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome *</label>
+                  <input type="text" value={profileNome} onChange={e => setProfileNome(e.target.value)} placeholder="O seu nome"
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+                </div>
+
+                {/* Birthdate */}
+                <div className="mb-5">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Aniversário (dia e mês)</label>
+                  <div className="flex gap-2">
+                    <select value={profileNascDia} onChange={e => setProfileNascDia(e.target.value)}
+                      className="flex-1 px-3 py-3 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                      <option value="">Dia</option>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={String(d).padStart(2, '0')}>{d}</option>
+                      ))}
+                    </select>
+                    <select value={profileNascMes} onChange={e => setProfileNascMes(e.target.value)}
+                      className="flex-1 px-3 py-3 border border-slate-200 rounded-xl text-slate-700 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                      <option value="">Mês</option>
+                      {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mes, i) => (
+                        <option key={i} value={String(i + 1).padStart(2, '0')}>{mes}</option>
+                      ))}
+                    </select>
                   </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-black text-slate-900 text-base truncate">{clientAccount?.nome || '—'}</p>
-                  <p className="text-xs text-slate-400 truncate">{clientAccount?.email || clientUser?.email || '—'}</p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={async () => {
+                    if (!profileNome.trim()) return;
+                    setSavingProfile(true);
+                    const update = { nome: profileNome.trim(), nascDia: profileNascDia, nascMes: profileNascMes };
+                    if (profileFoto) update.foto = profileFoto;
+                    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', clientUser.uid), update, { merge: true });
+                    setClientAccount(prev => ({ ...prev, ...update }));
+                    setSavingProfile(false);
+                    setEditingProfile(false);
+                  }} disabled={savingProfile || !profileNome.trim()}
+                    className="flex-1 bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                    {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                    Guardar
+                  </button>
+                  <button onClick={() => setEditingProfile(false)}
+                    className="px-5 py-3 rounded-xl border border-slate-200 text-slate-500 text-sm font-medium hover:border-slate-300 transition-colors">
+                    Cancelar
+                  </button>
                 </div>
               </div>
-              <div className="space-y-3 border-t border-slate-50 pt-3">
-                <div className="flex items-center justify-between py-1.5">
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm text-slate-600">WhatsApp</span>
-                  </div>
-                  {editingWhats ? (
-                    <div className="flex items-center gap-2">
-                      <input type="tel" value={whatsEdit} onChange={e => setWhatsEdit(e.target.value)}
-                        className="w-36 px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-500" />
-                      <button onClick={async () => {
-                        if (!whatsEdit.trim()) return;
-                        setSavingWhats(true);
-                        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', clientUser.uid), { whats: whatsEdit.trim() }, { merge: true });
-                        setClientAccount(prev => ({ ...prev, whats: whatsEdit.trim() }));
-                        setEditingWhats(false);
-                        setSavingWhats(false);
-                      }} disabled={savingWhats} className="text-xs font-bold text-violet-600 hover:text-violet-800">
-                        {savingWhats ? '...' : 'Guardar'}
-                      </button>
-                      <button onClick={() => setEditingWhats(false)} className="text-xs text-slate-400">Cancelar</button>
-                    </div>
+            ) : (
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-4">
+                <div className="flex items-center gap-4 mb-4">
+                  {clientAccount?.foto ? (
+                    <img src={clientAccount.foto} alt="" className="w-16 h-16 rounded-2xl object-cover flex-shrink-0" />
+                  ) : clientUser?.photoURL ? (
+                    <img src={clientUser.photoURL} alt="" className="w-16 h-16 rounded-2xl object-cover flex-shrink-0" />
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-slate-700">{clientAccount?.whats || '—'}</span>
-                      <button onClick={() => { setWhatsEdit(clientAccount?.whats || ''); setEditingWhats(true); }} className="text-xs text-violet-500 hover:text-violet-700 font-medium">Editar</button>
+                    <div className="w-16 h-16 rounded-2xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                      <span className="font-black text-violet-600 text-2xl">{initials(clientAccount?.nome)}</span>
                     </div>
                   )}
-                </div>
-                <div className="flex items-center justify-between py-1.5 border-t border-slate-50">
-                  <div className="flex items-center gap-2">
-                    <CalendarCheck className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm text-slate-600">Total de marcações</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black text-slate-900 text-base truncate">{clientAccount?.nome || '—'}</p>
+                    <p className="text-xs text-slate-400 truncate">{clientAccount?.email || clientUser?.email || '—'}</p>
+                    {clientAccount?.nascDia && clientAccount?.nascMes && (
+                      <p className="text-xs text-violet-500 font-medium mt-0.5">
+                        🎂 {clientAccount.nascDia}/{clientAccount.nascMes}
+                      </p>
+                    )}
                   </div>
-                  <span className="text-sm font-bold text-slate-700">{clientAppts.length}</span>
+                  <button onClick={() => {
+                    setProfileNome(clientAccount?.nome || '');
+                    setProfileNascDia(clientAccount?.nascDia || '');
+                    setProfileNascMes(clientAccount?.nascMes || '');
+                    setProfileFoto(clientAccount?.foto || '');
+                    setEditingProfile(true);
+                  }} className="p-2 rounded-xl bg-slate-50 hover:bg-violet-50 text-slate-400 hover:text-violet-600 transition-colors">
+                    <Edit2 className="w-4 h-4" />
+                  </button>
                 </div>
-                <div className="flex items-center justify-between py-1.5 border-t border-slate-50">
-                  <div className="flex items-center gap-2">
-                    <Star className="w-4 h-4 text-slate-400" />
-                    <span className="text-sm text-slate-600">Membro desde</span>
+
+                <div className="space-y-0 border-t border-slate-50 pt-3">
+                  <div className="flex items-center justify-between py-2">
+                    <div className="flex items-center gap-2">
+                      <Phone className="w-4 h-4 text-slate-400" />
+                      <span className="text-sm text-slate-600">WhatsApp</span>
+                    </div>
+                    {editingWhats ? (
+                      <div className="flex items-center gap-2">
+                        <input type="tel" value={whatsEdit} onChange={e => setWhatsEdit(e.target.value)}
+                          className="w-32 px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-500" />
+                        <button onClick={async () => {
+                          if (!whatsEdit.trim()) return;
+                          setSavingWhats(true);
+                          await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', clientUser.uid), { whats: whatsEdit.trim() }, { merge: true });
+                          setClientAccount(prev => ({ ...prev, whats: whatsEdit.trim() }));
+                          setEditingWhats(false);
+                          setSavingWhats(false);
+                        }} disabled={savingWhats} className="text-xs font-bold text-violet-600">
+                          {savingWhats ? '...' : 'OK'}
+                        </button>
+                        <button onClick={() => setEditingWhats(false)} className="text-xs text-slate-400">×</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-700">{clientAccount?.whats || '—'}</span>
+                        <button onClick={() => { setWhatsEdit(clientAccount?.whats || ''); setEditingWhats(true); }} className="text-xs text-violet-500 font-medium">Editar</button>
+                      </div>
+                    )}
                   </div>
-                  <span className="text-sm font-bold text-slate-700">
-                    {clientAccount?.createdAt ? new Date(clientAccount.createdAt).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : '—'}
-                  </span>
+                  <div className="flex items-center justify-between py-2 border-t border-slate-50">
+                    <div className="flex items-center gap-2">
+                      <CalendarCheck className="w-4 h-4 text-slate-400" />
+                      <span className="text-sm text-slate-600">Marcações</span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-700">{clientAppts.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-t border-slate-50">
+                    <div className="flex items-center gap-2">
+                      <Star className="w-4 h-4 text-slate-400" />
+                      <span className="text-sm text-slate-600">Membro desde</span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-700">
+                      {clientAccount?.createdAt ? new Date(clientAccount.createdAt).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : '—'}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
+
             <button onClick={handleSignOut}
               className="w-full py-3.5 rounded-2xl border-2 border-slate-200 text-slate-500 font-bold text-sm hover:border-red-200 hover:text-red-500 transition-all flex items-center justify-center gap-2">
               <LogOut className="w-4 h-4" />
-              Sair
+              Sair da conta
             </button>
           </div>
         )}
