@@ -4108,35 +4108,50 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   useEffect(() => {
     if (bookingStep !== 'upsell' || !selectedService || !selectedHora) return;
 
-    // Reset to "checking" state
     setUpsellAvailability(null);
 
     const crossSells = selectedService.crossSell || [];
-    if (crossSells.length === 0) {
-      setUpsellAvailability({});
-      return;
-    }
+    if (crossSells.length === 0) { setUpsellAvailability({}); return; }
+
+    const _toMin = s => { const [hh, mm] = s.split(':').map(Number); return hh * 60 + mm; };
+    const _toStr = n => `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
 
     const mainDur = Number(selectedService.duracao || profile.intervalo || 60);
-    const [h, m] = selectedHora.split(':').map(Number);
-    const afterMin = h * 60 + m + mainDur;
-    const afterHora = `${String(Math.floor(afterMin / 60)).padStart(2, '0')}:${String(afterMin % 60).padStart(2, '0')}`;
+    const afterMin = _toMin(selectedHora) + mainDur;
+    const horaFimMin = _toMin(profile.horaFim || '18:00');
+    const horaInicioMin = _toMin(profile.horaInicio || '09:00');
 
     Promise.all(
       crossSells.map(async (cs) => {
         const svc = (profile.servicos || []).find(s => s.nome === cs.servicoNome);
         if (!svc) return { nome: cs.servicoNome, available: false };
+        const csMin = Number(svc.duracao || profile.intervalo || 60);
+
+        // 1. Must fit in working hours
+        if (afterMin + csMin > horaFimMin) return { nome: cs.servicoNome, available: false };
+
         try {
           const params = new URLSearchParams({
             lojaId: lojaUid,
             data: toDateISO(selectedDate),
-            duracao: svc.duracao || profile.intervalo || 60,
+            duracao: csMin,
             ...(selectedProfissional?.id ? { profissionalId: selectedProfissional.id } : {}),
           });
           const res = await fetch(`${BACKEND_URL}/getSlots?${params}`);
           const json = await res.json();
           const slots = json.slots || [];
-          return { nome: cs.servicoNome, available: slots.includes(afterHora) };
+
+          // 2. Build expected grid and find missing (= busy) intervals
+          // The slot engine starts at horaInicio and jumps by csMin.
+          // A missing grid point means a busy interval at that position.
+          const expected = [];
+          for (let t = horaInicioMin; t + csMin <= horaFimMin; t += csMin) expected.push(t);
+          const missing = expected.filter(t => !slots.includes(_toStr(t)));
+
+          // 3. Check if [afterMin, afterMin+csMin] overlaps any busy interval
+          const blocked = missing.some(t => t < afterMin + csMin && t + csMin > afterMin);
+
+          return { nome: cs.servicoNome, available: !blocked };
         } catch {
           return { nome: cs.servicoNome, available: false };
         }
