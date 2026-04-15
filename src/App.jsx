@@ -3,7 +3,8 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, X
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, signOut,
-  GoogleAuthProvider, signInWithPopup,
+  GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+  setPersistence, browserLocalPersistence,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
@@ -4175,6 +4176,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const [whatsEdit, setWhatsEdit] = useState('');
   const [savingWhats, setSavingWhats] = useState(false);
   const [cancelingId, setCancelingId] = useState(null);
+  const [cancelConfirmAppt, setCancelConfirmAppt] = useState(null); // appt pending inline confirmation
+  const [cancelledAppt, setCancelledAppt] = useState(null); // just-cancelled appt for success state
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileNome, setProfileNome] = useState('');
   const [profileNascDia, setProfileNascDia] = useState('');
@@ -4309,6 +4312,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     const hasProducts = (selectedService?.upsell || []).length > 0;
     if (!anyAvailable && !hasProducts) setBookingStep('confirm');
   }, [upsellAvailability]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Handle Google redirect result ───────────────────────
+  useEffect(() => {
+    getRedirectResult(auth).catch(err => {
+      if (err?.code && err.code !== 'auth/no-current-user') {
+        setAuthError('Erro ao entrar com Google. Tente novamente.');
+        setAuthLoading(false);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
@@ -4456,12 +4469,11 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     setAuthError('');
     setAuthLoading(true);
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      await setPersistence(auth, browserLocalPersistence);
+      await signInWithRedirect(auth, new GoogleAuthProvider());
+      // Page will redirect; authLoading stays true until redirect completes
     } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        setAuthError('Erro ao entrar com Google. Tente novamente.');
-      }
-    } finally {
+      setAuthError('Erro ao iniciar login com Google. Tente novamente.');
       setAuthLoading(false);
     }
   };
@@ -4674,8 +4686,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   };
 
   const cancelAppt = async (appt) => {
-    if (!window.confirm('Cancelar esta marcação?')) return;
     setCancelingId(appt.id);
+    setCancelConfirmAppt(null);
     try {
       await fetch(`${BACKEND_URL}/cancelAppointment`, {
         method: 'POST',
@@ -4687,7 +4699,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
           hora: appt.hora || '', profissionalNome: appt.profissionalNome || '',
         }),
       });
-    } catch { alert('Erro ao cancelar.'); }
+      setCancelledAppt(appt);
+    } catch { /* ignore */ }
     finally { setCancelingId(null); }
   };
 
@@ -4758,8 +4771,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     </header>
   );
 
-  // ── Auth screen ──────────────────────────────────────────
-  const AuthScreen = ({ isPendingGate = false }) => (
+  // ── Auth screen (called as function, NOT as JSX component, to avoid re-mount on each render) ──
+  const renderAuthScreen = (isPendingGate = false) => (
     <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
       <HeroBanner showBack={isPendingGate || bookingMode || showAuth} onBack={() => {
         if (isPendingGate) { setPendingAction(null); }
@@ -5263,7 +5276,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     }
 
     // Login gate for token actions
-    if (pendingAction && !clientUser) return <AuthScreen isPendingGate />;
+    if (pendingAction && !clientUser) return renderAuthScreen(true);
 
     // Booking mode from token (remarcar)
     if (bookingMode) {
@@ -5303,48 +5316,71 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
             {tokenAppt.valor && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span><span className="text-sm font-bold text-violet-600">R$ {Number(tokenAppt.valor).toFixed(2)}</span></div>}
           </div>
           {!tokenAppt._cancelled && apptEndTime(tokenAppt) > now && (
-            <div className="flex gap-3">
-              <button onClick={() => {
-                const svc = (profile.servicos || []).find(s => s.nome === tokenAppt.servico) || { nome: tokenAppt.servico, duracao: profile.intervalo };
-                setSelectedService(svc);
-                setSelectedProfissional((profile.profissionals || []).find(p => p.id === tokenAppt.profissionalId) || null);
-                setSelectedDate(new Date());
-                setSelectedHora('');
-                setSelectedExtras([]);
-                setRemarcarNome(tokenAppt.clienteNome || '');
-                setRemarcarWhats(tokenAppt.clienteWhats || '');
-                setRemarcarOldId(tokenAppt.id);
-                setBookingStep(profissionals.length > 0 ? 'professional' : 'datetime');
-                if (profissionals.length === 0) fetchSlots(new Date(), svc, null);
-                setBookingMode(true);
-              }} className="flex-1 py-3 rounded-2xl bg-slate-50 border border-slate-100 text-sm font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all">
-                Remarcar
-              </button>
-              <button onClick={() => {
-                if (!window.confirm('Cancelar esta marcação?')) return;
-                if (!clientUser) {
-                  setPendingAction({ type: 'cancelar', appt: tokenAppt });
-                } else {
-                  fetch(`${BACKEND_URL}/cancelAppointment`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      lojaId: lojaUid, appointmentId: tokenAppt.id,
-                      clienteWhats: tokenAppt.clienteWhats || '', nomeCliente: tokenAppt.clienteNome || '',
-                      servico: tokenAppt.servico || '', data: tokenAppt.data || '',
-                      hora: tokenAppt.hora || '', profissionalNome: tokenAppt.profissionalNome || '',
-                    }),
-                  }).catch(() => {});
-                  setTokenAppt(prev => ({ ...prev, _cancelled: true }));
-                }
-              }} className="flex-1 py-3 rounded-2xl bg-red-50 border border-red-100 text-sm font-bold text-red-500 hover:bg-red-100 transition-all">
-                Cancelar
-              </button>
-            </div>
+            cancelConfirmAppt?.id === tokenAppt.id ? (
+              <div className="bg-white rounded-2xl p-5 border border-slate-100 text-center">
+                <p className="font-bold text-slate-800 mb-1">Cancelar esta marcação?</p>
+                <p className="text-xs text-slate-400 mb-4">{tokenAppt.servico} · {fmtData(tokenAppt.data)} às {tokenAppt.hora}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setCancelConfirmAppt(null)} className="flex-1 py-3 rounded-2xl bg-slate-100 text-sm font-bold text-slate-600 hover:bg-slate-200 transition-colors">Não</button>
+                  <button onClick={() => {
+                    setCancelConfirmAppt(null);
+                    if (!clientUser) {
+                      setPendingAction({ type: 'cancelar', appt: tokenAppt });
+                    } else {
+                      fetch(`${BACKEND_URL}/cancelAppointment`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          lojaId: lojaUid, appointmentId: tokenAppt.id,
+                          clienteWhats: tokenAppt.clienteWhats || '', nomeCliente: tokenAppt.clienteNome || '',
+                          servico: tokenAppt.servico || '', data: tokenAppt.data || '',
+                          hora: tokenAppt.hora || '', profissionalNome: tokenAppt.profissionalNome || '',
+                        }),
+                      }).catch(() => {});
+                      setTokenAppt(prev => ({ ...prev, _cancelled: true }));
+                    }
+                  }} className="flex-1 py-3 rounded-2xl bg-red-500 text-white text-sm font-bold hover:bg-red-600 transition-colors">
+                    Sim, cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <button onClick={() => {
+                  const svc = (profile.servicos || []).find(s => s.nome === tokenAppt.servico) || { nome: tokenAppt.servico, duracao: profile.intervalo };
+                  setSelectedService(svc);
+                  setSelectedProfissional((profile.profissionals || []).find(p => p.id === tokenAppt.profissionalId) || null);
+                  setSelectedDate(new Date());
+                  setSelectedHora('');
+                  setSelectedExtras([]);
+                  setRemarcarNome(tokenAppt.clienteNome || '');
+                  setRemarcarWhats(tokenAppt.clienteWhats || '');
+                  setRemarcarOldId(tokenAppt.id);
+                  setBookingStep(profissionals.length > 0 ? 'professional' : 'datetime');
+                  if (profissionals.length === 0) fetchSlots(new Date(), svc, null);
+                  setBookingMode(true);
+                }} className="flex-1 py-3 rounded-2xl bg-slate-50 border border-slate-100 text-sm font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all">
+                  Remarcar
+                </button>
+                <button onClick={() => setCancelConfirmAppt(tokenAppt)}
+                  className="flex-1 py-3 rounded-2xl bg-red-50 border border-red-100 text-sm font-bold text-red-500 hover:bg-red-100 transition-all">
+                  Cancelar
+                </button>
+              </div>
+            )
           )}
           {tokenAppt._cancelled && (
-            <div className="mt-4 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center">
-              <p className="text-sm text-slate-500 font-semibold">Marcação cancelada.</p>
+            <div className="mt-4 bg-slate-50 border border-slate-100 rounded-2xl p-5 text-center">
+              <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+              <p className="text-sm font-bold text-slate-700 mb-3">Marcação cancelada.</p>
+              <button onClick={() => {
+                const svc = (profile.servicos || []).find(s => s.nome === tokenAppt.servico) || { nome: tokenAppt.servico, duracao: profile.intervalo };
+                setRemarcarOldId(null);
+                setBookingMode(false);
+                startBooking(svc);
+              }} className="w-full py-3 rounded-2xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 transition-colors">
+                Agendar novo horário
+              </button>
             </div>
           )}
         </div>
@@ -5356,10 +5392,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   }
 
   // ── LOGIN GATE (pending action) ──────────────────────────
-  if (pendingAction && !clientUser) return <AuthScreen isPendingGate />;
+  if (pendingAction && !clientUser) return renderAuthScreen(true);
 
   // ── AUTH SCREEN (clicked "Entrar" from service list) ────
-  if (!clientUser && showAuth) return <AuthScreen />;
+  if (!clientUser && showAuth) return renderAuthScreen(false);
 
   // ── BOOKING MODE (not logged in — full flow before confirm) ─
   if (bookingMode && !clientUser) {
@@ -5548,27 +5584,55 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
               <div className="space-y-3 mb-5">
                 {upcomingAppts.map(a => (
                   <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center flex-shrink-0">
-                        <Scissors className="w-5 h-5 text-violet-500" />
+                    {cancelledAppt?.id === a.id ? (
+                      <div className="text-center py-2">
+                        <p className="text-sm font-bold text-slate-500 mb-3">Marcação cancelada.</p>
+                        <button onClick={() => {
+                          setCancelledAppt(null);
+                          const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                          setRemarcarOldId(null);
+                          startBooking(svc);
+                        }} className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition-colors">
+                          Agendar novo horário
+                        </button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-900 truncate">{a.servico}</p>
-                        <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
+                    ) : cancelConfirmAppt?.id === a.id ? (
+                      <div className="text-center py-1">
+                        <p className="text-sm font-bold text-slate-700 mb-1">Cancelar marcação?</p>
+                        <p className="text-xs text-slate-400 mb-3">{a.servico} · {fmtData(a.data)} às {a.hora}</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => setCancelConfirmAppt(null)} className="flex-1 py-2 rounded-xl bg-slate-100 text-xs font-bold text-slate-600 hover:bg-slate-200 transition-colors">Não</button>
+                          <button onClick={() => cancelAppt(a)} disabled={cancelingId === a.id} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors disabled:opacity-50">
+                            {cancelingId === a.id ? '...' : 'Sim, cancelar'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex gap-2 mt-3">
-                      <button onClick={() => {
-                        const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
-                        startBooking(svc);
-                      }} className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
-                        Remarcar
-                      </button>
-                      <button onClick={() => cancelAppt(a)} disabled={cancelingId === a.id}
-                        className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center disabled:opacity-50">
-                        {cancelingId === a.id ? '...' : 'Cancelar'}
-                      </button>
-                    </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center flex-shrink-0">
+                            <Scissors className="w-5 h-5 text-violet-500" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-slate-900 truncate">{a.servico}</p>
+                            <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={() => {
+                            const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                            setRemarcarOldId(a.id);
+                            startBooking(svc);
+                          }} className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
+                            Remarcar
+                          </button>
+                          <button onClick={() => setCancelConfirmAppt(a)}
+                            className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center">
+                            Cancelar
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -5617,21 +5681,47 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                         </span>
                       </div>
                       {!isPast ? (
-                        <div className="flex gap-2 mt-3">
-                          <button onClick={() => {
-                            const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
-                            startBooking(svc);
-                          }} className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
-                            Remarcar
-                          </button>
-                          <button onClick={() => cancelAppt(a)} disabled={cancelingId === a.id}
-                            className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center disabled:opacity-50">
-                            {cancelingId === a.id ? '...' : 'Cancelar'}
-                          </button>
-                        </div>
+                        cancelConfirmAppt?.id === a.id ? (
+                          <div className="mt-3 text-center">
+                            <p className="text-xs text-slate-500 mb-2">Confirmar cancelamento?</p>
+                            <div className="flex gap-2">
+                              <button onClick={() => setCancelConfirmAppt(null)} className="flex-1 py-2 rounded-xl bg-slate-100 text-xs font-bold text-slate-600 hover:bg-slate-200 transition-colors">Não</button>
+                              <button onClick={() => cancelAppt(a)} disabled={cancelingId === a.id} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors disabled:opacity-50">
+                                {cancelingId === a.id ? '...' : 'Sim, cancelar'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : cancelledAppt?.id === a.id ? (
+                          <div className="mt-3 text-center">
+                            <p className="text-xs text-slate-500 mb-2">Marcação cancelada.</p>
+                            <button onClick={() => {
+                              setCancelledAppt(null);
+                              const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                              setRemarcarOldId(null);
+                              startBooking(svc);
+                            }} className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition-colors">
+                              Agendar novo horário
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2 mt-3">
+                            <button onClick={() => {
+                              const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                              setRemarcarOldId(a.id);
+                              startBooking(svc);
+                            }} className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
+                              Remarcar
+                            </button>
+                            <button onClick={() => setCancelConfirmAppt(a)}
+                              className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center">
+                              Cancelar
+                            </button>
+                          </div>
+                        )
                       ) : (
                         <button onClick={() => {
                           const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                          setRemarcarOldId(null);
                           startBooking(svc);
                         }} className="w-full mt-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
                           Agendar novamente
