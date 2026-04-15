@@ -1359,13 +1359,12 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
   const dayBlocks = blocks.filter(b =>
     b.date === dateISO && (!b.profissionalId || b.profissionalId === selectedProfId)
   );
-  const isDayOff = dayBlocks.some(b => b.type === 'day_off') || _estabFechado;
-  const customHours = dayBlocks.find(b => b.type === 'custom_hours');
-  const slotBlocks = dayBlocks.filter(b => b.type === 'slot');
-
   const _diaDate = dateISO ? (() => { const [y,m,d] = dateISO.split('-').map(Number); return new Date(y,m-1,d).getDay(); })() : new Date().getDay();
   const _diaConf = (profile?.diasFuncionamento || []).find(d => d.dia === _diaDate);
   const _estabFechado = profile?.diasFuncionamento?.length > 0 && !_diaConf;
+  const isDayOff = dayBlocks.some(b => b.type === 'day_off') || _estabFechado;
+  const customHours = dayBlocks.find(b => b.type === 'custom_hours');
+  const slotBlocks = dayBlocks.filter(b => b.type === 'slot');
   const effStart = customHours ? customHours.horaInicio : (_diaConf ? _diaConf.abertura : (profile?.horaInicio || '09:00'));
   const effEnd   = customHours ? customHours.horaFim    : (_diaConf ? _diaConf.fechamento : (profile?.horaFim    || '18:00'));
   const intervalo = profile?.intervaloBase || profile?.intervalo || 60;
