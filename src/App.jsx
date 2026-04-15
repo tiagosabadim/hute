@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { initializeApp } from 'firebase/app';
 import {
-  getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  onAuthStateChanged, signOut
+  getAuth, onAuthStateChanged, signOut,
+  GoogleAuthProvider, signInWithPopup,
+  RecaptchaVerifier, signInWithPhoneNumber,
+  sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink,
 } from 'firebase/auth';
 import {
   getFirestore, collection, addDoc, onSnapshot, doc, setDoc,
@@ -209,6 +211,7 @@ export default function App() {
   const [inviteToken, setInviteToken] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [deepLinkApptId, setDeepLinkApptId] = useState(null);
+  const [deepLinkToken, setDeepLinkToken] = useState(null);
 
   const fetchProfile = useCallback(async (uid) => {
     const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', uid));
@@ -227,12 +230,17 @@ export default function App() {
       return;
     }
 
-    // ── Deep link: /#slug/agendamento/ID ─────────────────
-    const apptLinkMatch = raw.match(/^([^/]+)\/agendamento\/([^/]+)$/i);
+    // ── Deep link: /#slug/agendamento/ID?token=TOKEN ─────
+    const qIdx = raw.indexOf('?');
+    const rawPath = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
+    const rawQuery = qIdx >= 0 ? raw.slice(qIdx) : '';
+    const hashParams = new URLSearchParams(rawQuery);
+    const apptLinkMatch = rawPath.match(/^([^/]+)\/agendamento\/([^/]+)$/i);
     if (apptLinkMatch) {
       const slugPart = apptLinkMatch[1].toLowerCase();
       const apptId = apptLinkMatch[2];
       setDeepLinkApptId(apptId);
+      setDeepLinkToken(hashParams.get('token') || null);
       getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'slugs', slugPart))
         .then(snap => {
           if (snap.exists()) {
@@ -339,7 +347,7 @@ export default function App() {
 
   if (authLoading) return <Loading />;
   if (inviteToken) return <InviteAcceptScreen token={inviteToken} onDone={() => setInviteToken(null)} />;
-  if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} deepLinkApptId={deepLinkApptId} />;
+  if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} deepLinkApptId={deepLinkApptId} deepLinkToken={deepLinkToken} />;
   if (!user) return <LoginScreen />;
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
   if (!profile) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
@@ -3941,71 +3949,172 @@ function AdminDashboard({ user, profile }) {
 }
 
 // ── Client Portal ─────────────────────────────────────────
-function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
-  // Booking flow
-  const [step, setStep] = useState(deepLinkApptId ? 'apptDetail' : 'service');
-  const [deepLinkAppt, setDeepLinkAppt] = useState(null);
+function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
+  // ── Auth state ───────────────────────────────────────────
+  const [clientUser, setClientUser] = useState(null);
+  const [clientAccount, setClientAccount] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // loginStep: 'options' | 'phone' | 'phonecode' | 'email' | 'emailsent' | 'emailconfirm' | 'whatsask'
+  const [loginStep, setLoginStep] = useState('options');
+  const [phoneInput, setPhoneInput] = useState('');
+  const [smsCode, setSmsCode] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState(null);
+  const [emailInput, setEmailInput] = useState('');
+  const [whatsAsk, setWhatsAsk] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const recaptchaRef = useRef(null);
+  const recaptchaVerifierRef = useRef(null);
+
+  // ── Navigation ───────────────────────────────────────────
+  const [tab, setTab] = useState('agenda');
+
+  // ── Token deep-link ──────────────────────────────────────
+  const [tokenAppt, setTokenAppt] = useState(null);
+  const [tokenValid, setTokenValid] = useState(null); // null=loading, true, false
+
+  // ── Client appointments ──────────────────────────────────
+  const [clientAppts, setClientAppts] = useState([]);
+
+  // ── Booking ──────────────────────────────────────────────
+  const [bookingMode, setBookingMode] = useState(false);
+  const [bookingStep, setBookingStep] = useState('service');
   const [selectedService, setSelectedService] = useState(null);
   const [selectedProfissional, setSelectedProfissional] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedHora, setSelectedHora] = useState('');
   const [slots, setSlots] = useState(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
-  const [nome, setNome] = useState('');
-  const [whats, setWhats] = useState('');
-  const [nascimento, setNascimento] = useState('');
+  const [selectedExtras, setSelectedExtras] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [confirmedAppt, setConfirmedAppt] = useState(null);
-  const [selectedExtras, setSelectedExtras] = useState([]);
 
-  // Client auth
-  const [clientUser, setClientUser] = useState(null);
-  const [clientAccount, setClientAccount] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
+  // For token-view rebook (anonymous): editable name + whats
+  const [remarcarNome, setRemarcarNome] = useState('');
+  const [remarcarWhats, setRemarcarWhats] = useState('');
+  const [remarcarOldId, setRemarcarOldId] = useState(null);
 
-  // Account step
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPwd, setShowPwd] = useState(false);
-  const [authMode, setAuthMode] = useState('signup');
-  const [authError, setAuthError] = useState('');
-  const [authSubmitting, setAuthSubmitting] = useState(false);
+  // ── Histórico ────────────────────────────────────────────
+  const [histFilter, setHistFilter] = useState('todos');
 
-  // Home step
-  const [clientAppts, setClientAppts] = useState([]);
+  // ── Conta ────────────────────────────────────────────────
+  const [editingWhats, setEditingWhats] = useState(false);
+  const [whatsEdit, setWhatsEdit] = useState('');
+  const [savingWhats, setSavingWhats] = useState(false);
+  const [cancelingId, setCancelingId] = useState(null);
 
-  // PWA install
+  // ── PWA ──────────────────────────────────────────────────
   const [installPrompt, setInstallPrompt] = useState(null);
-  const [pwaBlockHidden, setPwaBlockHidden] = useState(false);
+  const [pwaHidden, setPwaHidden] = useState(false);
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
-  const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone;
 
   const profissionals = profile.profissionals || [];
   const servicos = profile.servicos || [];
 
-  // Listen to Firebase Auth — returning clients go straight to home
+  // ── Token validation ─────────────────────────────────────
+  useEffect(() => {
+    if (!deepLinkApptId || !deepLinkToken || !lojaUid) return;
+    getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`, deepLinkApptId))
+      .then(snap => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.accessToken === deepLinkToken) {
+            setTokenAppt({ id: snap.id, ...data });
+            setTokenValid(true);
+          } else {
+            setTokenValid(false);
+          }
+        } else {
+          setTokenValid(false);
+        }
+      })
+      .catch(() => setTokenValid(false));
+  }, [deepLinkApptId, deepLinkToken, lojaUid]);
+
+  // ── Email link completion on mount ───────────────────────
+  useEffect(() => {
+    if (isSignInWithEmailLink(auth, window.location.href)) {
+      const savedEmail = localStorage.getItem('huteEmailForSignIn');
+      if (savedEmail) {
+        setAuthLoading(true);
+        signInWithEmailLink(auth, savedEmail, window.location.href)
+          .then(() => {
+            localStorage.removeItem('huteEmailForSignIn');
+            window.history.replaceState({}, '', '#' + (profile.slug || ''));
+          })
+          .catch(err => {
+            console.error('Email link sign-in error:', err);
+            setAuthError('Erro ao confirmar email. Tente novamente.');
+          })
+          .finally(() => setAuthLoading(false));
+      } else {
+        setLoginStep('emailconfirm');
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         try {
           const snap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', u.uid));
           if (snap.exists()) {
+            const acct = snap.data();
             setClientUser(u);
-            setClientAccount(snap.data());
-            setStep('home');
+            setClientAccount(acct);
+            if (!acct.whats) {
+              setLoginStep('whatsask');
+            } else {
+              setLoginStep('options');
+            }
           } else {
-            setClientUser(null);
+            const acct = {
+              nome: u.displayName || '',
+              email: u.email || '',
+              whats: '',
+              foto: u.photoURL || '',
+              createdAt: new Date().toISOString(),
+            };
+            await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', u.uid), acct, { merge: true });
+            setClientUser(u);
+            setClientAccount(acct);
+            setLoginStep('whatsask');
           }
-        } catch { setClientUser(null); }
+        } catch {
+          setClientUser(null);
+          setClientAccount(null);
+        }
       } else {
         setClientUser(null);
+        setClientAccount(null);
+        setLoginStep('options');
       }
       setAuthChecked(true);
     });
     return () => unsub();
   }, []);
 
-  // Dynamic PWA manifest — use establishment branding when client visits
+  // ── Appointments subscription ────────────────────────────
+  useEffect(() => {
+    if (!clientUser || !lojaUid) return;
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`);
+    const unsub = onSnapshot(q, snap => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const phone = (clientAccount?.whats || '').replace(/\D/g, '');
+      const filtered = all.filter(a =>
+        a.clientUid === clientUser.uid ||
+        (phone && (a.clienteWhats || '').replace(/\D/g, '') === phone)
+      );
+      filtered.sort((a, b) => (a.data + a.hora) > (b.data + b.hora) ? 1 : -1);
+      setClientAppts(filtered);
+    });
+    return () => unsub();
+  }, [clientUser, lojaUid, clientAccount]);
+
+  // ── Dynamic PWA manifest ─────────────────────────────────
   useEffect(() => {
     if (!profile?.nome) return;
     const icons = profile.logo
@@ -4018,7 +4127,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
       start_url: window.location.href,
       display: 'standalone',
       background_color: '#f8fafc',
-      theme_color: '#7c3aed',
+      theme_color: '#6C3CE1',
       orientation: 'portrait',
       icons,
     };
@@ -4026,7 +4135,6 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
     const blobUrl = URL.createObjectURL(blob);
     const link = document.querySelector('link[rel="manifest"]');
     if (link) link.href = blobUrl;
-    // iOS uses meta tags instead of manifest for name + icon
     const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
     if (metaTitle) metaTitle.content = profile.nome;
     if (profile.logo) {
@@ -4041,10 +4149,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
     return () => URL.revokeObjectURL(blobUrl);
   }, [profile?.nome, profile?.logo]);
 
-  // Capture PWA install prompt (Android/Desktop) and detect install
+  // ── PWA install prompt ───────────────────────────────────
   useEffect(() => {
     const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
-    const installed = () => setPwaBlockHidden(true);
+    const installed = () => setPwaHidden(true);
     window.addEventListener('beforeinstallprompt', handler);
     window.addEventListener('appinstalled', installed);
     return () => {
@@ -4053,33 +4161,120 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
     };
   }, []);
 
-  // Load appointment from deep link
-  useEffect(() => {
-    if (!deepLinkApptId || !lojaUid) return;
-    getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`, deepLinkApptId))
-      .then(snap => {
-        if (snap.exists()) setDeepLinkAppt({ id: snap.id, ...snap.data() });
-      })
-      .catch(console.error);
-  }, [deepLinkApptId, lojaUid]);
+  // ── Auth handlers ────────────────────────────────────────
+  const handleGoogleLogin = async () => {
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (err) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setAuthError('Erro ao entrar com Google. Tente novamente.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
-  // Subscribe to client's appointments on home step
-  useEffect(() => {
-    if (!clientUser || step !== 'home') return;
-    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaUid}`);
-    const unsub = onSnapshot(q, snap => {
-      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const phone = (clientAccount?.whats || '').replace(/\D/g, '');
-      const filtered = all.filter(a =>
-        a.clientUid === clientUser.uid ||
-        (phone && (a.clienteWhats || '').replace(/\D/g, '') === phone)
-      );
-      filtered.sort((a, b) => (a.data + a.hora) > (b.data + b.hora) ? 1 : -1);
-      setClientAppts(filtered);
-    });
-    return () => unsub();
-  }, [clientUser, step, lojaUid, clientAccount]);
+  const handleSendSMS = async () => {
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const digits = phoneInput.replace(/\D/g, '');
+      const e164 = digits.startsWith('55') ? `+${digits}` : `+55${digits}`;
+      if (recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current.clear();
+        recaptchaVerifierRef.current = null;
+      }
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaRef.current, { size: 'invisible' });
+      const result = await signInWithPhoneNumber(auth, e164, recaptchaVerifierRef.current);
+      setConfirmationResult(result);
+      setLoginStep('phonecode');
+    } catch (err) {
+      console.error('SMS error:', err);
+      setAuthError('Erro ao enviar SMS. Verifique o número e tente novamente.');
+      if (recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current.clear();
+        recaptchaVerifierRef.current = null;
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
+  const handleVerifySMS = async () => {
+    if (!confirmationResult) return;
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      await confirmationResult.confirm(smsCode);
+    } catch (err) {
+      console.error('SMS verify error:', err);
+      setAuthError('Código inválido. Tente novamente.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSendEmailLink = async () => {
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      await sendSignInLinkToEmail(auth, emailInput.trim(), {
+        url: window.location.href,
+        handleCodeInApp: true,
+      });
+      localStorage.setItem('huteEmailForSignIn', emailInput.trim());
+      setLoginStep('emailsent');
+    } catch (err) {
+      console.error('Email link error:', err);
+      setAuthError('Erro ao enviar link. Verifique o email e tente novamente.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleEmailConfirm = async () => {
+    if (!emailInput.trim()) { setAuthError('Digite o seu email para confirmar.'); return; }
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      await signInWithEmailLink(auth, emailInput.trim(), window.location.href);
+      localStorage.removeItem('huteEmailForSignIn');
+      window.history.replaceState({}, '', '#' + (profile.slug || ''));
+    } catch (err) {
+      console.error('Email confirm error:', err);
+      setAuthError('Erro ao confirmar. Verifique o email e tente novamente.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSaveWhats = async () => {
+    if (!whatsAsk.trim() || !clientUser) return;
+    setSavingWhats(true);
+    try {
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', clientUser.uid), { whats: whatsAsk.trim() }, { merge: true });
+      setClientAccount(prev => ({ ...prev, whats: whatsAsk.trim() }));
+      setLoginStep('options');
+    } catch (err) {
+      console.error('Save whats error:', err);
+    } finally {
+      setSavingWhats(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    signOut(auth).catch(() => {});
+    setClientUser(null);
+    setClientAccount(null);
+    setClientAppts([]);
+    setLoginStep('options');
+    setTab('agenda');
+    setBookingMode(false);
+  };
+
+  // ── Booking helpers ──────────────────────────────────────
   const fetchSlots = useCallback(async (date, servico, profId) => {
     setSlotsLoading(true);
     setSlots(null);
@@ -4092,20 +4287,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
       });
       const res = await fetch(`${BACKEND_URL}/getSlots?${params}`);
       const json = await res.json();
-      let slots = json.slots || [];
-
-      // Filter out past slots when the selected date is today (uses browser local time)
+      let slotList = json.slots || [];
       const isToday = toDateISO(date) === toDateISO(new Date());
       if (isToday) {
-        const now = new Date();
-        const nowMin = now.getHours() * 60 + now.getMinutes();
-        slots = slots.filter(slot => {
+        const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+        slotList = slotList.filter(slot => {
           const [h, m] = slot.split(':').map(Number);
           return h * 60 + m > nowMin;
         });
       }
-
-      setSlots(slots);
+      setSlots(slotList);
     } catch {
       setSlots([]);
     } finally {
@@ -4113,8 +4304,6 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
     }
   }, [lojaUid, profile.intervalo]);
 
-  // Professionals who offer the selected service.
-  // If no professional has that service assigned, show ALL professionals.
   const profForService = selectedService
     ? (() => {
         const assigned = profissionals.filter(p => (p.servicos || []).includes(selectedService.nome));
@@ -4122,43 +4311,59 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
       })()
     : profissionals;
 
-  const goToStep = (newStep) => {
-    if (newStep === 'datetime') {
-      fetchSlots(selectedDate, selectedService, selectedProfissional?.id || null);
+  const serviceHasExtras = !!(selectedService?.crossSell?.length || selectedService?.upsell?.length);
+
+  const startBooking = (presetService = null) => {
+    setSelectedService(presetService);
+    setSelectedProfissional(null);
+    setSelectedDate(new Date());
+    setSelectedHora('');
+    setSlots(null);
+    setSelectedExtras([]);
+    setConfirmedAppt(null);
+    setBookingStep(presetService ? (profissionals.length > 0 ? 'professional' : 'datetime') : 'service');
+    if (presetService && profissionals.length === 0) {
+      fetchSlots(new Date(), presetService, null);
     }
-    setStep(newStep);
+    setBookingMode(true);
   };
 
-  const selectService = (s) => {
+  const handleSelectService = (s) => {
     setSelectedService(s);
     setSelectedProfissional(null);
     setSelectedHora('');
-    // Always go to professional step if there are any professionals
     if (profissionals.length > 0) {
-      setStep('professional');
+      setBookingStep('professional');
     } else {
       fetchSlots(selectedDate, s, null);
-      setStep('datetime');
+      setBookingStep('datetime');
     }
   };
 
-  const selectProfissional = (p) => {
+  const handleSelectProf = (p) => {
     setSelectedProfissional(p);
     setSelectedHora('');
     fetchSlots(selectedDate, selectedService, p?.id || null);
-    setStep('datetime');
+    setBookingStep('datetime');
   };
 
   const changeDate = (delta) => {
     const newDate = addDays(selectedDate, delta);
-    if (newDate < new Date(new Date().setHours(0,0,0,0))) return;
+    if (newDate < new Date(new Date().setHours(0, 0, 0, 0))) return;
     setSelectedDate(newDate);
     setSelectedHora('');
     fetchSlots(newDate, selectedService, selectedProfissional?.id || null);
   };
 
-  const handleSubmit = async () => {
-    if (!nome.trim() || !whats.trim()) return;
+  const bookingBack = () => {
+    if (bookingStep === 'professional') setBookingStep('service');
+    else if (bookingStep === 'datetime') setBookingStep(profForService.length > 0 ? 'professional' : 'service');
+    else if (bookingStep === 'upsell') setBookingStep('datetime');
+    else if (bookingStep === 'confirm') setBookingStep(serviceHasExtras ? 'upsell' : 'datetime');
+    else setBookingMode(false);
+  };
+
+  const handleConfirmBooking = async (isRemarcar = false) => {
     setSubmitting(true);
     try {
       const dataISO = toDateISO(selectedDate);
@@ -4166,10 +4371,14 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
       const dtInt = new Date(selectedDate);
       dtInt.setHours(h, m, 0, 0);
 
+      const clientNome = isRemarcar ? remarcarNome.trim() : (clientAccount?.nome || '');
+      const clientWhats = isRemarcar ? remarcarWhats.trim() : (clientAccount?.whats || '');
+
+      const accessToken = crypto.randomUUID();
       const apptData = {
-        clienteNome: nome.trim(),
-        clienteWhats: whats.trim(),
-        clienteNascimento: nascimento || '',
+        clienteNome: clientNome,
+        clienteWhats: clientWhats,
+        clienteNascimento: '',
         servico: selectedService.nome,
         valor: selectedService.preco || null,
         duracao: selectedService.duracao || profile.intervalo || 60,
@@ -4179,6 +4388,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
         hora: selectedHora,
         dataHoraInternacional: dtInt.toISOString(),
         createdAt: new Date().toISOString(),
+        accessToken,
         ...(selectedExtras.length > 0 ? { extras: selectedExtras } : {}),
         ...(clientUser ? { clientUid: clientUser.uid } : {}),
       };
@@ -4188,24 +4398,48 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
         apptData
       );
 
-      const clientKey = whats.trim().replace(/\D/g, '') || nome.trim().toLowerCase().replace(/\s+/g, '_');
-      const clientDocRef = doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaUid}`, clientKey);
-      const existingClient = await getDoc(clientDocRef);
-      const totalVisitas = existingClient.exists() ? (existingClient.data().totalVisitas || 0) + 1 : 1;
-      const primeiraVisita = existingClient.exists() ? (existingClient.data().primeiraVisita || dataISO) : dataISO;
-      await setDoc(clientDocRef, {
-        nome: nome.trim(), whats: whats.trim(), nascimento: nascimento || '',
-        totalVisitas, primeiraVisita, ultimaVisita: dataISO,
-      }, { merge: true });
-
-      setConfirmedAppt({ ...apptData, id: apptRef.id });
-      setStep(clientUser ? 'home' : 'account');
+      const clientKey = clientWhats.replace(/\D/g, '') || clientNome.toLowerCase().replace(/\s+/g, '_');
+      if (clientKey) {
+        const clientDocRef = doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaUid}`, clientKey);
+        const existingClient = await getDoc(clientDocRef);
+        const totalVisitas = existingClient.exists() ? (existingClient.data().totalVisitas || 0) + 1 : 1;
+        const primeiraVisita = existingClient.exists() ? (existingClient.data().primeiraVisita || dataISO) : dataISO;
+        await setDoc(clientDocRef, {
+          nome: clientNome, whats: clientWhats,
+          totalVisitas, primeiraVisita, ultimaVisita: dataISO,
+        }, { merge: true });
+      }
 
       fetch(`${BACKEND_URL}/createAppointment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lojaId: lojaUid, ...apptData, appointmentId: apptRef.id }),
       }).catch(() => {});
+
+      if (isRemarcar && remarcarOldId) {
+        fetch(`${BACKEND_URL}/cancelAppointment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lojaId: lojaUid,
+            appointmentId: remarcarOldId,
+            clienteWhats: clientWhats,
+            nomeCliente: clientNome,
+            servico: selectedService.nome,
+            data: dataISO,
+            hora: selectedHora,
+            profissionalNome: selectedProfissional?.nome || '',
+          }),
+        }).catch(() => {});
+      }
+
+      setBookingStep('success');
+      setTimeout(() => {
+        setBookingMode(false);
+        setConfirmedAppt({ ...apptData, id: apptRef.id });
+        setTab('agenda');
+        setRemarcarOldId(null);
+      }, 2500);
     } catch (err) {
       alert('Erro ao confirmar marcação. Tente novamente.');
       console.error(err);
@@ -4214,201 +4448,296 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
     }
   };
 
-  const handleAuth = async () => {
-    setAuthError('');
-    setAuthSubmitting(true);
+  const cancelAppt = async (appt) => {
+    if (!window.confirm('Cancelar esta marcação?')) return;
+    setCancelingId(appt.id);
     try {
-      let cred;
-      if (authMode === 'signup') {
-        cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-      } else {
-        cred = await signInWithEmailAndPassword(auth, email.trim(), password);
-      }
-      const accountData = {
-        nome: nome.trim() || '',
-        whats: whats.trim() || '',
-        nascimento: nascimento || '',
-        email: email.trim(),
-        updatedAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', cred.user.uid), accountData, { merge: true });
-      setClientUser(cred.user);
-      setClientAccount(accountData);
-      setStep('home');
-    } catch (err) {
-      const msgs = {
-        'auth/email-already-in-use': 'Este email já está em uso. Tente entrar.',
-        'auth/weak-password': 'A senha deve ter pelo menos 6 caracteres.',
-        'auth/invalid-email': 'Email inválido.',
-        'auth/user-not-found': 'Conta não encontrada.',
-        'auth/wrong-password': 'Senha incorreta.',
-        'auth/invalid-credential': 'Email ou senha incorretos.',
-      };
-      setAuthError(msgs[err.code] || 'Erro ao autenticar. Tente novamente.');
+      await fetch(`${BACKEND_URL}/cancelAppointment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lojaId: lojaUid,
+          appointmentId: appt.id,
+          clienteWhats: appt.clienteWhats || '',
+          nomeCliente: appt.clienteNome || '',
+          servico: appt.servico || '',
+          data: appt.data || '',
+          hora: appt.hora || '',
+          profissionalNome: appt.profissionalNome || '',
+        }),
+      });
+    } catch {
+      alert('Erro ao cancelar.');
     } finally {
-      setAuthSubmitting(false);
+      setCancelingId(null);
     }
   };
 
-  const handleSignOut = () => {
-    signOut(auth).catch(() => {});
-    setClientUser(null); setClientAccount(null); setClientAppts([]);
-    setStep('service');
-  };
-
-  const startNewBooking = () => {
-    setSelectedService(null); setSelectedProfissional(null);
-    setSelectedDate(new Date()); setSelectedHora('');
-    setNome(clientAccount?.nome || ''); setWhats(clientAccount?.whats || '');
-    setNascimento(clientAccount?.nascimento || ''); setConfirmedAppt(null);
-    setStep('service');
-  };
-
-  const serviceHasExtras = !!(selectedService?.crossSell?.length || selectedService?.upsell?.length);
-
-  const stepIndex = { service: 0, professional: 1, datetime: 2, upsell: 3, form: 3 };
-  const totalSteps = profissionals.length > 0 ? 4 : 3;
-  const currentIdx = stepIndex[step] ?? 0;
-
-  const canGoBack = ['professional', 'datetime', 'upsell', 'form'].includes(step);
-  const handleBack = () => {
-    if (step === 'professional') setStep('service');
-    else if (step === 'datetime') setStep(profForService.length > 0 ? 'professional' : 'service');
-    else if (step === 'upsell') setStep('datetime');
-    else if (step === 'form') setStep(serviceHasExtras ? 'upsell' : 'datetime');
-  };
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  // ── Helpers ──────────────────────────────────────────────
   function apptEndTime(a) {
-    const [h, m] = (a.hora || '0:0').split(':').map(Number);
-    const start = new Date(`${a.data}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+    const [h2, m2] = (a.hora || '0:0').split(':').map(Number);
+    const start = new Date(`${a.data}T${String(h2).padStart(2, '0')}:${String(m2).padStart(2, '0')}:00`);
     return new Date(start.getTime() + (Number(a.duracao) || 60) * 60 * 1000);
   }
   const now = new Date();
   const upcomingAppts = clientAppts.filter(a => apptEndTime(a) > now);
-  const pastAppts    = clientAppts.filter(a => apptEndTime(a) <= now);
+  const pastAppts = clientAppts.filter(a => apptEndTime(a) <= now);
 
-  if (!authChecked) return (
-    <div className="h-screen flex items-center justify-center bg-slate-50">
-      <Loader2 className="w-6 h-6 animate-spin text-violet-400" />
-    </div>
-  );
+  const filteredAppts = histFilter === 'futuros' ? upcomingAppts
+    : histFilter === 'passados' ? pastAppts
+    : clientAppts;
 
-  const LogoBar = ({ showBack = false, showSignOut = false }) => (
-    <div className="flex items-center gap-3 px-5 py-3.5">
-      {showBack && (
-        <button onClick={handleBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-      )}
-      {profile.logo
-        ? <img src={profile.logo} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
-        : <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
-      }
-      <p className="font-black text-slate-900 flex-1 truncate text-sm">{profile.nome || 'Agendamento'}</p>
-      {showSignOut && (
-        <button onClick={handleSignOut} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors" title="Sair">
-          <LogOut className="w-4 h-4" />
-        </button>
-      )}
-    </div>
-  );
+  const initials = (name) => (name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
-  return (
-    <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+  // ── Invisible recaptcha div (must be in DOM) ─────────────
+  const RecaptchaDiv = () => <div ref={recaptchaRef} className="hidden" />;
 
-      {/* ── Sticky header ─────────────────────────────────── */}
-      <header className="sticky top-0 z-10">
-        {/* Hero banner — always visible when cover or logo exists */}
-        {(profile.coverFoto || profile.logo) ? (
-          <div className="relative h-36 overflow-hidden">
-            {profile.coverFoto
-              ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
-              : <div className="w-full h-full bg-gradient-to-br from-violet-700 to-violet-500" />
+  // ── Loading ──────────────────────────────────────────────
+  if (!authChecked) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-slate-50">
+        <Loader2 className="w-6 h-6 animate-spin text-violet-500" />
+      </div>
+    );
+  }
+
+  // ── Logo / header bar ────────────────────────────────────
+  const HeroBanner = ({ showBack = false, onBack = null }) => (
+    <header className="sticky top-0 z-10">
+      {(profile.coverFoto || profile.logo) ? (
+        <div className="relative h-36 overflow-hidden">
+          {profile.coverFoto
+            ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
+            : <div className="w-full h-full bg-gradient-to-br from-violet-700 to-violet-500" />
+          }
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+          <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
+            {showBack
+              ? <button onClick={onBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
+              : <div />
             }
-            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent" />
-            {/* Back / signout buttons — top row */}
-            <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
-              {canGoBack
-                ? <button onClick={handleBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
-                : <div />
-              }
-              {step === 'home' && (
-                <button onClick={handleSignOut} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors" title="Sair"><LogOut className="w-4 h-4" /></button>
-              )}
+          </div>
+          <div className="absolute bottom-4 left-5 flex items-center gap-3">
+            {profile.logo
+              ? <img src={profile.logo} alt="" className="w-11 h-11 rounded-xl object-cover border-2 border-white/80 shadow-lg" />
+              : <div className="w-11 h-11 rounded-xl bg-violet-600 border-2 border-white/80 shadow-lg flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div>
+            }
+            <div>
+              <p className="font-black text-white text-base leading-tight">{profile.nome || 'Agendamento'}</p>
+              {profile.subtitulo && <p className="text-white/75 text-xs">{profile.subtitulo}</p>}
             </div>
-            {/* Logo + name — bottom */}
-            <div className="absolute bottom-4 left-5 flex items-center gap-3">
-              {profile.logo
-                ? <img src={profile.logo} alt="" className="w-12 h-12 rounded-xl object-cover border-2 border-white/80 shadow-lg" />
-                : <div className="w-12 h-12 rounded-xl bg-violet-600 border-2 border-white/80 shadow-lg flex items-center justify-center"><Sparkles className="w-6 h-6 text-white" /></div>
-              }
-              <div>
-                <p className="font-black text-white text-lg leading-tight">{profile.nome || 'Agendamento'}</p>
-                {profile.subtitulo && <p className="text-white/75 text-xs">{profile.subtitulo}</p>}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white border-b border-slate-100">
+          <div className="flex items-center gap-3 px-5 py-3.5">
+            {showBack && (
+              <button onClick={onBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800">
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            {profile.logo
+              ? <img src={profile.logo} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+              : <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+            }
+            <p className="font-black text-slate-900 flex-1 truncate text-sm">{profile.nome || 'Agendamento'}</p>
+          </div>
+        </div>
+      )}
+    </header>
+  );
+
+  // ── TOKEN VIEW ───────────────────────────────────────────
+  if (deepLinkApptId && deepLinkToken) {
+    if (tokenValid === null) {
+      return (
+        <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+          <HeroBanner />
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin text-violet-400" />
+          </div>
+          <RecaptchaDiv />
+        </div>
+      );
+    }
+    if (tokenValid === false) {
+      return (
+        <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+          <HeroBanner />
+          <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+            <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center mb-4">
+              <X className="w-8 h-8 text-red-400" />
+            </div>
+            <h2 className="text-xl font-black text-slate-900 mb-2">Link inválido</h2>
+            <p className="text-sm text-slate-400">Este link de agendamento não é válido ou expirou.</p>
+          </div>
+          <div className="text-center py-4 border-t border-slate-100 bg-white">
+            <div className="flex items-center justify-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+              <span className="text-xs text-slate-400 font-semibold">hute</span>
+            </div>
+          </div>
+          <RecaptchaDiv />
+        </div>
+      );
+    }
+
+    if (bookingMode) {
+      return (
+        <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+          <HeroBanner showBack onBack={() => {
+            if (bookingStep === 'service') setBookingMode(false);
+            else bookingBack();
+          }} />
+          <div className="flex-1 p-5 pt-6 pb-8 overflow-y-auto">
+            {bookingStep === 'success' ? (
+              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+                <div className="w-24 h-24 bg-emerald-50 rounded-3xl flex items-center justify-center mb-5 animate-bounce">
+                  <CheckCircle className="w-12 h-12 text-emerald-500" />
+                </div>
+                <h2 className="text-3xl font-black text-slate-900 mb-2">Marcado!</h2>
+                <p className="text-slate-400 text-sm">A sua marcação foi confirmada com sucesso.</p>
               </div>
+            ) : BookingStepsRender(true)}
+          </div>
+          <RecaptchaDiv />
+        </div>
+      );
+    }
+
+    return (
+      <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+        <HeroBanner />
+        <div className="flex-1 p-5 pt-6 pb-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 bg-violet-50">
+              <Scissors className="w-5 h-5 text-violet-600" />
+            </div>
+            <div>
+              <p className="font-black text-slate-900 text-lg leading-tight">{tokenAppt.servico}</p>
+              {tokenAppt.profissionalNome && <p className="text-sm text-slate-400">com {tokenAppt.profissionalNome}</p>}
             </div>
           </div>
-        ) : (
-          <div className="bg-white border-b border-slate-100">
-            <LogoBar showBack={canGoBack} showSignOut={step === 'home'} />
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3 mb-6">
+            <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Cliente</span><span className="text-sm font-bold text-slate-900">{tokenAppt.clienteNome}</span></div>
+            <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Data</span><span className="text-sm font-bold text-slate-900">{fmtData(tokenAppt.data)}</span></div>
+            <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Hora</span><span className="text-sm font-bold text-slate-900">{tokenAppt.hora}</span></div>
+            {tokenAppt.valor && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span><span className="text-sm font-bold text-violet-600">R$ {Number(tokenAppt.valor).toFixed(2)}</span></div>}
+          </div>
+          {!tokenAppt._cancelled && apptEndTime(tokenAppt) > now && (
+            <div className="flex gap-3">
+              <button onClick={() => {
+                const svc = (profile.servicos || []).find(s => s.nome === tokenAppt.servico) || { nome: tokenAppt.servico, duracao: profile.intervalo };
+                setSelectedService(svc);
+                setSelectedProfissional((profile.profissionals || []).find(p => p.id === tokenAppt.profissionalId) || null);
+                setSelectedDate(new Date());
+                setSelectedHora('');
+                setSelectedExtras([]);
+                setRemarcarNome(tokenAppt.clienteNome || '');
+                setRemarcarWhats(tokenAppt.clienteWhats || '');
+                setRemarcarOldId(tokenAppt.id);
+                setBookingStep(profissionals.length > 0 ? 'professional' : 'datetime');
+                if (profissionals.length === 0) fetchSlots(new Date(), svc, null);
+                setBookingMode(true);
+              }} className="flex-1 py-3 rounded-2xl bg-slate-50 border border-slate-100 text-sm font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all">
+                Remarcar
+              </button>
+              <button onClick={async () => {
+                if (!window.confirm('Cancelar esta marcação?')) return;
+                try {
+                  await fetch(`${BACKEND_URL}/cancelAppointment`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      lojaId: lojaUid,
+                      appointmentId: tokenAppt.id,
+                      clienteWhats: tokenAppt.clienteWhats || '',
+                      nomeCliente: tokenAppt.clienteNome || '',
+                      servico: tokenAppt.servico || '',
+                      data: tokenAppt.data || '',
+                      hora: tokenAppt.hora || '',
+                      profissionalNome: tokenAppt.profissionalNome || '',
+                    }),
+                  });
+                  setTokenAppt(prev => ({ ...prev, _cancelled: true }));
+                } catch { alert('Erro ao cancelar.'); }
+              }} className="flex-1 py-3 rounded-2xl bg-red-50 border border-red-100 text-sm font-bold text-red-500 hover:bg-red-100 transition-all">
+                Cancelar
+              </button>
+            </div>
+          )}
+          {tokenAppt._cancelled && (
+            <div className="mt-4 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-center">
+              <p className="text-sm text-slate-500 font-semibold">Marcação cancelada.</p>
+            </div>
+          )}
+        </div>
+        <div className="text-center py-4 border-t border-slate-100 bg-white">
+          <div className="flex items-center justify-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+            <span className="text-xs text-slate-400 font-semibold">hute</span>
+          </div>
+        </div>
+        <RecaptchaDiv />
+      </div>
+    );
+  }
+
+  // ── Helper: render booking steps ─────────────────────────
+  function BookingStepsRender(isRemarcar = false) {
+    return (
+      <>
+        {['service', 'professional', 'datetime', 'upsell', 'confirm'].includes(bookingStep) && (
+          <div className="flex gap-1.5 mb-6">
+            {['service', 'professional', 'datetime', 'confirm'].map((s, i) => {
+              const order = { service: 0, professional: 1, datetime: 2, upsell: 2, confirm: 3 };
+              const cur = order[bookingStep] ?? 0;
+              return (
+                <div key={s} className={`h-1 flex-1 rounded-full transition-all ${i <= cur ? 'bg-violet-600' : 'bg-slate-200'}`} />
+              );
+            })}
           </div>
         )}
 
-        {/* Progress dots — booking steps only */}
-        {['service', 'professional', 'datetime', 'form'].includes(step) && (
-          <div className="flex gap-1.5 px-5 py-2 bg-white border-b border-slate-100">
-            {Array.from({ length: totalSteps }).map((_, i) => (
-              <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= currentIdx ? 'bg-violet-600' : 'bg-slate-200'}`} />
-            ))}
-          </div>
-        )}
-      </header>
-
-      <div className="flex-1 p-5 pt-6 pb-8">
-
-        {/* ── SERVICE ───────────────────────────────────────── */}
-        {step === 'service' && (
+        {bookingStep === 'service' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Qual serviço?</h2>
             <p className="text-sm text-slate-400 mb-5">Escolha o serviço que deseja</p>
-            {servicos.length === 0 ? (
-              <p className="text-center text-slate-400 py-12 text-sm">Nenhum serviço disponível.</p>
-            ) : (
-              <div className="space-y-3">
-                {servicos.map((s, i) => (
-                  <button key={i} onClick={() => selectService(s)}
-                    className="w-full bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex">
-                    {s.foto
-                      ? <img src={s.foto} alt={s.nome} className="w-20 h-20 object-cover flex-shrink-0" />
-                      : <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0"><Scissors className="w-7 h-7 text-violet-400" /></div>
-                    }
-                    <div className="flex-1 min-w-0 px-4 py-3">
-                      <p className="font-bold text-slate-900">{s.nome}</p>
-                      <div className="flex items-center gap-3 mt-1 flex-wrap">
-                        {s.duracao && <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}</span>}
-                        {s.preco && <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span>}
+            {servicos.length === 0
+              ? <p className="text-center text-slate-400 py-12 text-sm">Nenhum serviço disponível.</p>
+              : (
+                <div className="space-y-3">
+                  {servicos.map((s, i) => (
+                    <button key={i} onClick={() => handleSelectService(s)}
+                      className="w-full bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex">
+                      {s.foto
+                        ? <img src={s.foto} alt={s.nome} className="w-20 h-20 object-cover flex-shrink-0" />
+                        : <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0"><Scissors className="w-7 h-7 text-violet-400" /></div>
+                      }
+                      <div className="flex-1 min-w-0 px-4 py-3">
+                        <p className="font-bold text-slate-900">{s.nome}</p>
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                          {s.duracao && <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}</span>}
+                          {s.preco && <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span>}
+                        </div>
                       </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300 mr-4 self-center flex-shrink-0" />
-                  </button>
-                ))}
-              </div>
-            )}
+                      <ChevronRight className="w-4 h-4 text-slate-300 mr-4 self-center flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
           </div>
         )}
 
-        {/* ── PROFESSIONAL ──────────────────────────────────── */}
-        {step === 'professional' && (
+        {bookingStep === 'professional' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Com quem?</h2>
             <p className="text-sm text-slate-400 mb-5">{selectedService ? `Para "${selectedService.nome}"` : 'Escolha o profissional'}</p>
             <div className="space-y-3">
               {profForService.map(p => (
-                <button key={p.id} onClick={() => selectProfissional(p)}
+                <button key={p.id} onClick={() => handleSelectProf(p)}
                   className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-2xl flex-shrink-0"
-                    style={{ backgroundColor: p.cor || '#7c3aed' }}>
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-2xl flex-shrink-0" style={{ backgroundColor: p.cor || '#7c3aed' }}>
                     {(p.nome || '?')[0].toUpperCase()}
                   </div>
                   <div className="flex-1">
@@ -4426,8 +4755,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
           </div>
         )}
 
-        {/* ── DATETIME ──────────────────────────────────────── */}
-        {step === 'datetime' && (
+        {bookingStep === 'datetime' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Quando?</h2>
             <p className="text-sm text-slate-400 mb-4">Escolha o dia e horário</p>
@@ -4441,44 +4769,39 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
                 <button onClick={() => changeDate(1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors"><ChevronRight className="w-5 h-5" /></button>
               </div>
             </div>
-            {slotsLoading ? (
-              <div className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-violet-400 mx-auto mb-2" /><p className="text-sm text-slate-400">A verificar disponibilidade...</p></div>
-            ) : slots === null ? null : slots.length === 0 ? (
-              <div className="text-center py-10">
-                <CalendarCheck className="w-10 h-10 text-slate-200 mx-auto mb-2" />
-                <p className="text-slate-400 text-sm font-medium">Sem horários disponíveis neste dia.</p>
-                <p className="text-slate-300 text-xs mt-1">Tente outro dia</p>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-3 gap-2 mb-5">
-                  {slots.map(slot => (
-                    <button key={slot} onClick={() => setSelectedHora(slot)}
-                      className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${selectedHora === slot ? 'bg-violet-600 text-white border-violet-600 shadow-lg shadow-violet-200' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
-                      {slot}
+            {slotsLoading
+              ? <div className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin text-violet-400 mx-auto mb-2" /><p className="text-sm text-slate-400">A verificar disponibilidade...</p></div>
+              : slots === null ? null
+              : slots.length === 0
+                ? <div className="text-center py-10"><CalendarCheck className="w-10 h-10 text-slate-200 mx-auto mb-2" /><p className="text-slate-400 text-sm font-medium">Sem horários disponíveis neste dia.</p><p className="text-slate-300 text-xs mt-1">Tente outro dia</p></div>
+                : (
+                  <>
+                    <div className="grid grid-cols-3 gap-2 mb-5">
+                      {slots.map(slot => (
+                        <button key={slot} onClick={() => setSelectedHora(slot)}
+                          className={`py-3 rounded-xl text-sm font-bold border-2 transition-all ${selectedHora === slot ? 'bg-violet-600 text-white border-violet-600 shadow-lg shadow-violet-200' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
+                          {slot}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => {
+                      if (!selectedHora) return;
+                      setBookingStep(serviceHasExtras ? 'upsell' : 'confirm');
+                    }} disabled={!selectedHora}
+                      className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors">
+                      Continuar
                     </button>
-                  ))}
-                </div>
-                <button onClick={() => {
-                  if (!selectedHora) return;
-                  goToStep(serviceHasExtras ? 'upsell' : 'form');
-                }} disabled={!selectedHora}
-                  className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors">
-                  Continuar
-                </button>
-              </>
-            )}
+                  </>
+                )
+            }
           </div>
         )}
 
-        {/* ── UPSELL ────────────────────────────────────────── */}
-        {step === 'upsell' && (
+        {bookingStep === 'upsell' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Aproveite!</h2>
             <p className="text-sm text-slate-400 mb-4">Adicione ao seu serviço com desconto</p>
-
             <div className="space-y-3 mb-5">
-              {/* Cross-sell: serviços complementares */}
               {(selectedService?.crossSell || []).map(cs => {
                 const svc = servicos.find(s => s.nome === cs.servicoNome);
                 if (!svc) return null;
@@ -4488,9 +4811,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
                 return (
                   <div key={cs.servicoNome} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
-                        <Scissors className="w-4 h-4 text-violet-600" />
-                      </div>
+                      <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0"><Scissors className="w-4 h-4 text-violet-600" /></div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-slate-900 text-sm">{svc.nome}</p>
                         {precoDesconto && (
@@ -4501,67 +4822,49 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
                           </div>
                         )}
                       </div>
-                      <button
-                        onClick={() => setSelectedExtras(prev =>
-                          added
-                            ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome))
-                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesconto || precoOriginal || 0 }]
-                        )}
+                      <button onClick={() => setSelectedExtras(prev => added ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome)) : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesconto || precoOriginal || 0 }])}
                         className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors flex-shrink-0 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'}`}>
-                        {added ? '✓ Adicionado' : 'Adicionar'}
+                        {added ? 'Adicionado' : 'Adicionar'}
                       </button>
                     </div>
                   </div>
                 );
               })}
-
-              {/* Upsell: produtos */}
               {(selectedService?.upsell || []).map((produto, i) => {
                 const added = selectedExtras.some(e => e.tipo === 'produto' && e.nome === produto.nome);
                 return (
                   <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
-                        <ShoppingBag className="w-4 h-4 text-amber-600" />
-                      </div>
+                      <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0"><ShoppingBag className="w-4 h-4 text-amber-600" /></div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-slate-900 text-sm">{produto.nome}</p>
-                        {produto.preco > 0 && (
-                          <p className="text-sm font-black text-violet-700 mt-0.5">R$ {Number(produto.preco).toFixed(2)}</p>
-                        )}
+                        {produto.preco > 0 && <p className="text-sm font-black text-violet-700 mt-0.5">R$ {Number(produto.preco).toFixed(2)}</p>}
                       </div>
-                      <button
-                        onClick={() => setSelectedExtras(prev =>
-                          added
-                            ? prev.filter(e => !(e.tipo === 'produto' && e.nome === produto.nome))
-                            : [...prev, { tipo: 'produto', nome: produto.nome, preco: produto.preco || 0 }]
-                        )}
+                      <button onClick={() => setSelectedExtras(prev => added ? prev.filter(e => !(e.tipo === 'produto' && e.nome === produto.nome)) : [...prev, { tipo: 'produto', nome: produto.nome, preco: produto.preco || 0 }])}
                         className={`px-3 py-2 rounded-xl text-xs font-bold transition-colors flex-shrink-0 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'}`}>
-                        {added ? '✓ Adicionado' : 'Adicionar'}
+                        {added ? 'Adicionado' : 'Adicionar'}
                       </button>
                     </div>
                   </div>
                 );
               })}
             </div>
-
-            <button onClick={() => setStep('form')}
+            <button onClick={() => setBookingStep('confirm')}
               className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors">
-              Continuar {selectedExtras.length > 0 ? `(+${selectedExtras.length} item${selectedExtras.length > 1 ? 's' : ''})` : ''}
+              Continuar {selectedExtras.length > 0 ? `(+${selectedExtras.length})` : ''}
             </button>
-            <button onClick={() => { setSelectedExtras([]); setStep('form'); }}
+            <button onClick={() => { setSelectedExtras([]); setBookingStep('confirm'); }}
               className="w-full mt-2 py-3 text-slate-400 text-sm hover:text-slate-600 transition-colors">
               Não, obrigado
             </button>
           </div>
         )}
 
-        {/* ── FORM ──────────────────────────────────────────── */}
-        {step === 'form' && (
+        {bookingStep === 'confirm' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Confirmar marcação</h2>
-            <p className="text-sm text-slate-400 mb-4">Reveja e preencha os seus dados</p>
-            <div className="bg-violet-50 rounded-2xl p-4 mb-5 space-y-2">
+            <p className="text-sm text-slate-400 mb-4">Reveja os detalhes antes de confirmar</p>
+            <div className="bg-violet-50 rounded-2xl p-4 mb-4 space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Serviço</span>
                 <span className="text-sm font-bold text-violet-900">{selectedService?.nome}</span>
@@ -4598,309 +4901,323 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
                 </div>
               )}
             </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome completo</label>
-                <input value={nome} onChange={e => setNome(e.target.value)} placeholder="O seu nome"
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+            {isRemarcar ? (
+              <div className="bg-white rounded-2xl p-4 border border-slate-100 mb-5 space-y-3">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Os seus dados</p>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">Nome</label>
+                  <input value={remarcarNome} onChange={e => setRemarcarNome(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 block mb-1">WhatsApp</label>
+                  <input type="tel" value={remarcarWhats} onChange={e => setRemarcarWhats(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp</label>
-                <input type="tel" value={whats} onChange={e => setWhats(e.target.value)} placeholder="(11) 99999-9999"
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+            ) : (
+              <div className="bg-white rounded-2xl p-4 border border-slate-100 mb-5">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Os seus dados</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <User className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                  <span className="text-sm font-semibold text-slate-700">{clientAccount?.nome || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                  <span className="text-sm text-slate-500">{clientAccount?.whats || '—'}</span>
+                </div>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Data de nascimento</label>
-                <input type="date" value={nascimento} onChange={e => setNascimento(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
-              </div>
-            </div>
-            <button onClick={handleSubmit} disabled={submitting || !nome.trim() || !whats.trim()}
-              className="w-full mt-5 bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+            )}
+            <button onClick={() => handleConfirmBooking(isRemarcar)}
+              disabled={submitting || (isRemarcar && (!remarcarNome.trim() || !remarcarWhats.trim()))}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
               {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
               Confirmar marcação
             </button>
           </div>
         )}
+      </>
+    );
+  }
 
-        {/* ── ACCOUNT — create / sign in ─────────────────────── */}
-        {step === 'account' && (
-          <div>
-            {confirmedAppt && (
-              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-6 flex items-center gap-3">
-                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <CheckCircle className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div>
-                  <p className="font-bold text-emerald-800 text-sm">Marcação confirmada!</p>
-                  <p className="text-xs text-emerald-600">{confirmedAppt.servico} · {fmtData(confirmedAppt.data)} às {confirmedAppt.hora}</p>
-                </div>
+  // ── BOOKING MODE (logged-in) ─────────────────────────────
+  if (bookingMode) {
+    return (
+      <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+        <HeroBanner showBack onBack={() => {
+          if (bookingStep === 'service') setBookingMode(false);
+          else bookingBack();
+        }} />
+        <div className="flex-1 p-5 pt-6 pb-8 overflow-y-auto">
+          {bookingStep === 'success' ? (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+              <div className="w-24 h-24 bg-emerald-50 rounded-3xl flex items-center justify-center mb-5 animate-bounce">
+                <CheckCircle className="w-12 h-12 text-emerald-500" />
               </div>
-            )}
-            <h2 className="text-xl font-black text-slate-900 mb-1">
-              {authMode === 'signup' ? 'Criar a sua conta' : 'Entrar na sua conta'}
-            </h2>
-            <p className="text-sm text-slate-400 mb-6">
-              {authMode === 'signup' ? 'Guarde as suas marcações e remarque facilmente' : 'Aceda às suas marcações'}
-            </p>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Email</label>
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="o.seu@email.com" autoComplete="email"
-                    className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Senha</label>
-                <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                  <input type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
-                    placeholder={authMode === 'signup' ? 'Mínimo 6 caracteres' : 'A sua senha'}
-                    autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
-                    className="w-full pl-10 pr-12 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
-                  <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
+              <h2 className="text-3xl font-black text-slate-900 mb-2">Marcado!</h2>
+              <p className="text-slate-400 text-sm">A sua marcação foi confirmada com sucesso.</p>
             </div>
-            {authError && <p className="mt-3 text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{authError}</p>}
-            <button onClick={handleAuth} disabled={authSubmitting || !email.trim() || !password}
-              className="w-full mt-5 bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
-              {authSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <User className="w-5 h-5" />}
-              {authMode === 'signup' ? 'Criar conta' : 'Entrar'}
-            </button>
-            <div className="mt-4 text-center">
-              {authMode === 'signup'
-                ? <p className="text-xs text-slate-400">Já tem conta? <button onClick={() => { setAuthMode('signin'); setAuthError(''); }} className="text-violet-600 font-bold hover:underline">Entrar</button></p>
-                : <p className="text-xs text-slate-400">Não tem conta? <button onClick={() => { setAuthMode('signup'); setAuthError(''); }} className="text-violet-600 font-bold hover:underline">Criar conta</button></p>
-              }
-            </div>
-            <button onClick={() => setStep('confirmed')} className="w-full mt-3 py-3 text-xs text-slate-400 hover:text-slate-600 transition-colors">
-              Pular por agora
-            </button>
-          </div>
-        )}
+          ) : BookingStepsRender(false)}
+        </div>
+        <RecaptchaDiv />
+      </div>
+    );
+  }
 
-        {/* ── CONFIRMED (skip from account) ─────────────────── */}
-        {step === 'confirmed' && confirmedAppt && (
-          <div className="text-center py-8">
-            <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-5">
-              <CheckCircle className="w-10 h-10 text-emerald-500" />
-            </div>
-            <h2 className="text-2xl font-black text-slate-900 mb-2">Marcado!</h2>
-            <p className="text-slate-400 text-sm mb-6">A sua marcação foi confirmada com sucesso.</p>
-            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 text-left space-y-3 mb-6">
-              <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Serviço</span><span className="text-sm font-bold text-slate-900">{confirmedAppt.servico}</span></div>
-              {confirmedAppt.profissionalNome && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Profissional</span><span className="text-sm font-bold text-slate-900">{confirmedAppt.profissionalNome}</span></div>}
-              <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Data</span><span className="text-sm font-bold text-slate-900">{fmtData(confirmedAppt.data)}</span></div>
-              <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Hora</span><span className="text-sm font-bold text-slate-900">{confirmedAppt.hora}</span></div>
-              {confirmedAppt.valor && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span><span className="text-sm font-bold text-violet-600">R$ {Number(confirmedAppt.valor).toFixed(2)}</span></div>}
-            </div>
-            <button onClick={startNewBooking} className="w-full border border-violet-200 text-violet-600 font-bold py-3.5 rounded-2xl text-sm hover:bg-violet-50 transition-colors">
-              Nova marcação
-            </button>
-          </div>
-        )}
+  // ── LOGIN / AUTH SCREENS ─────────────────────────────────
+  if (!clientUser) {
+    return (
+      <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+        <HeroBanner />
+        <div className="flex-1 p-5 pt-8 pb-8">
 
-        {/* ── APPT DETAIL — deep link view ──────────────────── */}
-        {step === 'apptDetail' && (
-          <div>
-            {!deepLinkAppt ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="w-6 h-6 animate-spin text-violet-400" />
+          {loginStep === 'emailsent' && (
+            <div className="text-center py-8">
+              <div className="w-16 h-16 bg-violet-50 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                <Mail className="w-8 h-8 text-violet-500" />
               </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#7c3aed15' }}>
-                    <Scissors className="w-5 h-5 text-violet-600" />
-                  </div>
-                  <div>
-                    <p className="font-black text-slate-900 text-lg leading-tight">{deepLinkAppt.servico}</p>
-                    {deepLinkAppt.profissionalNome && <p className="text-sm text-slate-400">com {deepLinkAppt.profissionalNome}</p>}
-                  </div>
-                </div>
-                <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-3 mb-6">
-                  <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Cliente</span><span className="text-sm font-bold text-slate-900">{deepLinkAppt.clienteNome}</span></div>
-                  <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Data</span><span className="text-sm font-bold text-slate-900">{fmtData(deepLinkAppt.data)}</span></div>
-                  <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Hora</span><span className="text-sm font-bold text-slate-900">{deepLinkAppt.hora}</span></div>
-                  {deepLinkAppt.valor && <div className="flex justify-between"><span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Preço</span><span className="text-sm font-bold text-violet-600">R$ {Number(deepLinkAppt.valor).toFixed(2)}</span></div>}
-                </div>
-                {apptEndTime(deepLinkAppt) > new Date() && (
-                  <div className="flex gap-3">
-                    <button onClick={() => {
-                      const svc = (profile.servicos || []).find(s => s.nome === deepLinkAppt.servico) || { nome: deepLinkAppt.servico, duracao: profile.intervalo };
-                      const prof = (profile.profissionals || []).find(p => p.id === deepLinkAppt.profissionalId) || null;
-                      setSelectedService(svc);
-                      setSelectedProfissional(prof);
-                      setSelectedDate(new Date());
-                      setSelectedHora('');
-                      setNome(deepLinkAppt.clienteNome || '');
-                      setWhats(deepLinkAppt.clienteWhats || '');
-                      setNascimento(deepLinkAppt.clienteNascimento || '');
-                      setConfirmedAppt(null);
-                      setStep('datetime');
-                    }} className="flex-1 py-3 rounded-2xl bg-slate-50 border border-slate-100 text-sm font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all">
-                      Remarcar
-                    </button>
-                    <button onClick={async () => {
-                      if (!window.confirm('Cancelar esta marcação?')) return;
-                      try {
-                        const res = await fetch(`${BACKEND_URL}/cancelAppointment`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            lojaId: lojaUid,
-                            appointmentId: deepLinkAppt.id,
-                            clienteWhats: deepLinkAppt.clienteWhats || '',
-                            nomeCliente: deepLinkAppt.clienteNome || '',
-                            servico: deepLinkAppt.servico || '',
-                            data: deepLinkAppt.data || '',
-                            hora: deepLinkAppt.hora || '',
-                            profissionalNome: deepLinkAppt.profissionalNome || '',
-                          }),
-                        });
-                        if (res.ok) {
-                          setDeepLinkAppt(null);
-                          setStep('service');
-                        } else {
-                          alert('Erro ao cancelar.');
-                        }
-                      } catch { alert('Erro ao cancelar.'); }
-                    }} className="flex-1 py-3 rounded-2xl bg-red-50 border border-red-100 text-sm font-bold text-red-500 hover:bg-red-100 transition-all">
-                      Cancelar
-                    </button>
-                  </div>
-                )}
-                <button onClick={() => setStep('service')} className="w-full mt-3 py-3 rounded-2xl border border-slate-100 text-sm font-bold text-slate-400 hover:text-violet-600 hover:border-violet-200 transition-all">
-                  Nova marcação
+              <h2 className="text-xl font-black text-slate-900 mb-2">Verifique o seu email</h2>
+              <p className="text-sm text-slate-400 mb-2">Enviámos um link de acesso para</p>
+              <p className="font-bold text-slate-700 mb-6">{emailInput}</p>
+              <p className="text-xs text-slate-400">Clique no link do email para entrar. Pode fechar esta aba.</p>
+              <button onClick={() => setLoginStep('options')} className="mt-6 text-xs text-violet-600 hover:underline">Voltar</button>
+            </div>
+          )}
+
+          {loginStep === 'emailconfirm' && (
+            <div>
+              <h2 className="text-xl font-black text-slate-900 mb-1">Confirmar email</h2>
+              <p className="text-sm text-slate-400 mb-5">Digite o email que usou para receber o link</p>
+              <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)}
+                placeholder="o.seu@email.com"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white mb-3" />
+              {authError && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">{authError}</p>}
+              <button onClick={handleEmailConfirm} disabled={authLoading || !emailInput.trim()}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                Confirmar
+              </button>
+            </div>
+          )}
+
+          {loginStep === 'email' && (
+            <div>
+              <button onClick={() => { setLoginStep('options'); setAuthError(''); }} className="flex items-center gap-1.5 text-slate-400 hover:text-slate-700 text-sm mb-6 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Voltar
+              </button>
+              <h2 className="text-xl font-black text-slate-900 mb-1">Entrar por email</h2>
+              <p className="text-sm text-slate-400 mb-5">Vamos enviar um link de acesso direto para o seu email</p>
+              <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)}
+                placeholder="o.seu@email.com" autoComplete="email"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white mb-3" />
+              {authError && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">{authError}</p>}
+              <button onClick={handleSendEmailLink} disabled={authLoading || !emailInput.trim()}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
+                Enviar link de acesso
+              </button>
+            </div>
+          )}
+
+          {loginStep === 'phone' && (
+            <div>
+              <button onClick={() => { setLoginStep('options'); setAuthError(''); }} className="flex items-center gap-1.5 text-slate-400 hover:text-slate-700 text-sm mb-6 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Voltar
+              </button>
+              <h2 className="text-xl font-black text-slate-900 mb-1">Entrar por SMS</h2>
+              <p className="text-sm text-slate-400 mb-5">Vamos enviar um código de verificação</p>
+              <div className="flex gap-2 mb-3">
+                <div className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 flex-shrink-0">+55</div>
+                <input type="tel" value={phoneInput} onChange={e => setPhoneInput(e.target.value)}
+                  placeholder="(11) 99999-9999" autoComplete="tel"
+                  className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+              </div>
+              {authError && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">{authError}</p>}
+              <button onClick={handleSendSMS} disabled={authLoading || !phoneInput.trim()}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Phone className="w-5 h-5" />}
+                Enviar código SMS
+              </button>
+            </div>
+          )}
+
+          {loginStep === 'phonecode' && (
+            <div>
+              <button onClick={() => { setLoginStep('phone'); setAuthError(''); setSmsCode(''); }} className="flex items-center gap-1.5 text-slate-400 hover:text-slate-700 text-sm mb-6 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Voltar
+              </button>
+              <h2 className="text-xl font-black text-slate-900 mb-1">Código SMS</h2>
+              <p className="text-sm text-slate-400 mb-5">Digite o código de 6 dígitos enviado para <strong>{phoneInput}</strong></p>
+              <input type="number" value={smsCode} onChange={e => setSmsCode(e.target.value)}
+                placeholder="000000" maxLength={6}
+                className="w-full px-4 py-4 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-2xl font-black text-center tracking-[0.5em] bg-white mb-3" />
+              {authError && <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">{authError}</p>}
+              <button onClick={handleVerifySMS} disabled={authLoading || smsCode.length < 4}
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+                {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+                Verificar
+              </button>
+            </div>
+          )}
+
+          {loginStep === 'options' && (
+            <div>
+              <h2 className="text-2xl font-black text-slate-900 mb-1">Bem-vindo!</h2>
+              <p className="text-sm text-slate-400 mb-8">Entre na sua conta para gerir as suas marcações</p>
+              <button onClick={handleGoogleLogin} disabled={authLoading}
+                className="w-full bg-white border-2 border-slate-200 hover:border-slate-300 text-slate-700 font-bold py-3.5 rounded-2xl text-sm transition-all flex items-center justify-center gap-3 mb-4 shadow-sm disabled:opacity-50">
+                <svg width="18" height="18" viewBox="0 0 18 18">
+                  <path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"/>
+                  <path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"/>
+                  <path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18z"/>
+                  <path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.3z"/>
+                </svg>
+                Continuar com Google
+              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => { setLoginStep('phone'); setAuthError(''); }}
+                  className="bg-white border-2 border-slate-200 hover:border-violet-300 text-slate-700 font-bold py-3.5 rounded-2xl text-sm transition-all flex items-center justify-center gap-2 shadow-sm">
+                  <Phone className="w-4 h-4 text-violet-500" />
+                  Telemóvel
                 </button>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── HOME — client dashboard ────────────────────────── */}
-        {step === 'home' && (
-          <div>
-            <div className="mb-6">
-              <h2 className="text-xl font-black text-slate-900">Olá, {(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}!</h2>
-            </div>
-
-            {/* Just confirmed banner */}
-            {confirmedAppt && (
-              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-5 flex items-center gap-3">
-                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <CheckCircle className="w-5 h-5 text-emerald-600" />
-                </div>
-                <div>
-                  <p className="font-bold text-emerald-800 text-sm">Marcação confirmada!</p>
-                  <p className="text-xs text-emerald-600">{confirmedAppt.servico} · {fmtData(confirmedAppt.data)} às {confirmedAppt.hora}</p>
-                </div>
+                <button onClick={() => { setLoginStep('email'); setAuthError(''); }}
+                  className="bg-white border-2 border-slate-200 hover:border-violet-300 text-slate-700 font-bold py-3.5 rounded-2xl text-sm transition-all flex items-center justify-center gap-2 shadow-sm">
+                  <Mail className="w-4 h-4 text-violet-500" />
+                  Email
+                </button>
               </div>
-            )}
+              <p className="text-center text-xs text-slate-300 mt-8">Ao entrar, aceita os nossos termos de utilização.</p>
+            </div>
+          )}
+        </div>
+        <div className="text-center py-4 border-t border-slate-100 bg-white">
+          <div className="flex items-center justify-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+            <span className="text-xs text-slate-400 font-semibold">hute</span>
+          </div>
+        </div>
+        <RecaptchaDiv />
+      </div>
+    );
+  }
 
-            {/* PWA install — only shown if not already installed */}
-            {!isInStandaloneMode && !pwaBlockHidden && (
+  // ── WHATSAPP ASK ─────────────────────────────────────────
+  if (loginStep === 'whatsask') {
+    return (
+      <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+        <HeroBanner />
+        <div className="flex-1 p-5 pt-8 flex flex-col">
+          <div className="w-14 h-14 bg-emerald-50 rounded-3xl flex items-center justify-center mb-5">
+            <MessageCircle className="w-7 h-7 text-emerald-500" />
+          </div>
+          <h2 className="text-xl font-black text-slate-900 mb-1">Qual o seu WhatsApp?</h2>
+          <p className="text-sm text-slate-400 mb-6">Para receber confirmações e lembretes das suas marcações</p>
+          <div className="flex gap-2 mb-4">
+            <div className="px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 flex-shrink-0">+55</div>
+            <input type="tel" value={whatsAsk} onChange={e => setWhatsAsk(e.target.value)}
+              placeholder="(11) 99999-9999" autoComplete="tel"
+              className="flex-1 px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white" />
+          </div>
+          <button onClick={handleSaveWhats} disabled={savingWhats || !whatsAsk.trim()}
+            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2 mb-3">
+            {savingWhats ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+            Guardar
+          </button>
+          <button onClick={() => setLoginStep('options')} className="text-sm text-slate-400 hover:text-slate-600 text-center py-2 transition-colors">
+            Pular por agora
+          </button>
+        </div>
+        <div className="text-center py-4 border-t border-slate-100 bg-white">
+          <div className="flex items-center justify-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+            <span className="text-xs text-slate-400 font-semibold">hute</span>
+          </div>
+        </div>
+        <RecaptchaDiv />
+      </div>
+    );
+  }
+
+  // ── MAIN LOGGED-IN VIEW ──────────────────────────────────
+  return (
+    <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
+      <HeroBanner />
+
+      {confirmedAppt && (
+        <div className="mx-5 mt-4 bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-3">
+          <div className="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <CheckCircle className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-emerald-800 text-sm">Marcação confirmada!</p>
+            <p className="text-xs text-emerald-600 truncate">{confirmedAppt.servico} · {fmtData(confirmedAppt.data)} às {confirmedAppt.hora}</p>
+          </div>
+          <button onClick={() => setConfirmedAppt(null)} className="text-emerald-400 hover:text-emerald-600 flex-shrink-0"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
+      <div className="flex-1 p-5 pt-5 pb-32 overflow-y-auto">
+
+        {tab === 'agenda' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-5">Olá, {(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}!</h2>
+
+            {!isStandalone && !pwaHidden && (
               <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 mb-5">
                 <div className="flex items-center gap-2 mb-2">
                   <Sparkles className="w-4 h-4 text-violet-600" />
                   <p className="font-bold text-violet-900 text-sm">Instalar o app</p>
+                  <button onClick={() => setPwaHidden(true)} className="ml-auto text-violet-300 hover:text-violet-500"><X className="w-3.5 h-3.5" /></button>
                 </div>
                 {isIOS ? (
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-violet-600 font-medium">Adicione ao ecrã inicial em 3 passos:</p>
-                    <p className="text-xs text-slate-600">1. Toque em <strong>Partilhar</strong> <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 text-[10px]">⬆</span> na barra do Safari</p>
-                    <p className="text-xs text-slate-600">2. Role para baixo e toque em <strong>Adicionar ao ecrã de início</strong></p>
-                    <p className="text-xs text-slate-600">3. Toque em <strong>Adicionar</strong> no canto superior direito</p>
+                  <div className="space-y-1">
+                    <p className="text-xs text-violet-600 font-medium">Adicione ao ecrã inicial:</p>
+                    <p className="text-xs text-slate-600">1. Toque em <strong>Partilhar</strong> <span className="bg-slate-100 px-1 py-0.5 rounded text-[10px]">&#8679;</span> no Safari</p>
+                    <p className="text-xs text-slate-600">2. Toque em <strong>Adicionar ao ecrã de início</strong></p>
                   </div>
                 ) : installPrompt ? (
                   <button onClick={async () => {
                     installPrompt.prompt();
                     const { outcome } = await installPrompt.userChoice;
                     setInstallPrompt(null);
-                    if (outcome === 'accepted') setPwaBlockHidden(true);
-                  }}
-                    className="w-full bg-violet-600 text-white font-bold py-2.5 rounded-xl text-xs mt-1 hover:bg-violet-700 transition-colors flex items-center justify-center gap-2">
+                    if (outcome === 'accepted') setPwaHidden(true);
+                  }} className="w-full bg-violet-600 text-white font-bold py-2.5 rounded-xl text-xs mt-1 hover:bg-violet-700 transition-colors flex items-center justify-center gap-2">
                     <Plus className="w-3.5 h-3.5" /> Adicionar ao ecrã inicial
                   </button>
                 ) : null}
               </div>
             )}
 
-            {/* New booking button */}
-            <button onClick={startNewBooking}
-              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 mb-6 transition-colors shadow-lg shadow-violet-200">
-              <Plus className="w-4 h-4" /> Nova marcação
-            </button>
-
-            {/* Upcoming appointments */}
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Próximas marcações</h3>
             {upcomingAppts.length === 0 ? (
               <div className="bg-white rounded-2xl p-5 text-center border border-slate-100 mb-5">
                 <CalendarCheck className="w-8 h-8 text-slate-200 mx-auto mb-2" />
                 <p className="text-sm text-slate-400">Nenhuma marcação futura</p>
+                <p className="text-xs text-slate-300 mt-1">Use o botão abaixo para agendar</p>
               </div>
             ) : (
               <div className="space-y-3 mb-5">
                 {upcomingAppts.map(a => (
                   <div key={a.id} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: '#7c3aed15' }}>
-                        <Scissors className="w-4 h-4 text-violet-600" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center flex-shrink-0">
+                        <Scissors className="w-5 h-5 text-violet-500" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-900 text-sm">{a.servico}</p>
-                        {a.profissionalNome && <p className="text-xs text-slate-400">com {a.profissionalNome}</p>}
-                        <div className="flex items-center gap-2 mt-2">
-                          <span className="text-xs font-bold text-violet-700 bg-violet-50 px-2.5 py-1 rounded-full">{fmtData(a.data)}</span>
-                          <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">{a.hora}</span>
-                        </div>
+                        <p className="font-bold text-slate-900 truncate">{a.servico}</p>
+                        <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
                       </div>
                     </div>
                     <div className="flex gap-2 mt-3">
                       <button onClick={() => {
-                          const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
-                          const prof = profissionals.find(p => p.id === a.profissionalId) || null;
-                          setSelectedService(svc);
-                          setSelectedProfissional(prof);
-                          setSelectedDate(new Date());
-                          setSelectedHora('');
-                          setNome(a.clienteNome || clientAccount?.nome || '');
-                          setWhats(a.clienteWhats || clientAccount?.whats || '');
-                          setNascimento(a.clienteNascimento || clientAccount?.nascimento || '');
-                          setConfirmedAppt(null);
-                          setStep('datetime');
-                          fetchSlots(new Date(), svc, prof?.id || null);
-                        }}
-                        className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
+                        const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                        startBooking(svc);
+                      }} className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
                         Remarcar
                       </button>
-                      <button onClick={async () => {
-                          if (!window.confirm('Cancelar esta marcação?')) return;
-                          try {
-                            const res = await fetch(`${BACKEND_URL}/cancelAppointment`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                lojaId: lojaUid,
-                                appointmentId: a.id,
-                                clienteWhats: a.clienteWhats || '',
-                                nomeCliente: a.clienteNome || '',
-                                servico: a.servico || '',
-                                data: a.data || '',
-                                hora: a.hora || '',
-                                profissionalNome: a.profissionalNome || '',
-                              }),
-                            });
-                            if (!res.ok) alert('Erro ao cancelar.');
-                          } catch { alert('Erro ao cancelar.'); }
-                        }}
-                        className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center">
-                        Cancelar
+                      <button onClick={() => cancelAppt(a)} disabled={cancelingId === a.id}
+                        className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center disabled:opacity-50">
+                        {cancelingId === a.id ? '...' : 'Cancelar'}
                       </button>
                     </div>
                   </div>
@@ -4908,40 +5225,150 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId }) {
               </div>
             )}
 
-            {/* Past appointments */}
-            {pastAppts.length > 0 && (
-              <>
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Histórico</h3>
-                <div className="space-y-2">
-                  {pastAppts.slice(0, 5).map(a => (
-                    <div key={a.id} className="bg-white/70 rounded-xl p-3.5 border border-slate-100 flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
-                        <Scissors className="w-4 h-4 text-slate-400" />
+            <button onClick={() => startBooking()} className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors flex items-center justify-center gap-2">
+              <Plus className="w-5 h-5" /> Nova marcação
+            </button>
+          </div>
+        )}
+
+        {tab === 'historico' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-4">Histórico</h2>
+            <div className="flex gap-2 mb-5">
+              {[['todos', 'Todos'], ['futuros', 'Futuros'], ['passados', 'Passados']].map(([v, l]) => (
+                <button key={v} onClick={() => setHistFilter(v)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold border-2 transition-all ${histFilter === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-500 border-slate-200 hover:border-violet-200'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            {filteredAppts.length === 0 ? (
+              <div className="text-center py-12">
+                <CalendarCheck className="w-10 h-10 text-slate-200 mx-auto mb-3" />
+                <p className="text-slate-400 text-sm">Nenhuma marcação encontrada</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredAppts.map(a => {
+                  const isPast = apptEndTime(a) <= now;
+                  return (
+                    <div key={a.id} className={`bg-white rounded-2xl p-4 shadow-sm border transition-all ${isPast ? 'border-slate-100 opacity-70' : 'border-slate-100'}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isPast ? 'bg-slate-50' : 'bg-violet-50'}`}>
+                          <Scissors className={`w-5 h-5 ${isPast ? 'text-slate-300' : 'text-violet-500'}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{a.servico}</p>
+                          <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
+                        </div>
+                        {!isPast && <span className="text-[10px] bg-emerald-50 text-emerald-600 font-bold px-2 py-1 rounded-full flex-shrink-0">Ativo</span>}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-600 truncate">{a.servico}</p>
-                        <p className="text-xs text-slate-400">{fmtData(a.data)} · {a.hora}</p>
-                      </div>
+                      {!isPast && (
+                        <div className="flex gap-2 mt-3">
+                          <button onClick={() => {
+                            const svc = servicos.find(s => s.nome === a.servico) || { nome: a.servico, duracao: profile.intervalo };
+                            startBooking(svc);
+                          }} className="flex-1 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs font-bold text-slate-600 hover:border-violet-200 hover:text-violet-600 transition-all text-center">
+                            Remarcar
+                          </button>
+                          <button onClick={() => cancelAppt(a)} disabled={cancelingId === a.id}
+                            className="flex-1 py-2 rounded-xl bg-red-50 border border-red-100 text-xs font-bold text-red-500 hover:bg-red-100 transition-all text-center disabled:opacity-50">
+                            {cancelingId === a.id ? '...' : 'Cancelar'}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </>
+                  );
+                })}
+              </div>
             )}
+          </div>
+        )}
+
+        {tab === 'conta' && (
+          <div>
+            <h2 className="text-xl font-black text-slate-900 mb-5">Minha Conta</h2>
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 mb-4">
+              <div className="flex items-center gap-4 mb-5">
+                {clientUser?.photoURL ? (
+                  <img src={clientUser.photoURL} alt="" className="w-14 h-14 rounded-2xl object-cover flex-shrink-0" />
+                ) : (
+                  <div className="w-14 h-14 rounded-2xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                    <span className="font-black text-violet-600 text-xl">{initials(clientAccount?.nome)}</span>
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-slate-900 text-base truncate">{clientAccount?.nome || '—'}</p>
+                  <p className="text-xs text-slate-400 truncate">{clientAccount?.email || clientUser?.email || '—'}</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between py-2 border-b border-slate-50">
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-4 h-4 text-slate-400" />
+                    <span className="text-sm text-slate-600">WhatsApp</span>
+                  </div>
+                  {editingWhats ? (
+                    <div className="flex items-center gap-2">
+                      <input type="tel" value={whatsEdit} onChange={e => setWhatsEdit(e.target.value)}
+                        className="w-36 px-3 py-1.5 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-500" />
+                      <button onClick={async () => {
+                        if (!whatsEdit.trim()) return;
+                        setSavingWhats(true);
+                        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', clientUser.uid), { whats: whatsEdit.trim() }, { merge: true });
+                        setClientAccount(prev => ({ ...prev, whats: whatsEdit.trim() }));
+                        setEditingWhats(false);
+                        setSavingWhats(false);
+                      }} disabled={savingWhats} className="text-xs font-bold text-violet-600 hover:text-violet-800">
+                        {savingWhats ? '...' : 'Guardar'}
+                      </button>
+                      <button onClick={() => setEditingWhats(false)} className="text-xs text-slate-400 hover:text-slate-600">Cancelar</button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-700">{clientAccount?.whats || '—'}</span>
+                      <button onClick={() => { setWhatsEdit(clientAccount?.whats || ''); setEditingWhats(true); }} className="text-xs text-violet-500 hover:text-violet-700 font-medium">Editar</button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex items-center gap-2">
+                    <CalendarCheck className="w-4 h-4 text-slate-400" />
+                    <span className="text-sm text-slate-600">Total de marcações</span>
+                  </div>
+                  <span className="text-sm font-bold text-slate-700">{clientAppts.length}</span>
+                </div>
+              </div>
+            </div>
+            <button onClick={handleSignOut}
+              className="w-full py-3.5 rounded-2xl border-2 border-slate-200 text-slate-500 font-bold text-sm hover:border-red-200 hover:text-red-500 transition-all flex items-center justify-center gap-2">
+              <LogOut className="w-4 h-4" />
+              Terminar sessão
+            </button>
           </div>
         )}
       </div>
 
-      {/* Footer */}
-      <div className="text-center py-4 border-t border-slate-100 bg-white">
-        <div className="flex items-center justify-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-          <span className="text-xs text-slate-400 font-semibold">hute</span>
+      <nav className="fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-slate-100" style={{ maxWidth: 480, margin: '0 auto' }}>
+        <div className="flex">
+          {[
+            { key: 'agenda', label: 'Agenda', Icon: CalendarCheck },
+            { key: 'historico', label: 'Histórico', Icon: Clock },
+            { key: 'conta', label: 'Conta', Icon: User },
+          ].map(({ key, label, Icon }) => (
+            <button key={key} onClick={() => setTab(key)}
+              className={`flex-1 flex flex-col items-center py-3 gap-0.5 text-[11px] font-bold transition-colors ${tab === key ? 'text-violet-600' : 'text-slate-400 hover:text-slate-600'}`}>
+              <Icon className="w-5 h-5" />
+              {label}
+            </button>
+          ))}
         </div>
-      </div>
+      </nav>
+
+      <RecaptchaDiv />
     </div>
   );
 }
-
 // ── Invite Accept Screen ──────────────────────────────────
 function InviteAcceptScreen({ token, onDone }) {
   const [inviteData, setInviteData] = useState(null);

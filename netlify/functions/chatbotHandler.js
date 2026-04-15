@@ -331,12 +331,13 @@ exports.handler = async (event) => {
       }
 
       // No offers — save directly
+      const accessToken1 = crypto.randomUUID();
       const apptRef = await addDoc(
         collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`),
-        pendingAppt
+        { ...pendingAppt, accessToken: accessToken1 }
       );
 
-      const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}`;
+      const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}?token=${accessToken1}`;
 
       if (process.env.N8N_WEBHOOK_URL) {
         fetch(process.env.N8N_WEBHOOK_URL, {
@@ -380,14 +381,15 @@ exports.handler = async (event) => {
       }
 
       const extras = idx < allOffers.length ? [allOffers[idx]] : [];
-      const apptData = { ...pendingAppt, ...(extras.length > 0 ? { extras } : {}) };
+      const accessToken2 = crypto.randomUUID();
+      const apptData = { ...pendingAppt, ...(extras.length > 0 ? { extras } : {}), accessToken: accessToken2 };
 
       const apptRef = await addDoc(
         collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`),
         apptData
       );
 
-      const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}`;
+      const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}?token=${accessToken2}`;
 
       if (process.env.N8N_WEBHOOK_URL) {
         fetch(process.env.N8N_WEBHOOK_URL, {

@@ -134,6 +134,36 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers: cors, body: JSON.stringify({ state, instanceName }) };
     }
 
+    // ── PAIRING CODE ──────────────────────────────────────────────────────────
+    if (action === 'pairingCode') {
+      const instanceName = profile.evolutionInstanceName;
+      if (!instanceName) {
+        return { statusCode: 422, headers: cors, body: JSON.stringify({ error: 'Instância não criada. Clique em Conectar WhatsApp primeiro.' }) };
+      }
+
+      const number = (body.number || (event.queryStringParameters || {}).number || '').replace(/\D/g, '');
+      if (!number) {
+        return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'number é obrigatório para pairing code' }) };
+      }
+
+      const res = await fetch(
+        `${EVO_BASE}/instance/connect/${instanceName}?number=${number}`,
+        { headers: evoHeaders() }
+      );
+      const data = await res.json().catch(() => ({}));
+
+      // Evolution API returns the pairing code in different fields depending on version
+      const code = data?.code || data?.pairingCode || data?.pairing_code || null;
+
+      if (!code) {
+        console.error('pairingCode response:', JSON.stringify(data));
+        return { statusCode: 502, headers: cors, body: JSON.stringify({ error: 'Código não retornado pela API', detail: data }) };
+      }
+
+      // Start polling on server side is not needed — client polls status
+      return { statusCode: 200, headers: cors, body: JSON.stringify({ code }) };
+    }
+
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: `Ação inválida: ${action}` }) };
 
   } catch (error) {
