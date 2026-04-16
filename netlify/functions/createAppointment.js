@@ -146,6 +146,17 @@ exports.handler = async (event) => {
       }).catch(err => console.error('Erro webhook n8n:', err));
     }
 
+    // ── FCM push notification ───────────────────────────────
+    if (profileData.fcmToken) {
+      const { sendFCMPush } = require('./fcmHelper');
+      await sendFCMPush(
+        profileData.fcmToken,
+        'Novo agendamento! 🗓️',
+        `${clienteNome || 'Cliente'} — ${servico || ''} às ${hora || ''}`,
+        { type: 'new', lojaId }
+      );
+    }
+
     return {
       statusCode: 200,
       headers: corsHeaders,

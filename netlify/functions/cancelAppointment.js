@@ -46,6 +46,17 @@ exports.handler = async (event) => {
     // Delete appointment from Firestore
     await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, appointmentId));
 
+    // ── FCM push notification ───────────────────────────────
+    if (profileData.fcmToken) {
+      const { sendFCMPush } = require('./fcmHelper');
+      await sendFCMPush(
+        profileData.fcmToken,
+        'Agendamento cancelado',
+        `${nomeCliente || 'Cliente'} cancelou ${servico || ''} em ${data || ''}`,
+        { type: 'cancel', lojaId }
+      );
+    }
+
     // ── n8n cancel webhook ─────────────────────────────────
     const telefoneNormalizado = (() => {
       const digits = (clienteWhats || '').replace(/\D/g, '');

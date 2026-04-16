@@ -11,12 +11,13 @@ import {
   getFirestore, collection, addDoc, onSnapshot, doc, setDoc,
   getDoc, deleteDoc, getDocs
 } from 'firebase/firestore';
+import { getMessaging, getToken } from 'firebase/messaging';
 import {
   Calendar, Users, Settings, Scissors, CheckCircle, Loader2, Copy,
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
   Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone, CreditCard, Zap, Shield, Menu,
-  BarChart2, TrendingUp, ShoppingBag, Building2, DollarSign, AlertTriangle
+  BarChart2, TrendingUp, ShoppingBag, Building2, DollarSign, AlertTriangle, Bell
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -32,6 +33,9 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence);
 const db = getFirestore(app);
+let messaging = null;
+try { messaging = getMessaging(app); } catch (_) { /* not supported in this env */ }
+const FCM_VAPID_KEY = import.meta.env.VITE_FCM_VAPID_KEY || '';
 const APP_ID = 'hutex-saas';
 const BACKEND_URL = "/.netlify/functions";
 const PROF_COLORS = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#db2777','#0891b2','#64748b'];
@@ -1100,14 +1104,91 @@ function OnboardingScreen({ user, onComplete }) {
   );
 }
 
+// ── Chime sound via Web Audio API ────────────────────────
+function playChime(type = 'new') {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = type === 'cancel' ? [440, 330] : [523, 659, 784];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = ctx.currentTime + i * 0.18;
+      gain.gain.setValueAtTime(0.25, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      osc.start(t);
+      osc.stop(t + 0.45);
+    });
+  } catch (_) {}
+}
+
 // ── Admin Panel Shell ─────────────────────────────────────
 function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const [view, setView] = useState('agenda');
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuSection, setMenuSection] = useState(null); // null | 'dados' | 'whatsapp' | 'google'
+  const [toast, setToast] = useState(null); // { msg, type: 'new'|'cancel' }
+  const [fcmReady, setFcmReady] = useState(false);
   const { isTrial, trialDaysLeft } = usePlanLimits(profile);
   const trialUrgent = isTrial && trialDaysLeft <= 2;
+  const colId = user.uid;
+
+  // ── FCM token registration ────────────────────────────────
+  useEffect(() => {
+    if (!messaging || !FCM_VAPID_KEY) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    navigator.serviceWorker.register('/firebase-messaging-sw.js').then(reg => {
+      return getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+    }).then(token => {
+      if (token) {
+        setFcmReady(true);
+        setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', colId), { fcmToken: token }, { merge: true });
+      }
+    }).catch(e => console.error('FCM token error:', e));
+  }, [colId]);
+
+  // ── In-app appointment notifications via onSnapshot ───────
+  useEffect(() => {
+    const q = collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${colId}`);
+    let initialized = false;
+    const unsub = onSnapshot(q, snap => {
+      if (!initialized) { initialized = true; return; }
+      snap.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const a = change.doc.data();
+          playChime('new');
+          const msg = `Novo agendamento: ${a.clienteNome || 'Cliente'}${a.servico ? ` — ${a.servico}` : ''}${a.hora ? ` às ${a.hora}` : ''}`;
+          setToast({ msg, type: 'new' });
+          setTimeout(() => setToast(t => t?.msg === msg ? null : t), 6000);
+        } else if (change.type === 'removed') {
+          playChime('cancel');
+          setToast({ msg: 'Agendamento cancelado', type: 'cancel' });
+          setTimeout(() => setToast(null), 4000);
+        }
+      });
+    });
+    return () => unsub();
+  }, [colId]);
+
+  const requestFCMPermission = async () => {
+    if (!messaging || !FCM_VAPID_KEY) return;
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      const token = await getToken(messaging, { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+      if (token) {
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', colId), { fcmToken: token }, { merge: true });
+        setFcmReady(true);
+      }
+    } catch (e) {
+      console.error('FCM permission error:', e);
+    }
+  };
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -1156,6 +1237,26 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
               ${trialUrgent ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-amber-900/20 text-amber-900 hover:bg-amber-900/30'}`}>
             Ver planos
           </button>
+        </div>
+      )}
+
+      {typeof Notification !== 'undefined' && Notification.permission === 'default' && !fcmReady && FCM_VAPID_KEY && (
+        <div className="bg-violet-50 border-b border-violet-100 px-4 py-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Bell className="w-3.5 h-3.5 flex-shrink-0 text-violet-600" />
+            <p className="text-xs font-semibold text-violet-800 truncate">Ative notificações para alertas de novos agendamentos</p>
+          </div>
+          <button onClick={requestFCMPermission} className="text-[11px] font-black px-2.5 py-1 rounded-full bg-violet-600 text-white hover:bg-violet-700 flex-shrink-0 transition-colors">
+            Ativar
+          </button>
+        </div>
+      )}
+
+      {toast && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100vw-32px)] max-w-sm rounded-2xl shadow-lg px-4 py-3 flex items-start gap-3 ${toast.type === 'cancel' ? 'bg-red-500' : 'bg-violet-600'}`}>
+          <Bell className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-white font-semibold leading-snug flex-1">{toast.msg}</p>
+          <button onClick={() => setToast(null)} className="text-white/70 hover:text-white flex-shrink-0"><X className="w-4 h-4" /></button>
         </div>
       )}
 

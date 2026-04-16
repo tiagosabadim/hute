@@ -357,6 +357,11 @@ exports.handler = async (event) => {
         }).catch(() => {});
       }
 
+      if (profile.fcmToken) {
+        const { sendFCMPush } = require('./fcmHelper');
+        sendFCMPush(profile.fcmToken, 'Novo agendamento! 🗓️', `${clienteNome} — ${servico.nome} às ${hora}`, { type: 'new', lojaId }).catch(() => {});
+      }
+
       await clearSession(db, phone, lojaId);
       const profText = profissional ? ` com ${profissional.nome}` : '';
       return reply(`✅ Agendamento confirmado!\n\n📋 *${servico.nome}*${profText}\n📅 ${fmtData(data)} às ${hora}\n\nAcesse seus detalhes:\n${linkAgendamento}\n\nAté logo! 😊`);
@@ -407,6 +412,11 @@ exports.handler = async (event) => {
             linkAgendamento,
           }),
         }).catch(() => {});
+      }
+
+      if (profile.fcmToken) {
+        const { sendFCMPush } = require('./fcmHelper');
+        sendFCMPush(profile.fcmToken, 'Novo agendamento! 🗓️', `${pendingAppt.clienteNome} — ${pendingAppt.servico} às ${pendingAppt.hora}`, { type: 'new', lojaId }).catch(() => {});
       }
 
       await clearSession(db, phone, lojaId);
