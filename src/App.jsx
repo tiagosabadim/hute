@@ -4350,14 +4350,6 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     });
   }, [bookingStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-skip upsell when nothing available ───────────────
-  useEffect(() => {
-    if (bookingStep !== 'upsell' || upsellAvailability === null) return;
-    const crossSells = selectedService?.crossSell || [];
-    const anyAvailable = crossSells.some(cs => upsellAvailability[cs.servicoNome] === true);
-    const hasProducts = (selectedService?.upsell || []).length > 0;
-    if (!anyAvailable && !hasProducts) setBookingStep('confirm');
-  }, [upsellAvailability]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
@@ -5060,19 +5052,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         )}
 
         {bookingStep === 'upsell' && (() => {
-          // Show loading while checking slot availability
-          if (upsellAvailability === null) {
-            return (
-              <div className="text-center py-16">
-                <Loader2 className="w-6 h-6 animate-spin text-violet-400 mx-auto mb-3" />
-                <p className="text-sm text-slate-400">A verificar disponibilidade...</p>
-              </div>
-            );
-          }
-
-          const availableCrossSells = (selectedService?.crossSell || []).filter(cs =>
-            upsellAvailability[cs.servicoNome] === true
-          );
+          const allCrossSells = (selectedService?.crossSell || []);
 
           return (
             <div>
@@ -5090,12 +5070,13 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
               </div>
 
               <h2 className="text-xl font-black text-slate-900 mb-1">Aproveite a visita!</h2>
-              <p className="text-sm text-slate-400 mb-4">Agende mais um serviço logo a seguir com desconto exclusivo</p>
+              <p className="text-sm text-slate-400 mb-4">Agende mais um serviço com desconto exclusivo</p>
 
               <div className="space-y-3 mb-5">
-                {availableCrossSells.map(cs => {
+                {allCrossSells.map(cs => {
                     const svc = servicos.find(s => s.nome === cs.servicoNome);
                     if (!svc) return null;
+                    const isAvailable = upsellAvailability === null ? null : (upsellAvailability[cs.servicoNome] === true);
                     const precoOrig = svc.preco ? Number(svc.preco) : null;
                     const precoDesc = precoOrig ? Math.round(precoOrig * (1 - cs.desconto / 100) * 100) / 100 : null;
                     const added = selectedExtras.some(e => e.tipo === 'servico' && e.nome === svc.nome);
@@ -5103,6 +5084,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                       <div key={cs.servicoNome} className={`bg-white rounded-2xl overflow-hidden shadow-sm border-2 transition-all ${added ? 'border-emerald-400' : 'border-slate-100 hover:border-violet-200'}`}>
                         <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-2 flex items-center gap-2">
                           <span className="text-[10px] font-black text-emerald-700 uppercase tracking-wider">🎉 {cs.desconto}% de desconto · só hoje</span>
+                          {isAvailable === null && <span className="text-[10px] text-slate-400 ml-auto flex items-center gap-1"><Loader2 className="w-2.5 h-2.5 animate-spin" />A verificar...</span>}
+                          {isAvailable === false && <span className="text-[10px] text-amber-600 font-semibold ml-auto">⚠ Sujeito a disponibilidade</span>}
                         </div>
                         <div className="p-4 flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0"><Scissors className="w-5 h-5 text-violet-600" /></div>
@@ -5118,7 +5101,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                           </div>
                           <button onClick={() => setSelectedExtras(prev => added
                             ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome))
-                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc ?? precoOrig ?? 0 }])}
+                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc ?? precoOrig ?? 0, ...(isAvailable === false ? { sujeito: true } : {}) }])}
                             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-colors flex-shrink-0 flex items-center gap-1.5 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-600 text-white hover:bg-violet-700'}`}>
                             {added ? <><CheckCircle className="w-3.5 h-3.5" />Adicionado</> : 'Adicionar'}
                           </button>
