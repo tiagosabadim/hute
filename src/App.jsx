@@ -3,9 +3,9 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, X
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, signOut,
-  GoogleAuthProvider, signInWithPopup,
+  GoogleAuthProvider, signInWithRedirect, getRedirectResult,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  sendPasswordResetEmail,
+  sendPasswordResetEmail, setPersistence, browserLocalPersistence,
 } from 'firebase/auth';
 import {
   getFirestore, collection, addDoc, onSnapshot, doc, setDoc,
@@ -30,6 +30,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence);
 const db = getFirestore(app);
 const APP_ID = 'hutex-saas';
 const BACKEND_URL = "/.netlify/functions";
@@ -315,8 +316,7 @@ export default function App() {
               try {
                 const clientSnap = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'clientAccounts', u.uid));
                 if (clientSnap.exists()) {
-                  // Client account on admin URL — sign out silently, show login
-                  signOut(auth).catch(() => {});
+                  // Client account — don't sign out (would break client portal); just hide admin UI
                   setUser(null); setProfile(null);
                 }
               } catch { /* ignore — treat as new admin */ }
@@ -4114,6 +4114,54 @@ function AdminDashboard({ user, profile }) {
   );
 }
 
+// ── HeroBanner (extracted outside ClientPortal to prevent re-mount on re-render) ──
+function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showSignOut = false }) {
+  return (
+    <header className="sticky top-0 z-10">
+      {(profile.coverFoto || profile.logo) ? (
+        <div className="relative h-36 overflow-hidden">
+          {profile.coverFoto
+            ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
+            : <div className="w-full h-full bg-gradient-to-br from-violet-700 to-violet-500" />
+          }
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+          <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
+            {showBack
+              ? <button onClick={onBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
+              : <div />
+            }
+            {showSignOut && (
+              <button onClick={onSignOut} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><LogOut className="w-4 h-4" /></button>
+            )}
+          </div>
+          <div className="absolute bottom-4 left-5 flex items-center gap-3">
+            {profile.logo
+              ? <img src={profile.logo} alt="" className="w-11 h-11 rounded-xl object-cover border-2 border-white/80 shadow-lg" />
+              : <div className="w-11 h-11 rounded-xl bg-violet-600 border-2 border-white/80 shadow-lg flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div>
+            }
+            <div>
+              <p className="font-black text-white text-base leading-tight">{profile.nome || 'Agendamento'}</p>
+              {profile.subtitulo && <p className="text-white/75 text-xs">{profile.subtitulo}</p>}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white border-b border-slate-100">
+          <div className="flex items-center gap-3 px-5 py-3.5">
+            {showBack && <button onClick={onBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800"><ArrowLeft className="w-5 h-5" /></button>}
+            {profile.logo
+              ? <img src={profile.logo} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+              : <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+            }
+            <p className="font-black text-slate-900 flex-1 truncate text-sm">{profile.nome || 'Agendamento'}</p>
+            {showSignOut && <button onClick={onSignOut} className="p-1.5 text-slate-400 hover:text-slate-600"><LogOut className="w-4 h-4" /></button>}
+          </div>
+        </div>
+      )}
+    </header>
+  );
+}
+
 // ── Client Portal ─────────────────────────────────────────
 // ── Client Portal ─────────────────────────────────────────
 function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
@@ -4311,6 +4359,14 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     if (!anyAvailable && !hasProducts) setBookingStep('confirm');
   }, [upsellAvailability]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Handle Google redirect result on page load ───────────
+  useEffect(() => {
+    getRedirectResult(auth).catch(() => {
+      setAuthError('Erro ao entrar com Google. Tente novamente.');
+      setAuthLoading(false);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -4337,8 +4393,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
             if (!pendingAction) setAuthMode('whatsask');
           }
         } catch {
-          setClientUser(null);
-          setClientAccount(null);
+          // Firestore error — keep user authenticated, just skip account data
+          setClientUser(u);
         }
       } else {
         setClientUser(null);
@@ -4457,11 +4513,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     setAuthError('');
     setAuthLoading(true);
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        setAuthError('Erro ao entrar com Google. Tente novamente.');
-      }
+      await setPersistence(auth, browserLocalPersistence);
+      await signInWithRedirect(auth, new GoogleAuthProvider());
+    } catch {
+      setAuthError('Erro ao entrar com Google. Tente novamente.');
       setAuthLoading(false);
     }
   };
@@ -4714,55 +4769,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   }
 
   // ── Hero banner ──────────────────────────────────────────
-  const HeroBanner = ({ showBack = false, onBack = null, showSignOut = false }) => (
-    <header className="sticky top-0 z-10">
-      {(profile.coverFoto || profile.logo) ? (
-        <div className="relative h-36 overflow-hidden">
-          {profile.coverFoto
-            ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
-            : <div className="w-full h-full bg-gradient-to-br from-violet-700 to-violet-500" />
-          }
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-          <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
-            {showBack
-              ? <button onClick={onBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
-              : <div />
-            }
-            {showSignOut && (
-              <button onClick={handleSignOut} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><LogOut className="w-4 h-4" /></button>
-            )}
-          </div>
-          <div className="absolute bottom-4 left-5 flex items-center gap-3">
-            {profile.logo
-              ? <img src={profile.logo} alt="" className="w-11 h-11 rounded-xl object-cover border-2 border-white/80 shadow-lg" />
-              : <div className="w-11 h-11 rounded-xl bg-violet-600 border-2 border-white/80 shadow-lg flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div>
-            }
-            <div>
-              <p className="font-black text-white text-base leading-tight">{profile.nome || 'Agendamento'}</p>
-              {profile.subtitulo && <p className="text-white/75 text-xs">{profile.subtitulo}</p>}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white border-b border-slate-100">
-          <div className="flex items-center gap-3 px-5 py-3.5">
-            {showBack && <button onClick={onBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800"><ArrowLeft className="w-5 h-5" /></button>}
-            {profile.logo
-              ? <img src={profile.logo} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
-              : <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
-            }
-            <p className="font-black text-slate-900 flex-1 truncate text-sm">{profile.nome || 'Agendamento'}</p>
-            {showSignOut && <button onClick={handleSignOut} className="p-1.5 text-slate-400 hover:text-slate-600"><LogOut className="w-4 h-4" /></button>}
-          </div>
-        </div>
-      )}
-    </header>
-  );
-
   // ── Auth screen (called as function, NOT as JSX component, to avoid re-mount on each render) ──
   const renderAuthScreen = (isPendingGate = false) => (
     <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-      <HeroBanner showBack={isPendingGate || bookingMode || showAuth} onBack={() => {
+      <HeroBanner profile={profile} onSignOut={handleSignOut} showBack={isPendingGate || bookingMode || showAuth} onBack={() => {
         if (isPendingGate) { setPendingAction(null); }
         else if (showAuth) { setShowAuth(false); setAuthMode('login'); setAuthError(''); }
         else setBookingMode(false);
@@ -5242,7 +5252,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     if (tokenValid === null) {
       return (
         <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-          <HeroBanner />
+          <HeroBanner profile={profile} onSignOut={handleSignOut} />
           <div className="flex-1 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-violet-400" /></div>
         </div>
       );
@@ -5250,7 +5260,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     if (!tokenValid) {
       return (
         <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-          <HeroBanner />
+          <HeroBanner profile={profile} onSignOut={handleSignOut} />
           <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
             <div className="w-16 h-16 bg-red-50 rounded-3xl flex items-center justify-center mb-4"><X className="w-8 h-8 text-red-400" /></div>
             <h2 className="text-xl font-black text-slate-900 mb-2">Link inválido</h2>
@@ -5270,7 +5280,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     if (bookingMode) {
       return (
         <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-          <HeroBanner showBack onBack={() => { if (bookingStep === 'service') setBookingMode(false); else bookingBack(); }} />
+          <HeroBanner profile={profile} onSignOut={handleSignOut} showBack onBack={() => { if (bookingStep === 'service') setBookingMode(false); else bookingBack(); }} />
           <div className="flex-1 p-5 pt-6 pb-8 overflow-y-auto">
             {bookingStep === 'success'
               ? <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
@@ -5288,7 +5298,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     // Token detail view
     return (
       <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-        <HeroBanner />
+        <HeroBanner profile={profile} onSignOut={handleSignOut} />
         <div className="flex-1 p-5 pt-6 pb-8">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-12 h-12 rounded-2xl bg-violet-50 flex items-center justify-center flex-shrink-0"><Scissors className="w-5 h-5 text-violet-600" /></div>
@@ -5389,7 +5399,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   if (bookingMode && !clientUser) {
     return (
       <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-        <HeroBanner showBack onBack={() => { if (bookingStep === 'service') setBookingMode(false); else bookingBack(); }} />
+        <HeroBanner profile={profile} onSignOut={handleSignOut} showBack onBack={() => { if (bookingStep === 'service') setBookingMode(false); else bookingBack(); }} />
         <div className="flex-1 p-5 pt-6 pb-8 overflow-y-auto">
           {bookingStep === 'success'
             ? <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
@@ -5411,7 +5421,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   if (!clientUser) {
     return (
       <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-        <HeroBanner />
+        <HeroBanner profile={profile} onSignOut={handleSignOut} />
         <div className="flex-1 p-5 pt-6 pb-8">
           {servicos.length === 0 ? (
             <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
@@ -5464,7 +5474,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   if (clientUser && authMode === 'whatsask') {
     return (
       <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-        <HeroBanner />
+        <HeroBanner profile={profile} onSignOut={handleSignOut} />
         <div className="flex-1 p-5 pt-8 flex flex-col">
           <div className="w-14 h-14 bg-emerald-50 rounded-3xl flex items-center justify-center mb-5">
             <MessageCircle className="w-7 h-7 text-emerald-500" />
@@ -5497,7 +5507,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   if (bookingMode) {
     return (
       <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-        <HeroBanner showBack onBack={() => { if (bookingStep === 'service') setBookingMode(false); else bookingBack(); }} />
+        <HeroBanner profile={profile} onSignOut={handleSignOut} showBack onBack={() => { if (bookingStep === 'service') setBookingMode(false); else bookingBack(); }} />
         <div className="flex-1 p-5 pt-6 pb-8 overflow-y-auto">
           {bookingStep === 'success'
             ? <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
@@ -5515,7 +5525,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   // ── MAIN LOGGED-IN VIEW (tabs) ───────────────────────────
   return (
     <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-      <HeroBanner showSignOut />
+      <HeroBanner profile={profile} onSignOut={handleSignOut} showSignOut />
 
       {confirmedAppt && (
         <div className="mx-5 mt-4 bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-3">
