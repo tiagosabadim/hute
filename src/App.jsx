@@ -4736,6 +4736,31 @@ function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showS
   );
 }
 
+// ── First available booking date ─────────────────────────
+// Returns today if still before closing, otherwise next working day.
+function firstAvailableDate(profile) {
+  const toMin = s => { const [h, m] = (s || '00:00').split(':').map(Number); return h * 60 + m; };
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const diasFunc = profile?.diasFuncionamento || [];
+
+  let d = new Date(); d.setHours(0, 0, 0, 0);
+  for (let i = 0; i < 14; i++) {
+    const dow = d.getDay();
+    let isWorkingDay, closingMin;
+    if (diasFunc.length > 0) {
+      const conf = diasFunc.find(dc => dc.dia === dow);
+      isWorkingDay = !!conf;
+      closingMin = conf ? toMin(conf.fechamento) : 0;
+    } else {
+      isWorkingDay = dow >= 1 && dow <= 5; // Mon–Fri fallback
+      closingMin = toMin(profile?.horaFim || '18:00');
+    }
+    if (isWorkingDay && (i > 0 || nowMin < closingMin)) return d;
+    const next = new Date(d); next.setDate(next.getDate() + 1); d = next;
+  }
+  return d;
+}
+
 // ── Client Portal ─────────────────────────────────────────
 // ── Client Portal ─────────────────────────────────────────
 function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
@@ -4774,7 +4799,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const [bookingStep, setBookingStep] = useState('service');
   const [selectedService, setSelectedService] = useState(null);
   const [selectedProfissional, setSelectedProfissional] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(() => firstAvailableDate(profile));
   const [selectedHora, setSelectedHora] = useState('');
   const [slots, setSlots] = useState(null);
   const [extendedSlots, setExtendedSlots] = useState([]);
@@ -5159,15 +5184,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const serviceHasExtras = !!(selectedService?.crossSell?.length || selectedService?.upsell?.length);
 
   const startBooking = (presetService = null) => {
+    const initDate = firstAvailableDate(profile);
     setSelectedService(presetService);
     setSelectedProfissional(null);
-    setSelectedDate(new Date());
+    setSelectedDate(initDate);
     setSelectedHora('');
     setSlots(null);
     setSelectedExtras([]);
     setConfirmedAppt(null);
     setBookingStep(presetService ? (profissionals.length > 0 ? 'professional' : 'datetime') : 'service');
-    if (presetService && profissionals.length === 0) fetchSlots(new Date(), presetService, null);
+    if (presetService && profissionals.length === 0) fetchSlots(initDate, presetService, null);
     setBookingMode(true);
   };
 
@@ -5192,7 +5218,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
   const changeDate = (delta) => {
     const newDate = addDays(selectedDate, delta);
-    if (newDate < new Date(new Date().setHours(0, 0, 0, 0))) return;
+    if (newDate < firstAvailableDate(profile)) return;
     setSelectedDate(newDate);
     setSelectedHora('');
     fetchSlots(newDate, selectedService, selectedProfissional?.id || null);
@@ -5898,7 +5924,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                   const svc = (profile.servicos || []).find(s => s.nome === tokenAppt.servico) || { nome: tokenAppt.servico, duracao: profile.intervalo };
                   setSelectedService(svc);
                   setSelectedProfissional((profile.profissionals || []).find(p => p.id === tokenAppt.profissionalId) || null);
-                  setSelectedDate(new Date());
+                  setSelectedDate(firstAvailableDate(profile));
                   setSelectedHora('');
                   setSelectedExtras([]);
                   setRemarcarNome(tokenAppt.clienteNome || '');
