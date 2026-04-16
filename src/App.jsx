@@ -16,7 +16,7 @@ import {
   MessageCircle, Trash2, ChevronLeft, ChevronRight, Plus, X, Tag,
   Clock, Sparkles, Phone, CalendarCheck, User, LogOut, Edit2,
   Briefcase, ArrowLeft, Star, Mail, Lock, Eye, EyeOff, Camera, Image, Link, Search, Smartphone, CreditCard, Zap, Shield, Menu,
-  BarChart2, TrendingUp, ShoppingBag
+  BarChart2, TrendingUp, ShoppingBag, Building2, DollarSign, AlertTriangle
 } from 'lucide-react';
 
 const firebaseConfig = {
@@ -207,6 +207,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [staffRecord, setStaffRecord] = useState(null); // { lojaId, profissionalId, nome }
   const [lojaProfile, setLojaProfile] = useState({});   // used by staff + client portal
+  const [isAdminMode, setIsAdminMode] = useState(false);
   const [isClientMode, setIsClientMode] = useState(false);
   const [resolvedLojaUid, setResolvedLojaUid] = useState(null);
   const [inviteToken, setInviteToken] = useState(null);
@@ -223,6 +224,13 @@ export default function App() {
   useEffect(() => {
     const raw = window.location.hash.replace('#', '').trim();
     const hash = raw.toLowerCase();
+
+    // ── Master admin panel: /#admin ──────────────────────
+    if (hash === 'admin') {
+      setIsAdminMode(true);
+      setAuthLoading(false);
+      return;
+    }
 
     // ── Invite link: /#invite/TOKEN ──────────────────────
     if (hash.startsWith('invite/')) {
@@ -276,6 +284,11 @@ export default function App() {
 
     // ── Admin / Staff auth ───────────────────────────────
     const unsub = onAuthStateChanged(auth, async (u) => {
+      // HuteMasterAdmin handles its own auth — skip here
+      if (window.location.hash.replace('#', '').trim().toLowerCase() === 'admin') {
+        setAuthLoading(false);
+        return;
+      }
       try {
         if (u && !u.isAnonymous) {
           setAuthLoading(true); // keep loading screen while we verify profile
@@ -346,6 +359,7 @@ export default function App() {
   );
 
   if (authLoading) return <Loading />;
+  if (isAdminMode) return <HuteMasterAdmin />;
   if (inviteToken) return <InviteAcceptScreen token={inviteToken} onDone={() => setInviteToken(null)} />;
   if (isClientMode) return <ClientPortal lojaUid={resolvedLojaUid} profile={lojaProfile} deepLinkApptId={deepLinkApptId} deepLinkToken={deepLinkToken} />;
   if (!user) return <LoginScreen />;
@@ -4110,6 +4124,566 @@ function AdminDashboard({ user, profile }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Hute Master Admin (ERP) ──────────────────────────────
+const MASTER_ADMINS = ['tiagoappdesign@gmail.com'];
+const PLAN_PRICES = { starter: 97, premium: 197, pro: 397 };
+
+function HuteMasterAdmin() {
+  const [adminUser, setAdminUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [tab, setTab] = useState('dashboard');
+  const [profiles, setProfiles] = useState([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [filterPlan, setFilterPlan] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [detailProfile, setDetailProfile] = useState(null);
+  const [editingPlan, setEditingPlan] = useState(null);
+  const [editingTrial, setEditingTrial] = useState(null);
+  const [trialDays, setTrialDays] = useState('');
+  const [actionLoading, setActionLoading] = useState(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u && MASTER_ADMINS.includes(u.email?.toLowerCase())) {
+        setAdminUser(u);
+        setAuthError('');
+      } else {
+        setAdminUser(null);
+        if (u) { setAuthError('Acesso negado. Email não autorizado.'); signOut(auth).catch(() => {}); }
+      }
+      setAuthChecked(true);
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (!adminUser) return;
+    setDataLoading(true);
+    getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', 'profiles'))
+      .then(snap => setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
+      .finally(() => setDataLoading(false));
+  }, [adminUser]);
+
+  const refreshProfiles = () => {
+    getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', 'profiles'))
+      .then(snap => setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+  };
+
+  const handleLogin = async (e) => {
+    e?.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const cred = await signInWithEmailAndPassword(auth, loginEmail.trim(), loginPassword);
+      if (!MASTER_ADMINS.includes(cred.user.email?.toLowerCase())) {
+        await signOut(auth);
+        setAuthError('Acesso negado. Email não autorizado.');
+      }
+    } catch { setAuthError('Email ou senha incorretos.'); }
+    finally { setAuthLoading(false); }
+  };
+
+  const handleToggleStatus = async (p) => {
+    setActionLoading(p.id + '_status');
+    const newStatus = p.status === 'active' ? 'inactive' : 'active';
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', p.id), { status: newStatus }, { merge: true });
+    setProfiles(prev => prev.map(x => x.id === p.id ? { ...x, status: newStatus } : x));
+    setActionLoading(null);
+  };
+
+  const handleChangePlan = async (p, plan) => {
+    setActionLoading(p.id + '_plan');
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', p.id), { plan }, { merge: true });
+    setProfiles(prev => prev.map(x => x.id === p.id ? { ...x, plan } : x));
+    setEditingPlan(null);
+    setActionLoading(null);
+  };
+
+  const handleSetTrial = async (p) => {
+    if (!trialDays || isNaN(Number(trialDays))) return;
+    setActionLoading(p.id + '_trial');
+    const trialUntil = new Date();
+    trialUntil.setDate(trialUntil.getDate() + Number(trialDays));
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', p.id),
+      { status: 'trial', trialUntil: trialUntil.toISOString() }, { merge: true });
+    setProfiles(prev => prev.map(x => x.id === p.id ? { ...x, status: 'trial', trialUntil: trialUntil.toISOString() } : x));
+    setEditingTrial(null); setTrialDays(''); setActionLoading(null);
+  };
+
+  const handleDelete = async (p) => {
+    if (!confirm(`Excluir "${p.nome}"? Esta ação é irreversível.`)) return;
+    setActionLoading(p.id + '_delete');
+    await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', p.id));
+    setProfiles(prev => prev.filter(x => x.id !== p.id));
+    setActionLoading(null);
+  };
+
+  const totalLojas = profiles.length;
+  const ativas = profiles.filter(p => p.status === 'active').length;
+  const emTrial = profiles.filter(p => p.status === 'trial').length;
+  const mrr = profiles.filter(p => p.status === 'active' && p.plan)
+    .reduce((sum, p) => sum + (PLAN_PRICES[p.plan] || 0), 0);
+
+  const monthlyData = useMemo(() => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setMonth(d.getMonth() - i);
+      months.push({ month: d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }), count: 0 });
+    }
+    profiles.forEach(p => {
+      if (!p.createdAt) return;
+      const label = new Date(p.createdAt).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const m = months.find(x => x.month === label);
+      if (m) m.count++;
+    });
+    return months;
+  }, [profiles]);
+
+  const planData = useMemo(() => {
+    const map = { Starter: 0, Premium: 0, Pro: 0 };
+    profiles.filter(p => p.status === 'active' && p.plan).forEach(p => {
+      const key = p.plan.charAt(0).toUpperCase() + p.plan.slice(1);
+      if (map[key] !== undefined) map[key] += PLAN_PRICES[p.plan] || 0;
+    });
+    return Object.entries(map).map(([name, receita]) => ({ name, receita }));
+  }, [profiles]);
+
+  const recentSignups = useMemo(() =>
+    [...profiles].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).slice(0, 5)
+  , [profiles]);
+
+  const filteredProfiles = useMemo(() => profiles.filter(p => {
+    const matchSearch = !search || (p.nome || '').toLowerCase().includes(search.toLowerCase());
+    const matchPlan = !filterPlan || p.plan === filterPlan;
+    const matchStatus = !filterStatus || p.status === filterStatus;
+    return matchSearch && matchPlan && matchStatus;
+  }), [profiles, search, filterPlan, filterStatus]);
+
+  const StatusBadge = ({ status }) => {
+    const cfg = { active: ['bg-emerald-500/20 text-emerald-400', 'Ativo'], inactive: ['bg-red-500/20 text-red-400', 'Inativo'], trial: ['bg-amber-500/20 text-amber-400', 'Trial'] };
+    const [cls, label] = cfg[status] || ['bg-slate-700 text-slate-400', status || '—'];
+    return <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${cls}`}>{label}</span>;
+  };
+
+  const PlanBadge = ({ plan }) => {
+    const cfg = { starter: 'bg-indigo-500/20 text-indigo-400', premium: 'bg-violet-500/20 text-violet-400', pro: 'bg-purple-500/20 text-purple-400' };
+    return plan
+      ? <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${cfg[plan] || 'bg-slate-700 text-slate-400'}`}>{plan.charAt(0).toUpperCase() + plan.slice(1)}</span>
+      : <span className="text-slate-600 text-[11px]">—</span>;
+  };
+
+  if (!authChecked) return (
+    <div className="min-h-screen bg-[#0c0f1a] flex items-center justify-center">
+      <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+    </div>
+  );
+
+  if (!adminUser) return (
+    <div className="min-h-screen bg-[#0c0f1a] flex items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+        <div className="flex items-center gap-2 justify-center mb-8">
+          <div className="w-9 h-9 bg-violet-600 rounded-xl flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div>
+          <span className="text-white font-black text-xl tracking-tight">hute</span>
+          <span className="text-slate-500 text-xs ml-1 bg-slate-800 px-2 py-0.5 rounded-full">admin</span>
+        </div>
+        <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-6">
+          <h1 className="text-white font-bold text-lg mb-1">Acesso restrito</h1>
+          <p className="text-slate-400 text-sm mb-6">Apenas administradores Hute</p>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="admin@hute.app" autoComplete="email"
+                  className="w-full pl-10 pr-4 py-3 bg-[#0c0f1a] border border-[#252d45] rounded-xl text-slate-100 placeholder-slate-600 outline-none focus:border-violet-500 text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Senha</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input type={showPwd ? 'text' : 'password'} value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password"
+                  className="w-full pl-10 pr-10 py-3 bg-[#0c0f1a] border border-[#252d45] rounded-xl text-slate-100 placeholder-slate-600 outline-none focus:border-violet-500 text-sm" />
+                <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                  {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+            {authError && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">{authError}</p>}
+            <button type="submit" disabled={authLoading}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3 rounded-xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+              {authLoading && <Loader2 className="w-4 h-4 animate-spin" />} Entrar
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart2 },
+    { id: 'estabelecimentos', label: 'Estabelecimentos', icon: Building2 },
+    { id: 'financeiro', label: 'Financeiro', icon: DollarSign },
+    { id: 'configuracoes', label: 'Configurações', icon: Settings },
+  ];
+
+  return (
+    <div className="min-h-screen bg-[#111827] flex">
+      {/* ── Sidebar ── */}
+      <aside className="w-56 bg-[#0c0f1a] flex flex-col flex-shrink-0 border-r border-[#1e2538]">
+        <div className="p-5 border-b border-[#1e2538]">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center"><Sparkles className="w-4 h-4 text-white" /></div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-white font-black text-sm tracking-tight">hute</span>
+              <span className="text-violet-400 text-[10px] font-bold bg-violet-500/20 px-1.5 py-0.5 rounded">ERP</span>
+            </div>
+          </div>
+        </div>
+        <nav className="flex-1 p-3 space-y-1">
+          {navItems.map(({ id, label, icon: Icon }) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${tab === id ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-[#1a2035]'}`}>
+              <Icon className="w-4 h-4 flex-shrink-0" />{label}
+            </button>
+          ))}
+        </nav>
+        <div className="p-3 border-t border-[#1e2538]">
+          <div className="flex items-center gap-2 px-3 py-2 mb-1">
+            <div className="w-7 h-7 rounded-full bg-violet-500/20 flex items-center justify-center flex-shrink-0"><User className="w-3.5 h-3.5 text-violet-400" /></div>
+            <span className="text-xs text-slate-400 truncate flex-1">{adminUser.email}</span>
+          </div>
+          <button onClick={() => signOut(auth).catch(() => {})}
+            className="w-full flex items-center gap-2 px-3 py-2 text-slate-500 hover:text-slate-300 hover:bg-[#1a2035] rounded-xl text-xs transition-colors">
+            <LogOut className="w-3.5 h-3.5" />Sair
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main ── */}
+      <main className="flex-1 min-w-0 overflow-auto">
+
+        {/* DASHBOARD */}
+        {tab === 'dashboard' && (
+          <div className="p-8">
+            <h1 className="text-white font-black text-2xl mb-1">Dashboard</h1>
+            <p className="text-slate-500 text-sm mb-8">Visão geral do Hute</p>
+            <div className="grid grid-cols-4 gap-4 mb-8">
+              {[
+                { label: 'Total de lojas', value: totalLojas, icon: Building2, color: 'text-violet-400', bg: 'bg-violet-500/10' },
+                { label: 'Lojas ativas', value: ativas, icon: CheckCircle, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+                { label: 'MRR', value: `R$ ${mrr.toLocaleString('pt-BR')}`, icon: TrendingUp, color: 'text-amber-400', bg: 'bg-amber-500/10' },
+                { label: 'Em trial', value: emTrial, icon: Clock, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+              ].map(({ label, value, icon: Icon, color, bg }) => (
+                <div key={label} className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-5">
+                  <div className={`w-9 h-9 ${bg} rounded-xl flex items-center justify-center mb-3`}>
+                    <Icon style={{ width: 18, height: 18 }} className={color} />
+                  </div>
+                  <p className="text-2xl font-black text-white mb-1">{value}</p>
+                  <p className="text-xs text-slate-500">{label}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-6 mb-8">
+              <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-5">
+                <h2 className="text-white font-bold text-sm mb-4">Novos estabelecimentos / mês</h2>
+                <ResponsiveContainer width="100%" height={180}>
+                  <AreaChart data={monthlyData}>
+                    <defs>
+                      <linearGradient id="adminGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <Tooltip contentStyle={{ background: '#0c0f1a', border: '1px solid #252d45', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }} />
+                    <Area type="monotone" dataKey="count" stroke="#7c3aed" fill="url(#adminGrad)" strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-5">
+                <h2 className="text-white font-bold text-sm mb-4">Receita por plano (MRR)</h2>
+                <ResponsiveContainer width="100%" height={180}>
+                  <BarChart data={planData}>
+                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: '#0c0f1a', border: '1px solid #252d45', borderRadius: 8, color: '#f1f5f9', fontSize: 12 }} formatter={v => `R$ ${v}`} />
+                    <Bar dataKey="receita" radius={[6, 6, 0, 0]}>
+                      {planData.map((_, i) => <Cell key={i} fill={['#6366f1', '#8b5cf6', '#a855f7'][i]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-5">
+              <h2 className="text-white font-bold text-sm mb-4">Últimos cadastros</h2>
+              <div className="space-y-1">
+                {recentSignups.map(p => (
+                  <div key={p.id} className="flex items-center gap-3 py-2.5 border-b border-[#252d45] last:border-0">
+                    <div className="w-8 h-8 rounded-xl bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+                      {p.logo ? <img src={p.logo} alt="" className="w-8 h-8 rounded-xl object-cover" /> : <Sparkles className="w-4 h-4 text-violet-400" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-200 truncate">{p.nome || '—'}</p>
+                      <p className="text-xs text-slate-500">/{p.slug || '—'}</p>
+                    </div>
+                    <PlanBadge plan={p.plan} />
+                    <span className="text-xs text-slate-500">{p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR') : '—'}</span>
+                  </div>
+                ))}
+                {recentSignups.length === 0 && !dataLoading && <p className="text-slate-600 text-sm text-center py-6">Nenhum cadastro encontrado</p>}
+                {dataLoading && <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-violet-400" /></div>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ESTABELECIMENTOS */}
+        {tab === 'estabelecimentos' && (
+          <div className="p-8">
+            <h1 className="text-white font-black text-2xl mb-1">Estabelecimentos</h1>
+            <p className="text-slate-500 text-sm mb-6">{filteredProfiles.length} de {profiles.length} lojas</p>
+            <div className="flex gap-3 mb-5 flex-wrap">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nome..."
+                  className="pl-10 pr-4 py-2.5 bg-[#1a2035] border border-[#252d45] rounded-xl text-slate-200 placeholder-slate-600 outline-none focus:border-violet-500 text-sm w-64" />
+              </div>
+              <select value={filterPlan} onChange={e => setFilterPlan(e.target.value)}
+                className="px-3 py-2.5 bg-[#1a2035] border border-[#252d45] rounded-xl text-slate-300 outline-none focus:border-violet-500 text-sm">
+                <option value="">Todos os planos</option>
+                <option value="starter">Starter</option>
+                <option value="premium">Premium</option>
+                <option value="pro">Pro</option>
+              </select>
+              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+                className="px-3 py-2.5 bg-[#1a2035] border border-[#252d45] rounded-xl text-slate-300 outline-none focus:border-violet-500 text-sm">
+                <option value="">Todos os status</option>
+                <option value="active">Ativo</option>
+                <option value="inactive">Inativo</option>
+                <option value="trial">Trial</option>
+              </select>
+              <button onClick={refreshProfiles} className="px-4 py-2.5 bg-[#1a2035] border border-[#252d45] rounded-xl text-slate-400 hover:text-slate-200 text-sm transition-colors">↻ Atualizar</button>
+            </div>
+            <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#252d45]">
+                    {['Nome', 'Slug', 'Plano', 'Status', 'WhatsApp', 'Cadastro', 'Ações'].map(h => (
+                      <th key={h} className="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-4 py-3">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {dataLoading ? (
+                    <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-5 h-5 animate-spin text-violet-400 mx-auto" /></td></tr>
+                  ) : filteredProfiles.length === 0 ? (
+                    <tr><td colSpan={7} className="text-center py-12 text-slate-600 text-sm">Nenhum estabelecimento encontrado</td></tr>
+                  ) : filteredProfiles.map(p => (
+                    <tr key={p.id} className="border-b border-[#1e2538] hover:bg-[#1e2538]/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {p.logo ? <img src={p.logo} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+                            : <div className="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center flex-shrink-0"><Sparkles className="w-3.5 h-3.5 text-violet-400" /></div>}
+                          <span className="text-sm text-slate-200 font-medium truncate max-w-[140px]">{p.nome || '—'}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500">/{p.slug || '—'}</td>
+                      <td className="px-4 py-3">
+                        {editingPlan === p.id ? (
+                          <div className="flex items-center gap-1">
+                            {['starter', 'premium', 'pro'].map(pl => (
+                              <button key={pl} onClick={() => handleChangePlan(p, pl)}
+                                className="px-2 py-1 rounded-lg text-[10px] font-bold bg-violet-600 text-white hover:bg-violet-700 transition-colors">{pl}</button>
+                            ))}
+                            <button onClick={() => setEditingPlan(null)} className="text-slate-500 hover:text-slate-300 ml-1"><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                        ) : <PlanBadge plan={p.plan} />}
+                      </td>
+                      <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs ${p.whatsappConnected || p.evolutionConnected ? 'text-emerald-400' : 'text-slate-600'}`}>
+                          {p.whatsappConnected || p.evolutionConnected ? '● Conectado' : '○ Desconectado'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR') : '—'}
+                        {p.status === 'trial' && p.trialUntil && (
+                          <div className="text-amber-500/70">até {new Date(p.trialUntil).toLocaleDateString('pt-BR')}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-0.5">
+                          <button onClick={() => setDetailProfile(p)} title="Ver detalhes"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-violet-400 hover:bg-violet-500/10 transition-colors"><Search className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => setEditingPlan(p.id)} title="Mudar plano"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"><Tag className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => { setEditingTrial(p.id); setTrialDays(''); }} title="Dar trial"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"><Clock className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleToggleStatus(p)} title={p.status === 'active' ? 'Desativar' : 'Ativar'} disabled={actionLoading === p.id + '_status'}
+                            className={`p-1.5 rounded-lg transition-colors ${p.status === 'active' ? 'text-slate-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10'}`}>
+                            {actionLoading === p.id + '_status' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                          </button>
+                          <button onClick={() => handleDelete(p)} title="Excluir" disabled={actionLoading === p.id + '_delete'}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                            {actionLoading === p.id + '_delete' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                        {editingTrial === p.id && (
+                          <div className="flex items-center gap-1 mt-1.5">
+                            <input type="number" value={trialDays} onChange={e => setTrialDays(e.target.value)} placeholder="dias"
+                              className="w-14 px-2 py-1 bg-[#0c0f1a] border border-[#252d45] rounded-lg text-slate-200 text-xs outline-none focus:border-amber-500" />
+                            <button onClick={() => handleSetTrial(p)} className="px-2 py-1 bg-amber-500 rounded-lg text-[10px] font-bold text-white hover:bg-amber-600 transition-colors">
+                              {actionLoading === p.id + '_trial' ? '...' : 'OK'}
+                            </button>
+                            <button onClick={() => setEditingTrial(null)} className="text-slate-600 hover:text-slate-400"><X className="w-3 h-3" /></button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* FINANCEIRO */}
+        {tab === 'financeiro' && (
+          <div className="p-8">
+            <h1 className="text-white font-black text-2xl mb-1">Financeiro</h1>
+            <p className="text-slate-500 text-sm mb-8">Assinaturas e receita recorrente</p>
+            <div className="grid grid-cols-3 gap-4 mb-8">
+              {[
+                { label: 'MRR', value: `R$ ${mrr.toLocaleString('pt-BR')}`, sub: `${ativas} assinaturas ativas`, color: 'text-emerald-400', bg: 'bg-emerald-500/10', icon: TrendingUp },
+                { label: 'Inativos', value: profiles.filter(p => p.status === 'inactive').length, sub: 'Assinaturas canceladas', color: 'text-red-400', bg: 'bg-red-500/10', icon: AlertTriangle },
+                { label: 'Sem plano', value: profiles.filter(p => !p.plan && p.status !== 'trial').length, sub: 'Ainda não assinaram', color: 'text-slate-400', bg: 'bg-slate-500/10', icon: Clock },
+              ].map(({ label, value, sub, color, bg, icon: Icon }) => (
+                <div key={label} className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-5">
+                  <div className={`w-9 h-9 ${bg} rounded-xl flex items-center justify-center mb-3`}>
+                    <Icon style={{ width: 18, height: 18 }} className={color} />
+                  </div>
+                  <p className={`text-2xl font-black mb-1 ${color}`}>{value}</p>
+                  <p className="text-xs text-slate-400 mb-0.5">{label}</p>
+                  <p className="text-[11px] text-slate-600">{sub}</p>
+                </div>
+              ))}
+            </div>
+            <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-[#252d45] flex items-center justify-between">
+                <h2 className="text-white font-bold text-sm">Assinaturas por loja</h2>
+                <a href="https://dashboard.stripe.com" target="_blank" rel="noreferrer"
+                  className="text-xs text-violet-400 hover:text-violet-300 flex items-center gap-1">
+                  Ver no Stripe <ChevronRight className="w-3 h-3" />
+                </a>
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#252d45]">
+                    {['Loja', 'Plano', 'Status', 'MRR', 'Stripe Customer', 'Cadastro'].map(h => (
+                      <th key={h} className="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider px-4 py-3">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...profiles].sort((a, b) => ({ active: 0, trial: 1, inactive: 2 }[a.status] ?? 3) - ({ active: 0, trial: 1, inactive: 2 }[b.status] ?? 3))
+                    .map(p => (
+                      <tr key={p.id} className="border-b border-[#1e2538] hover:bg-[#1e2538]/50 transition-colors">
+                        <td className="px-4 py-3 text-sm text-slate-200 font-medium">{p.nome || '—'}</td>
+                        <td className="px-4 py-3"><PlanBadge plan={p.plan} /></td>
+                        <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                        <td className="px-4 py-3 text-sm font-bold text-slate-200">
+                          {p.status === 'active' && p.plan ? `R$ ${PLAN_PRICES[p.plan] || 0}` : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-xs font-mono">
+                          {p.stripeCustomerId
+                            ? <a href={`https://dashboard.stripe.com/customers/${p.stripeCustomerId}`} target="_blank" rel="noreferrer" className="text-violet-400 hover:underline">{p.stripeCustomerId.slice(0, 18)}…</a>
+                            : <span className="text-slate-600">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500">{p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR') : '—'}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* CONFIGURAÇÕES */}
+        {tab === 'configuracoes' && (
+          <div className="p-8 max-w-2xl">
+            <h1 className="text-white font-black text-2xl mb-1">Configurações</h1>
+            <p className="text-slate-500 text-sm mb-8">Administradores e planos</p>
+            <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-5 mb-5">
+              <h2 className="text-white font-bold text-sm mb-4 flex items-center gap-2"><Shield className="w-4 h-4 text-violet-400" /> Administradores master</h2>
+              <div className="space-y-2">
+                {MASTER_ADMINS.map(email => (
+                  <div key={email} className="flex items-center justify-between py-2.5 px-3 bg-[#0c0f1a] rounded-xl border border-[#252d45]">
+                    <span className="text-sm text-slate-200">{email}</span>
+                    <span className="text-[10px] text-violet-400 bg-violet-500/20 px-2 py-0.5 rounded-full font-semibold">Super Admin</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-600 mt-3">Para adicionar admins, edite MASTER_ADMINS no código.</p>
+            </div>
+            <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl p-5">
+              <h2 className="text-white font-bold text-sm mb-4 flex items-center gap-2"><DollarSign className="w-4 h-4 text-amber-400" /> Planos e preços</h2>
+              <div className="space-y-2">
+                {Object.entries(PLAN_PRICES).map(([plan, price]) => (
+                  <div key={plan} className="flex items-center justify-between py-2.5 px-3 bg-[#0c0f1a] rounded-xl border border-[#252d45]">
+                    <PlanBadge plan={plan} />
+                    <span className="text-sm font-bold text-slate-200">R$ {price}/mês</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* ── Detail Modal ── */}
+      {detailProfile && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setDetailProfile(null)}>
+          <div className="bg-[#1a2035] border border-[#252d45] rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-[#252d45]">
+              <h2 className="text-white font-bold">{detailProfile.nome || '—'}</h2>
+              <button onClick={() => setDetailProfile(null)} className="text-slate-500 hover:text-slate-300"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-0">
+              {[
+                ['ID', detailProfile.id],
+                ['Slug', `/${detailProfile.slug || '—'}`],
+                ['Email', detailProfile.email || '—'],
+                ['WhatsApp', detailProfile.whats || '—'],
+                ['Plano', detailProfile.plan || '—'],
+                ['Status', detailProfile.status || '—'],
+                ['Stripe Customer', detailProfile.stripeCustomerId || '—'],
+                ['Stripe Sub', detailProfile.stripeSubscriptionId || '—'],
+                ['Serviços', `${(detailProfile.servicos || []).length} serviços`],
+                ['Profissionais', `${(detailProfile.profissionals || []).length} profissionais`],
+                ['Criado em', detailProfile.createdAt ? new Date(detailProfile.createdAt).toLocaleString('pt-BR') : '—'],
+                ['Trial até', detailProfile.trialUntil ? new Date(detailProfile.trialUntil).toLocaleDateString('pt-BR') : '—'],
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-start gap-3 py-2.5 border-b border-[#252d45] last:border-0">
+                  <span className="text-xs text-slate-500 w-32 flex-shrink-0 pt-0.5">{label}</span>
+                  <span className="text-sm text-slate-200 break-all">{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
