@@ -1136,6 +1136,8 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const { isTrial, trialDaysLeft } = usePlanLimits(profile);
   const trialUrgent = isTrial && trialDaysLeft <= 2;
   const colId = user.uid;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || !!window.navigator.standalone;
 
   // ── FCM token registration ────────────────────────────────
   useEffect(() => {
@@ -1240,7 +1242,34 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </div>
       )}
 
-      {typeof Notification !== 'undefined' && Notification.permission === 'default' && !fcmReady && FCM_VAPID_KEY && (
+      {!fcmReady && isIOS && !isStandalone && (
+        <div className="bg-violet-50 border-b border-violet-100 px-4 py-3">
+          <div className="flex items-center gap-1.5 mb-3">
+            <Bell className="w-3.5 h-3.5 text-violet-600 flex-shrink-0" />
+            <p className="text-xs font-bold text-violet-900">Para receber notificações no iPhone:</p>
+          </div>
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex flex-col items-center gap-1 flex-1">
+              <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-violet-100 flex items-center justify-center text-xl">📤</div>
+              <span className="text-[10px] text-violet-700 font-semibold text-center leading-tight">Toque em<br/>Compartilhar</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-violet-300 flex-shrink-0" />
+            <div className="flex flex-col items-center gap-1 flex-1">
+              <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-violet-100 flex items-center justify-center text-xl">➕</div>
+              <span className="text-[10px] text-violet-700 font-semibold text-center leading-tight">Adicionar à<br/>Tela de Início</span>
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-violet-300 flex-shrink-0" />
+            <div className="flex flex-col items-center gap-1 flex-1">
+              <div className="w-10 h-10 bg-white rounded-xl shadow-sm border border-violet-100 flex items-center justify-center overflow-hidden p-1.5">
+                <img src="/ICON.svg" alt="Hute" className="w-full h-full" />
+              </div>
+              <span className="text-[10px] text-violet-700 font-semibold text-center leading-tight">Abra pelo<br/>ícone Hute</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!fcmReady && (!isIOS || isStandalone) && typeof Notification !== 'undefined' && Notification.permission === 'default' && FCM_VAPID_KEY && (
         <div className="bg-violet-50 border-b border-violet-100 px-4 py-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Bell className="w-3.5 h-3.5 flex-shrink-0 text-violet-600" />
