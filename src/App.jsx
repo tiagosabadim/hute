@@ -3,7 +3,7 @@ import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, X
 import { initializeApp } from 'firebase/app';
 import {
   getAuth, onAuthStateChanged, signOut,
-  GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+  GoogleAuthProvider, signInWithPopup,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   sendPasswordResetEmail, setPersistence, browserLocalPersistence,
 } from 'firebase/auth';
@@ -4359,14 +4359,6 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     if (!anyAvailable && !hasProducts) setBookingStep('confirm');
   }, [upsellAvailability]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Handle Google redirect result on page load ───────────
-  useEffect(() => {
-    getRedirectResult(auth).catch(() => {
-      setAuthError('Erro ao entrar com Google. Tente novamente.');
-      setAuthLoading(false);
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── onAuthStateChanged ───────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -4428,7 +4420,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     if (!profile?.nome) return;
     const icons = profile.logo
       ? [{ src: profile.logo, sizes: 'any', type: 'image/png', purpose: 'any' }]
-      : [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }];
+      : [{ src: '/ICON.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }];
     const manifest = {
       name: profile.nome,
       short_name: profile.nome,
@@ -4513,10 +4505,11 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     setAuthError('');
     setAuthLoading(true);
     try {
-      await setPersistence(auth, browserLocalPersistence);
-      await signInWithRedirect(auth, new GoogleAuthProvider());
-    } catch {
-      setAuthError('Erro ao entrar com Google. Tente novamente.');
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (err) {
+      if (err.code !== 'auth/popup-closed-by-user') {
+        setAuthError('Erro ao entrar com Google. Tente novamente.');
+      }
       setAuthLoading(false);
     }
   };
