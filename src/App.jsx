@@ -1117,8 +1117,8 @@ function playChime(type = 'new') {
       osc.type = 'sine';
       osc.frequency.value = freq;
       const t = ctx.currentTime + i * 0.18;
-      gain.gain.setValueAtTime(0.25, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      gain.gain.setValueAtTime(1.0, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
       osc.start(t);
       osc.stop(t + 0.45);
     });
