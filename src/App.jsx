@@ -1152,8 +1152,9 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const [view, setView] = useState('agenda');
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuSection, setMenuSection] = useState(null); // null | 'dados' | 'whatsapp' | 'google'
+  const [configSection, setConfigSection] = useState(null); // null | 'dados' | 'whatsapp' | 'google'
   const [toast, setToast] = useState(null); // { msg, type: 'new'|'cancel' }
+  const [unreadCount, setUnreadCount] = useState(0);
   const [fcmReady, setFcmReady] = useState(false);
   const { isTrial, trialDaysLeft } = usePlanLimits(profile);
   const trialUrgent = isTrial && trialDaysLeft <= 2;
@@ -1187,6 +1188,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
           playChime('new');
           const msg = `Novo agendamento: ${a.clienteNome || 'Cliente'}${a.servico ? ` — ${a.servico}` : ''}${a.hora ? ` às ${a.hora}` : ''}`;
           setToast({ msg, type: 'new' });
+          setUnreadCount(c => c + 1);
           setTimeout(() => setToast(t => t?.msg === msg ? null : t), 6000);
         } else if (change.type === 'removed') {
           playChime('cancel');
@@ -1214,37 +1216,48 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
     }
   };
 
-  const handleLogout = async () => {
-    await signOut(auth);
-  };
+  const handleLogout = async () => { await signOut(auth); };
 
   const navItems = [
-    { key: 'agenda',    icon: Calendar,   label: 'Agenda' },
-    { key: 'clients',   icon: Users,      label: 'Clientes' },
-    { key: 'dashboard', icon: BarChart2,  label: 'Dashboard' },
-    { key: 'equipa',    icon: Briefcase,  label: 'Equipe' },
-    { key: 'servicos',  icon: Tag,        label: 'Serviços' },
+    { key: 'agenda',    icon: Calendar,  label: 'Agenda' },
+    { key: 'clients',   icon: Users,     label: 'Clientes' },
+    { key: 'dashboard', icon: BarChart2, label: 'Dashboard' },
+    { key: 'servicos',  icon: Tag,       label: 'Serviços' },
+    { key: 'config',    icon: Settings,  label: 'Config' },
   ];
 
   return (
     <div className="max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200">
+
+      {/* ── Header ── */}
       <header className="bg-white border-b border-slate-100 px-5 py-4 sticky top-0 z-10">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" />
-            <div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="font-black text-slate-900 text-lg tracking-tight leading-none">hute</span>
-                <span className="text-[11px] text-slate-400 font-medium leading-none">{profile.nome || 'Painel de Gestão'}</span>
-              </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-black text-slate-900 text-lg tracking-tight leading-none">hute</span>
+              <span className="text-[11px] text-slate-400 font-medium leading-none">{profile.nome || 'Painel de Gestão'}</span>
             </div>
           </div>
-          <button onClick={() => setMenuOpen(true)} className="flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
-            <Menu className="w-5 h-5" />
+          {/* Bell with unread badge */}
+          <button
+            onClick={() => setUnreadCount(0)}
+            className="relative flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors"
+          >
+            <Bell className="w-5 h-5" />
+            {unreadCount > 0 && (
+              <span
+                className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-black text-white flex items-center justify-center px-1"
+                style={{ backgroundColor: '#6C3CE1' }}
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
         </div>
       </header>
 
+      {/* ── Trial banner ── */}
       {isTrial && (
         <div className={`px-4 py-2.5 flex items-center justify-between gap-3 ${trialUrgent ? 'bg-red-500' : 'bg-amber-400'}`}>
           <div className="flex items-center gap-2 min-w-0">
@@ -1264,6 +1277,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </div>
       )}
 
+      {/* ── iOS PWA install banner ── */}
       {!fcmReady && isIOS && !isStandalone && (
         <div className="bg-violet-50 border-b border-violet-100 px-4 py-3">
           <div className="flex items-center gap-1.5 mb-3">
@@ -1291,6 +1305,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </div>
       )}
 
+      {/* ── FCM permission banner (non-iOS / iOS standalone) ── */}
       {!fcmReady && (!isIOS || isStandalone) && typeof Notification !== 'undefined' && Notification.permission === 'default' && FCM_VAPID_KEY && (
         <div className="bg-violet-50 border-b border-violet-100 px-4 py-2.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -1303,6 +1318,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </div>
       )}
 
+      {/* ── Toast ── */}
       {toast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[calc(100vw-32px)] max-w-sm rounded-2xl shadow-lg px-4 py-3 flex items-start gap-3 ${toast.type === 'cancel' ? 'bg-red-500' : 'bg-violet-600'}`}>
           <Bell className="w-4 h-4 text-white flex-shrink-0 mt-0.5" />
@@ -1311,6 +1327,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </div>
       )}
 
+      {/* ── Plans modal ── */}
       {showPlansModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={() => setShowPlansModal(false)}>
           <div className="bg-white rounded-t-3xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 pb-10" onClick={e => e.stopPropagation()}>
@@ -1321,131 +1338,130 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
             <div className="space-y-3">
               {PLANS.map(plan => {
                 const Icon = plan.icon;
-                return (
-                  <PlansCheckoutCard key={plan.key} plan={plan} lojaId={user.uid} Icon={Icon} />
-                );
+                return <PlansCheckoutCard key={plan.key} plan={plan} lojaId={user.uid} Icon={Icon} />;
               })}
             </div>
           </div>
         </div>
       )}
 
+      {/* ── Main content ── */}
       <main className="p-5">
-        {view === 'agenda'   && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
-        {view === 'clients'  && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
+        {view === 'agenda'    && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
+        {view === 'clients'   && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
         {view === 'dashboard' && <AdminDashboard user={user} profile={profile} />}
-        {view === 'equipa'   && <AdminEquipe user={user} profile={profile} setProfile={setProfile} />}
-        {view === 'servicos' && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
+        {view === 'equipa'    && <AdminEquipe user={user} profile={profile} setProfile={setProfile} />}
+        {view === 'servicos'  && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
+        {view === 'config'    && (
+          configSection ? (
+            <div>
+              <button
+                onClick={() => setConfigSection(null)}
+                className="flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-5 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="text-sm font-semibold">Configurações</span>
+              </button>
+              <AdminSettings user={user} profile={profile} setProfile={setProfile} section={configSection} />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">Configurações</p>
+              {[
+                { key: 'dados',     icon: Settings,    bg: 'bg-violet-100', color: 'text-violet-600', title: 'Dados do estabelecimento', sub: 'Nome, logo, horários e link' },
+                { key: 'google',    icon: Calendar,    bg: 'bg-blue-100',   color: 'text-blue-600',   title: 'Google Agenda',            sub: 'Sincronize as suas marcações' },
+                { key: 'whatsapp',  icon: Smartphone,  bg: 'bg-emerald-100',color: 'text-emerald-600',title: 'Integrar WhatsApp',         sub: 'Conecte o WhatsApp do estabelecimento' },
+              ].map(({ key, icon: Icon, bg, color, title, sub }) => (
+                <button
+                  key={key}
+                  onClick={() => setConfigSection(key)}
+                  className="w-full flex items-center gap-4 px-4 py-4 bg-white hover:bg-slate-50 rounded-2xl border border-slate-100 transition-colors text-left"
+                >
+                  <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center flex-shrink-0`}>
+                    <Icon className={`w-5 h-5 ${color}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-slate-900 text-sm">{title}</p>
+                    <p className="text-xs text-slate-400">{sub}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                </button>
+              ))}
+              <div className="pt-2">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 hover:bg-red-50 rounded-2xl transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="text-sm font-semibold">Terminar sessão</span>
+                </button>
+              </div>
+            </div>
+          )
+        )}
       </main>
 
+      {/* ── Bottom navigation ── */}
       <nav className="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-slate-100 flex justify-around py-2 px-1 z-20">
         {navItems.map(({ key, icon: Icon, label }) => {
-          const active = view === key;
+          const active = view === key && !menuOpen;
           return (
-            <button key={key} onClick={() => setView(key)}
-              className={`flex flex-col items-center px-3 py-1.5 rounded-xl transition-all ${active ? 'text-violet-600' : 'text-slate-400'}`}>
-              <Icon className={`w-5 h-5 mb-0.5 ${active ? 'text-violet-600' : ''}`} />
-              <span className={`text-[10px] font-semibold ${active ? 'text-violet-600' : ''}`}>{label}</span>
+            <button key={key} onClick={() => { setView(key); setMenuOpen(false); }}
+              className={`flex flex-col items-center px-2 py-1.5 rounded-xl transition-all ${active ? 'text-violet-600' : 'text-slate-400'}`}>
+              <Icon className="w-5 h-5 mb-0.5" />
+              <span className={`text-[10px] font-semibold`}>{label}</span>
               {active && <div className="w-1 h-1 rounded-full bg-violet-600 mt-0.5" />}
             </button>
           );
         })}
+        <button
+          onClick={() => setMenuOpen(true)}
+          className={`flex flex-col items-center px-2 py-1.5 rounded-xl transition-all ${menuOpen ? 'text-violet-600' : 'text-slate-400'}`}
+        >
+          <Menu className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] font-semibold">Mais</span>
+          {menuOpen && <div className="w-1 h-1 rounded-full bg-violet-600 mt-0.5" />}
+        </button>
       </nav>
 
-      {/* ── Hamburger Menu Overlay ── */}
+      {/* ── Side drawer (right) ── */}
       {menuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 flex flex-col justify-end items-center"
-          onClick={() => { setMenuOpen(false); setMenuSection(null); }}
-        >
-          <div
-            className="bg-white rounded-t-3xl w-full max-w-[480px] flex flex-col"
-            style={{ maxHeight: '90vh' }}
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Drawer header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
-              {menuSection ? (
-                <button onClick={() => setMenuSection(null)} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors">
-                  <ArrowLeft className="w-4 h-4" />
-                  <span className="text-sm font-semibold">Voltar</span>
-                </button>
-              ) : (
-                <h2 className="font-black text-slate-900 text-base">Menu</h2>
-              )}
-              <button onClick={() => { setMenuOpen(false); setMenuSection(null); }} className="text-slate-400 hover:text-slate-600 transition-colors">
+        <div className="fixed inset-0 z-40 flex" onClick={() => setMenuOpen(false)}>
+          <div className="flex-1 bg-black/50" />
+          <div className="w-72 bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-5 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2.5">
+                <img src="/favicon.svg" alt="Hute" className="w-7 h-7" />
+                <span className="font-black text-slate-900 text-base">Mais opções</span>
+              </div>
+              <button onClick={() => setMenuOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {/* Drawer body */}
-            <div className="overflow-y-auto flex-1">
-              {!menuSection ? (
-                /* ── Menu list ── */
-                <div className="p-5 space-y-2">
-                  <button
-                    onClick={() => setMenuSection('dados')}
-                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
-                      <Settings className="w-5 h-5 text-violet-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-bold text-slate-900 text-sm">Dados do estabelecimento</p>
-                      <p className="text-xs text-slate-400">Nome, logo, horários e link</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300" />
-                  </button>
-
-                  <button
-                    onClick={() => setMenuSection('google')}
-                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <Calendar className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-bold text-slate-900 text-sm">Google Agenda</p>
-                      <p className="text-xs text-slate-400">Sincronize as suas marcações</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300" />
-                  </button>
-
-                  <button
-                    onClick={() => setMenuSection('whatsapp')}
-                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                      <Smartphone className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-bold text-slate-900 text-sm">Integrar WhatsApp</p>
-                      <p className="text-xs text-slate-400">Conecte o WhatsApp do estabelecimento</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300" />
-                  </button>
-
-                  <div className="pt-2 border-t border-slate-100">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 hover:bg-red-50 rounded-2xl transition-colors"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      <span className="text-sm font-semibold">Terminar sessão</span>
-                    </button>
-                  </div>
+            <div className="overflow-y-auto flex-1 p-4 space-y-2">
+              <button
+                onClick={() => { setView('equipa'); setMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-3.5 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+              >
+                <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                  <Briefcase className="w-4 h-4 text-violet-600" />
                 </div>
-              ) : (
-                /* ── Section content ── */
-                <div className="p-5">
-                  <AdminSettings
-                    user={user}
-                    profile={profile}
-                    setProfile={setProfile}
-                    section={menuSection}
-                  />
+                <div className="flex-1">
+                  <p className="font-bold text-slate-900 text-sm">Equipe</p>
+                  <p className="text-xs text-slate-400">Gerencie profissionais</p>
                 </div>
-              )}
+                <ChevronRight className="w-4 h-4 text-slate-300" />
+              </button>
+
+              <div className="pt-2 border-t border-slate-100">
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 hover:bg-red-50 rounded-2xl transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span className="text-sm font-semibold">Terminar sessão</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
