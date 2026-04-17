@@ -1108,20 +1108,42 @@ function OnboardingScreen({ user, onComplete }) {
 function playChime(type = 'new') {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const notes = type === 'cancel' ? [440, 330] : [523, 659, 784];
-    notes.forEach((freq, i) => {
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -6;
+    comp.ratio.value = 4;
+    comp.connect(ctx.destination);
+
+    function ping(freq, startTime, duration = 0.9) {
+      // fundamental
       const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
+      const g = ctx.createGain();
       osc.type = 'sine';
       osc.frequency.value = freq;
-      const t = ctx.currentTime + i * 0.18;
-      gain.gain.setValueAtTime(1.0, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-      osc.start(t);
-      osc.stop(t + 0.45);
-    });
+      osc.connect(g); g.connect(comp);
+      g.gain.setValueAtTime(0, startTime);
+      g.gain.linearRampToValueAtTime(1.0, startTime + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      osc.start(startTime); osc.stop(startTime + duration);
+
+      // inharmonic partial (bell body)
+      const osc2 = ctx.createOscillator();
+      const g2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.value = freq * 2.756;
+      osc2.connect(g2); g2.connect(comp);
+      g2.gain.setValueAtTime(0, startTime);
+      g2.gain.linearRampToValueAtTime(0.35, startTime + 0.004);
+      g2.gain.exponentialRampToValueAtTime(0.001, startTime + duration * 0.4);
+      osc2.start(startTime); osc2.stop(startTime + duration * 0.4);
+    }
+
+    if (type === 'new') {
+      ping(1318, ctx.currentTime);        // plim
+      ping(1318, ctx.currentTime + 0.22); // plim
+    } else {
+      ping(880, ctx.currentTime, 0.6);
+      ping(659, ctx.currentTime + 0.22, 0.6);
+    }
   } catch (_) {}
 }
 
