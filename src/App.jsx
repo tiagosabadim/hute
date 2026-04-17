@@ -1158,7 +1158,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const [view, setView] = useState('agenda');
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [configSection, setConfigSection] = useState(null); // null | 'dados' | 'whatsapp' | 'google'
+  const [menuSection, setMenuSection] = useState(null); // null | 'dados' | 'whatsapp' | 'google'
   const [toast, setToast] = useState(null); // { msg, type: 'new'|'cancel' }
   const [unreadCount, setUnreadCount] = useState(0);
   const [fcmReady, setFcmReady] = useState(false);
@@ -1229,7 +1229,6 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
     { key: 'clients',   icon: Users,     label: 'Clientes' },
     { key: 'dashboard', icon: BarChart2, label: 'Dashboard' },
     { key: 'servicos',  icon: Tag,       label: 'Serviços' },
-    { key: 'config',    icon: Settings,  label: 'Config' },
   ];
 
   return (
@@ -1358,53 +1357,6 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         {view === 'dashboard' && <AdminDashboard user={user} profile={profile} />}
         {view === 'equipa'    && <AdminEquipe user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos'  && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
-        {view === 'config'    && (
-          configSection ? (
-            <div>
-              <button
-                onClick={() => setConfigSection(null)}
-                className="flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-5 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span className="text-sm font-semibold">Configurações</span>
-              </button>
-              <AdminSettings user={user} profile={profile} setProfile={setProfile} section={configSection} />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">Configurações</p>
-              {[
-                { key: 'dados',     icon: Settings,    bg: 'bg-violet-100', color: 'text-violet-600', title: 'Dados do estabelecimento', sub: 'Nome, logo, horários e link' },
-                { key: 'google',    icon: Calendar,    bg: 'bg-blue-100',   color: 'text-blue-600',   title: 'Google Agenda',            sub: 'Sincronize as suas marcações' },
-                { key: 'whatsapp',  icon: Smartphone,  bg: 'bg-emerald-100',color: 'text-emerald-600',title: 'Integrar WhatsApp',         sub: 'Conecte o WhatsApp do estabelecimento' },
-              ].map(({ key, icon: Icon, bg, color, title, sub }) => (
-                <button
-                  key={key}
-                  onClick={() => setConfigSection(key)}
-                  className="w-full flex items-center gap-4 px-4 py-4 bg-white hover:bg-slate-50 rounded-2xl border border-slate-100 transition-colors text-left"
-                >
-                  <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center flex-shrink-0`}>
-                    <Icon className={`w-5 h-5 ${color}`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-slate-900 text-sm">{title}</p>
-                    <p className="text-xs text-slate-400">{sub}</p>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
-                </button>
-              ))}
-              <div className="pt-2">
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 hover:bg-red-50 rounded-2xl transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span className="text-sm font-semibold">Terminar sessão</span>
-                </button>
-              </div>
-            </div>
-          )
-        )}
       </main>
 
       {/* ── Bottom navigation ── */}
@@ -1432,42 +1384,99 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 
       {/* ── Side drawer (right) ── */}
       {menuOpen && (
-        <div className="fixed inset-0 z-40 flex" onClick={() => setMenuOpen(false)}>
+        <div className="fixed inset-0 z-40 flex" onClick={() => { setMenuOpen(false); setMenuSection(null); }}>
           <div className="flex-1 bg-black/50" />
           <div className="w-72 bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-5 border-b border-slate-100 flex-shrink-0">
-              <div className="flex items-center gap-2.5">
-                <img src="/favicon.svg" alt="Hute" className="w-7 h-7" />
-                <span className="font-black text-slate-900 text-base">Mais opções</span>
-              </div>
-              <button onClick={() => setMenuOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+              {menuSection ? (
+                <button onClick={() => setMenuSection(null)} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors">
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="text-sm font-semibold">Voltar</span>
+                </button>
+              ) : (
+                <div className="flex items-center gap-2.5">
+                  <img src="/favicon.svg" alt="Hute" className="w-7 h-7" />
+                  <span className="font-black text-slate-900 text-base">Menu</span>
+                </div>
+              )}
+              <button onClick={() => { setMenuOpen(false); setMenuSection(null); }} className="text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="overflow-y-auto flex-1 p-4 space-y-2">
-              <button
-                onClick={() => { setView('equipa'); setMenuOpen(false); }}
-                className="w-full flex items-center gap-3 px-4 py-3.5 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
-              >
-                <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
-                  <Briefcase className="w-4 h-4 text-violet-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-bold text-slate-900 text-sm">Equipe</p>
-                  <p className="text-xs text-slate-400">Gerencie profissionais</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-300" />
-              </button>
+            <div className="overflow-y-auto flex-1">
+              {!menuSection ? (
+                <div className="p-4 space-y-2">
+                  <button
+                    onClick={() => { setView('equipa'); setMenuOpen(false); }}
+                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                      <Briefcase className="w-5 h-5 text-violet-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-900 text-sm">Equipe</p>
+                      <p className="text-xs text-slate-400">Gerencie profissionais</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </button>
 
-              <div className="pt-2 border-t border-slate-100">
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 hover:bg-red-50 rounded-2xl transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span className="text-sm font-semibold">Terminar sessão</span>
-                </button>
-              </div>
+                  <button
+                    onClick={() => setMenuSection('dados')}
+                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                      <Settings className="w-5 h-5 text-violet-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-900 text-sm">Dados do estabelecimento</p>
+                      <p className="text-xs text-slate-400">Nome, logo, horários e link</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </button>
+
+                  <button
+                    onClick={() => setMenuSection('google')}
+                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <Calendar className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-900 text-sm">Google Agenda</p>
+                      <p className="text-xs text-slate-400">Sincronize as suas marcações</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </button>
+
+                  <button
+                    onClick={() => setMenuSection('whatsapp')}
+                    className="w-full flex items-center gap-4 px-4 py-4 bg-slate-50 hover:bg-slate-100 rounded-2xl transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                      <Smartphone className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-900 text-sm">Integrar WhatsApp</p>
+                      <p className="text-xs text-slate-400">Conecte o WhatsApp do estabelecimento</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </button>
+
+                  <div className="pt-2 border-t border-slate-100">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-red-400 hover:bg-red-50 rounded-2xl transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span className="text-sm font-semibold">Terminar sessão</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-5">
+                  <AdminSettings user={user} profile={profile} setProfile={setProfile} section={menuSection} />
+                </div>
+              )}
             </div>
           </div>
         </div>
