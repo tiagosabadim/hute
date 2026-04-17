@@ -370,8 +370,10 @@ export default function App() {
   if (staffRecord) return <StaffPanel user={user} staffRecord={staffRecord} lojaProfile={lojaProfile} />;
   if (!profile) return <OnboardingScreen user={user} onComplete={p => setProfile(p)} />;
   const _createdAt = profile.createdAt || user.metadata?.creationTime;
-  const _trialActive = !profile.plan && _createdAt &&
+  const _trialByCreation = !profile.plan && _createdAt &&
     (Date.now() - new Date(_createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+  const _trialByERP = profile.status === 'trial' && profile.trialUntil && new Date(profile.trialUntil) > new Date();
+  const _trialActive = _trialByCreation || _trialByERP;
   if (profile.status !== 'active' && !_trialActive) {
     return <PlansScreen user={user} profile={profile} onActivated={async () => {
       const p = await fetchProfile(user.uid);
@@ -386,10 +388,14 @@ function usePlanLimits(profile) {
   return useMemo(() => {
     const plan = profile?.plan;
     const createdAt = profile?.createdAt;
-    const trialActive = !plan && createdAt &&
+    const trialByCreation = !plan && createdAt &&
       (Date.now() - new Date(createdAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
+    const trialByERP = profile?.status === 'trial' && profile?.trialUntil && new Date(profile.trialUntil) > new Date();
+    const trialActive = trialByCreation || trialByERP;
     const trialDaysLeft = trialActive
-      ? Math.ceil((7 * 24 * 60 * 60 * 1000 - (Date.now() - new Date(createdAt).getTime())) / 86400000)
+      ? trialByERP
+        ? Math.ceil((new Date(profile.trialUntil) - Date.now()) / 86400000)
+        : Math.ceil((7 * 24 * 60 * 60 * 1000 - (Date.now() - new Date(createdAt).getTime())) / 86400000)
       : 0;
     const effectivePlan = plan || (trialActive ? 'premium' : 'starter');
     return {
@@ -400,7 +406,7 @@ function usePlanLimits(profile) {
       maxAppointmentsPerMonth: effectivePlan === 'starter' ? 100 : Infinity,
       hasGoogleCalendar: effectivePlan === 'premium' || effectivePlan === 'pro',
     };
-  }, [profile?.plan, profile?.createdAt]);
+  }, [profile?.plan, profile?.createdAt, profile?.status, profile?.trialUntil]);
 }
 
 // ── Upgrade Modal ─────────────────────────────────────────
