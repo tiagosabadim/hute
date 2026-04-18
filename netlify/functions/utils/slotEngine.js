@@ -18,8 +18,8 @@ const { google } = require('googleapis');
 const { doc, getDoc, collection, getDocs } = require('firebase/firestore/lite');
 
 const APP_ID = 'hutex-saas';
-const CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     || '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com';
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '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';
+const CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
 

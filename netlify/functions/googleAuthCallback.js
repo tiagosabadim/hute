@@ -16,8 +16,8 @@ const REDIRECT_URI = 'https://hute.netlify.app/.netlify/functions/googleAuthCall
 const APP_ID = 'hutex-saas';
 
 exports.handler = async (event) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID || '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com';
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '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';
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
   const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, REDIRECT_URI);
 

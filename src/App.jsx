@@ -2875,7 +2875,7 @@ function AdminEquipe({ user, profile, setProfile }) {
   const startGoogleAuth = (profId) => {
     const state = `${user.uid}|${profId}`;
     const params = new URLSearchParams({
-      client_id: '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com',
+      client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
       redirect_uri: 'https://hute.netlify.app/.netlify/functions/googleAuthCallback',
       response_type: 'code',
       scope: 'https://www.googleapis.com/auth/calendar',
@@ -3701,7 +3701,7 @@ function AdminSettings({ user, profile, setProfile, section }) {
 
   const startGoogleAuth = () => {
     const params = new URLSearchParams({
-      client_id: '524847309009-4a5hi7e81jl18s0ihmoadgep9roa3rfk.apps.googleusercontent.com',
+      client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
       redirect_uri: 'https://hute.netlify.app/.netlify/functions/googleAuthCallback',
       response_type: 'code',
       scope: 'https://www.googleapis.com/auth/calendar',
