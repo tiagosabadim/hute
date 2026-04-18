@@ -368,27 +368,15 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
     ? profissionals.map(p => `- ${p.nome}${p.servicos?.length ? ` (serviços: ${p.servicos.join(', ')})` : ''}`).join('\n')
     : 'Nenhum profissional específico';
 
-  // ── Fetch client profile (single doc read, no collection scan) ──
+  // ── Fetch client name only (single doc read) ──────────────
   const clientDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, phone));
   const clientData = clientDoc.exists() ? clientDoc.data() : {};
   const savedClientName = (clientData.nome && clientData.nome !== phone) ? clientData.nome : null;
-  const totalVisitas = clientData.totalVisitas || 0;
-  const ultimaVisita = clientData.ultimaVisita || null;      // YYYY-MM-DD
-  const ultimoServico = clientData.ultimoServico || null;
-  const ultimoProfissional = clientData.ultimoProfissional || null;
-  const isReturning = totalVisitas > 0;
+  const isReturning = !!savedClientName;
 
-  // Build client context string
-  let clienteContext = '';
-  clienteContext += savedClientName ? `Nome: ${savedClientName}\n` : `Nome: desconhecido (pergunte ao criar agendamento)\n`;
-  clienteContext += `Telefone: ${phone}\n`;
-  clienteContext += `Total de visitas: ${totalVisitas}\n`;
-  if (ultimaVisita) {
-    const daysSince = Math.round((now - new Date(ultimaVisita)) / (1000*60*60*24));
-    clienteContext += `Última visita: ${fmtData(ultimaVisita)}${ultimoServico ? ` — ${ultimoServico}` : ''}${ultimoProfissional ? ` com ${ultimoProfissional}` : ''} (${daysSince} dias atrás)\n`;
-  } else {
-    clienteContext += `Histórico: cliente novo\n`;
-  }
+  const clienteContext = savedClientName
+    ? `Nome: ${savedClientName} (cliente conhecido — chame pelo nome)`
+    : `Nome: desconhecido (pergunte o nome ao criar agendamento)`;
 
   // ── Working hours ─────────────────────────────────────────
   const diasSemana = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
@@ -403,17 +391,9 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
   }
 
   // ── Build returning-client opening instructions ───────────
-  const daysSinceVisit = ultimaVisita ? Math.round((now - new Date(ultimaVisita)) / (1000*60*60*24)) : null;
-  const returningInstructions = isReturning && savedClientName ? `
-ABERTURA PARA CLIENTE RECORRENTE:
-- Chame-o pelo nome (${savedClientName}) desde a primeira mensagem.
-${ultimoServico ? `- Mencione a última visita: "Última vez você fez ${ultimoServico}${ultimoProfissional ? ` com ${ultimoProfissional}` : ''} em ${fmtData(ultimaVisita)}. Vai repetir ou quer algo diferente?"` : '- Pergunte o que vai fazer hoje.'}
-${daysSinceVisit > 30 ? `- Diga que sentiu saudade: "Faz um tempinho que não aparecia por aqui! 😊"` : ''}
-- Se o cliente quiser o mesmo serviço de antes, facilite: confirme o serviço e passe direto para data/horário.` : `
-ABERTURA PARA CLIENTE NOVO:
-- Dê boas-vindas calorosas como primeira visita.
-- Pergunte o nome se ainda não souber.
-- Apresente os serviços de forma atrativa.`;
+  const returningInstructions = isReturning ? `
+CLIENTE RECORRENTE: chame pelo nome (${savedClientName}) desde a primeira mensagem.` : `
+CLIENTE NOVO: dê boas-vindas calorosas e pergunte o nome se necessário.`;
 
   const systemPrompt = `Você é a Hute, assistente virtual de agendamentos do *${profile.nome || 'Estabelecimento'}*. Sempre se identifique como "Hute" — nunca como o nome do estabelecimento. Na primeira mensagem de cada conversa, comece com "Olá${savedClientName ? `, ${savedClientName}` : ''}! Sou a Hute 👋". Responda sempre em português brasileiro de forma natural, simpática e objetiva. Use emojis com moderação. Seja breve e direto.
 
