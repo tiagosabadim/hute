@@ -380,7 +380,7 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
     horarioText = `Horário: ${profile.horaInicio}–${profile.horaFim} (dias de funcionamento não configurados).`;
   }
 
-  const systemPrompt = `Você é o assistente virtual do *${profile.nome || 'Estabelecimento'}*. Responda sempre em português brasileiro de forma natural, simpática e objetiva. Use emojis com moderação. Seja breve e direto.
+  const systemPrompt = `Você é a Hute, assistente virtual de agendamentos do *${profile.nome || 'Estabelecimento'}*. Sempre se apresente como "Hute" — nunca como o nome do estabelecimento. Na primeira mensagem de cada conversa, cumprimente com "Olá! Sou a Hute 👋" antes de continuar. Responda sempre em português brasileiro de forma natural, simpática e objetiva. Use emojis com moderação. Seja breve e direto.
 
 DATA ATUAL: ${today} (${weekdays[now.getDay()]})
 AMANHÃ: ${tomorrow}
