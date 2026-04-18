@@ -1160,8 +1160,10 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuSection, setMenuSection] = useState(null); // null | 'dados' | 'whatsapp' | 'google'
   const [toast, setToast] = useState(null); // { msg, type: 'new'|'cancel' }
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState([]); // [{ id, msg, type, time, read }]
+  const [notifOpen, setNotifOpen] = useState(false);
   const [fcmReady, setFcmReady] = useState(false);
+  const unreadCount = notifications.filter(n => !n.read).length;
   const { isTrial, trialDaysLeft } = usePlanLimits(profile);
   const trialUrgent = isTrial && trialDaysLeft <= 2;
   const colId = user.uid;
@@ -1194,11 +1196,13 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
           playChime('new');
           const msg = `Novo agendamento: ${a.clienteNome || 'Cliente'}${a.servico ? ` — ${a.servico}` : ''}${a.hora ? ` às ${a.hora}` : ''}`;
           setToast({ msg, type: 'new' });
-          setUnreadCount(c => c + 1);
+          setNotifications(prev => [{ id: Date.now(), msg, type: 'new', time: new Date(), read: false }, ...prev].slice(0, 50));
           setTimeout(() => setToast(t => t?.msg === msg ? null : t), 6000);
         } else if (change.type === 'removed') {
+          const cancelMsg = 'Agendamento cancelado';
           playChime('cancel');
-          setToast({ msg: 'Agendamento cancelado', type: 'cancel' });
+          setToast({ msg: cancelMsg, type: 'cancel' });
+          setNotifications(prev => [{ id: Date.now(), msg: cancelMsg, type: 'cancel', time: new Date(), read: false }, ...prev].slice(0, 50));
           setTimeout(() => setToast(null), 4000);
         }
       });
@@ -1245,22 +1249,61 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
             </div>
           </div>
           {/* Bell with unread badge */}
-          <button
-            onClick={() => setUnreadCount(0)}
-            className="relative flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors"
-          >
-            <Bell className="w-5 h-5" />
-            {unreadCount > 0 && (
-              <span
-                className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-black text-white flex items-center justify-center px-1"
-                style={{ backgroundColor: '#6C3CE1' }}
-              >
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
+          <div className="relative">
+            <button
+              onClick={() => { setNotifOpen(o => !o); setNotifications(prev => prev.map(n => ({ ...n, read: true }))); }}
+              className="relative flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-black text-white flex items-center justify-center px-1"
+                  style={{ backgroundColor: '#6C3CE1' }}
+                >
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {/* Notification history panel */}
+            {notifOpen && (
+              <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                  <span className="text-sm font-black text-slate-900">Notificações</span>
+                  {notifications.length > 0 && (
+                    <button onClick={() => setNotifications([])} className="text-[10px] text-slate-400 hover:text-red-400 font-semibold transition-colors">
+                      Limpar tudo
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <Bell className="w-6 h-6 text-slate-200 mx-auto mb-2" />
+                      <p className="text-xs text-slate-400">Sem notificações</p>
+                    </div>
+                  ) : (
+                    notifications.map(n => (
+                      <div key={n.id} className={`px-4 py-3 border-b border-slate-50 flex items-start gap-3 ${n.read ? '' : 'bg-violet-50/60'}`}>
+                        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.type === 'cancel' ? 'bg-red-400' : 'bg-violet-500'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-slate-800 leading-snug">{n.msg}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            {n.time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             )}
-          </button>
+          </div>
         </div>
       </header>
+
+      {/* Click-outside to close notif panel */}
+      {notifOpen && <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />}
 
       {/* ── Trial banner ── */}
       {isTrial && (
@@ -1386,7 +1429,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       {menuOpen && (
         <div className="fixed inset-0 z-40 flex" onClick={() => { setMenuOpen(false); setMenuSection(null); }}>
           <div className="flex-1 bg-black/50" />
-          <div className="w-72 bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="w-[88%] max-w-[440px] bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-5 border-b border-slate-100 flex-shrink-0">
               {menuSection ? (
                 <button onClick={() => setMenuSection(null)} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors">
