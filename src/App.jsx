@@ -4097,6 +4097,7 @@ const DTooltip = ({ active, payload, label, prefix = "" }) => {
 
 function AdminDashboard({ user, profile }) {
   const [appointments, setAppointments] = useState([]);
+  const [cancellations, setCancellations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState("mes");
   const [customFrom, setCustomFrom] = useState('');
@@ -4111,6 +4112,14 @@ function AdminDashboard({ user, profile }) {
     const unsub = onSnapshot(
       collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${user.uid}`),
       snap => { setAppointments(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); }
+    );
+    return () => unsub();
+  }, [user.uid]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'artifacts', APP_ID, 'public', 'data', `cancellations_${user.uid}`),
+      snap => setCancellations(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     );
     return () => unsub();
   }, [user.uid]);
@@ -4179,6 +4188,33 @@ function AdminDashboard({ user, profile }) {
     const topCombo = Object.entries(comboC).sort((a,b)=>b[1]-a[1])[0]?.[0]||'—';
     const upsell = { ofertas: filteredAppts.length, aceitos: withExtras.length, taxa: filteredAppts.length>0?parseFloat(((withExtras.length/filteredAppts.length)*100).toFixed(1)):0, receitaExtra: Math.round(extrasReceita), topCombo };
 
+    // ── Cancellations & Absenteeism (last 6 months) ──────────
+    const absMonths = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const m = d.getMonth(), y = d.getFullYear();
+      const label = `${MONTHS_PT[m]}/${String(y).slice(2)}`;
+      const monthAppts = appointments.filter(a => { if (!a.data) return false; const [ay,am]=a.data.split('-').map(Number); return am-1===m&&ay===y; });
+      const monthCancels = cancellations.filter(c => {
+        if (!c.cancelledAt && !c.data) return false;
+        const ref = c.cancelledAt || (c.data + 'T00:00:00');
+        const cd = new Date(ref); return cd.getMonth()===m&&cd.getFullYear()===y;
+      });
+      const total = monthAppts.length + monthCancels.length;
+      const taxa = total > 0 ? parseFloat(((monthCancels.length / total) * 100).toFixed(1)) : 0;
+      absMonths.push({ label, agendados: monthAppts.length, cancelados: monthCancels.length, total, taxa });
+    }
+    const totalCancels = cancellations.filter(c => {
+      const ref = c.cancelledAt || (c.data ? c.data + 'T00:00:00' : null);
+      if (!ref) return false;
+      const cd = new Date(ref);
+      const { start, end } = getPeriodRange(period, customFrom, customTo);
+      return cd >= start && cd < end;
+    }).length;
+    const taxaGeral = (filteredAppts.length + totalCancels) > 0
+      ? parseFloat(((totalCancels / (filteredAppts.length + totalCancels)) * 100).toFixed(1))
+      : 0;
+
     // Month trends (always unfiltered for meaningful comparison)
     const curM=now.getMonth(), curY=now.getFullYear();
     const prevM=curM===0?11:curM-1, prevY=curM===0?curY-1:curY;
@@ -4203,12 +4239,12 @@ function AdminDashboard({ user, profile }) {
     const spark30=[];
     for(let i=29;i>=0;i--){ const d=new Date(now); d.setDate(now.getDate()-i); const iso=toDateISO(d); const dayA=filteredAppts.filter(a=>a.data===iso); const [,mo,dy]=iso.split('-'); spark30.push({ label:`${dy}/${mo}`, agendamentos:dayA.length, receita:dayA.reduce((s,a)=>s+(Number(a.valor)||0),0), extras:dayA.filter(a=>a.extras?.length>0).length }); }
 
-    return { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30 };
-  }, [filteredAppts, appointments, period, customFrom, customTo]);
+    return { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30, absMonths, totalCancels, taxaGeral };
+  }, [filteredAppts, appointments, cancellations, period, customFrom, customTo]);
 
   if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:80 }}><Loader2 className="w-6 h-6 animate-spin text-violet-400" /></div>;
 
-  const { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30 } = dash;
+  const { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30, absMonths, totalCancels, taxaGeral } = dash;
   const maxReceita = Math.max(...profissionaisData.map(p=>p.receita), 1);
   const hasFilters = filterProf || filterServico || filterHora;
   const periodLabel = getPeriodLabel(period, customFrom, customTo);
@@ -4442,6 +4478,60 @@ function AdminDashboard({ user, profile }) {
             </div>
           </DChartCard>
         )}
+
+        {/* Cancelamentos & Absenteísmo */}
+        <DChartCard>
+          <DSectionTitle>Cancelamentos & Absenteísmo</DSectionTitle>
+          {/* Summary cards */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+            <div style={{ background:"#FEF2F2", borderRadius:12, padding:14 }}>
+              <div style={{ fontSize:22, fontWeight:700, color:"#DC2626" }}>{totalCancels}</div>
+              <div style={{ fontSize:11, color:"#991B1B", marginTop:2 }}>Cancelamentos no período</div>
+            </div>
+            <div style={{ background: taxaGeral >= 20 ? "#FEF2F2" : taxaGeral >= 10 ? "#FFFBEB" : "#F0FDF4", borderRadius:12, padding:14 }}>
+              <div style={{ fontSize:22, fontWeight:700, color: taxaGeral >= 20 ? "#DC2626" : taxaGeral >= 10 ? "#D97706" : "#16A34A" }}>{taxaGeral}%</div>
+              <div style={{ fontSize:11, color: taxaGeral >= 20 ? "#991B1B" : taxaGeral >= 10 ? "#92400E" : "#15803D", marginTop:2 }}>Taxa de absenteísmo</div>
+            </div>
+          </div>
+          {/* Bar chart: agendados vs cancelados per month */}
+          <div style={{ fontSize:11, fontWeight:600, color:DC.textTertiary, marginBottom:8, letterSpacing:0.5, textTransform:"uppercase" }}>Últimos 6 meses</div>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={absMonths} barGap={2} barCategoryGap="28%">
+              <CartesianGrid strokeDasharray="3 3" stroke={DC.border} vertical={false}/>
+              <XAxis dataKey="label" tick={{ fontSize:10, fill:DC.textTertiary }} axisLine={false} tickLine={false}/>
+              <YAxis tick={{ fontSize:10, fill:DC.textTertiary }} axisLine={false} tickLine={false} allowDecimals={false} width={24}/>
+              <Tooltip
+                contentStyle={{ background:DC.card, border:`1px solid ${DC.border}`, borderRadius:10, fontSize:12 }}
+                formatter={(val, name) => [val, name === 'agendados' ? 'Realizados' : 'Cancelados']}
+              />
+              <Bar dataKey="agendados" name="agendados" fill={DC.primary} radius={[4,4,0,0]} maxBarSize={18}/>
+              <Bar dataKey="cancelados" name="cancelados" fill="#EF4444" radius={[4,4,0,0]} maxBarSize={18}/>
+            </BarChart>
+          </ResponsiveContainer>
+          {/* Line chart: taxa % per month */}
+          <div style={{ fontSize:11, fontWeight:600, color:DC.textTertiary, marginTop:16, marginBottom:8, letterSpacing:0.5, textTransform:"uppercase" }}>Taxa de absenteísmo (%)</div>
+          <ResponsiveContainer width="100%" height={100}>
+            <LineChart data={absMonths}>
+              <CartesianGrid strokeDasharray="3 3" stroke={DC.border} vertical={false}/>
+              <XAxis dataKey="label" tick={{ fontSize:10, fill:DC.textTertiary }} axisLine={false} tickLine={false}/>
+              <YAxis tick={{ fontSize:10, fill:DC.textTertiary }} axisLine={false} tickLine={false} unit="%" width={30} domain={[0, 100]}/>
+              <Tooltip
+                contentStyle={{ background:DC.card, border:`1px solid ${DC.border}`, borderRadius:10, fontSize:12 }}
+                formatter={(val) => [`${val}%`, 'Absenteísmo']}
+              />
+              <Line type="monotone" dataKey="taxa" stroke="#EF4444" strokeWidth={2} dot={{ r:3, fill:"#EF4444" }} activeDot={{ r:5 }}/>
+            </LineChart>
+          </ResponsiveContainer>
+          {/* Legend */}
+          <div style={{ display:"flex", gap:16, marginTop:10, justifyContent:"center" }}>
+            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:DC.textSecondary }}>
+              <div style={{ width:10, height:10, borderRadius:3, background:DC.primary }}/>Realizados
+            </div>
+            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:DC.textSecondary }}>
+              <div style={{ width:10, height:10, borderRadius:3, background:"#EF4444" }}/>Cancelados
+            </div>
+          </div>
+        </DChartCard>
 
         {appointments.length===0 && (
           <div style={{ textAlign:"center", padding:"60px 20px" }}>

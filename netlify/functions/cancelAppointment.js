@@ -1,5 +1,5 @@
 const { initializeApp, getApps } = require('firebase/app');
-const { getFirestore, doc, getDoc, deleteDoc } = require('firebase/firestore/lite');
+const { getFirestore, doc, getDoc, deleteDoc, collection, addDoc } = require('firebase/firestore/lite');
 
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
@@ -42,6 +42,18 @@ exports.handler = async (event) => {
     const profileData = profileDoc.exists() ? profileDoc.data() : {};
     const slug = profileData.slug || lojaId;
     const connectedPhone = profileData.whatsappNumber || '';
+
+    // Record cancellation before deleting
+    await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', `cancellations_${lojaId}`), {
+      appointmentId,
+      nomeCliente: nomeCliente || '',
+      clienteWhats: clienteWhats || '',
+      servico: servico || '',
+      data: data || '',
+      hora: hora || '',
+      profissionalNome: profissionalNome || '',
+      cancelledAt: new Date().toISOString(),
+    });
 
     // Delete appointment from Firestore
     await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, appointmentId));
