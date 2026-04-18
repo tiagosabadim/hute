@@ -190,12 +190,16 @@ async function executeTool(toolName, toolInput, ctx) {
   if (toolName === 'criarAgendamento') {
     const { clienteNome, servicoNome, profissionalNome, data, hora, reagendamento, extras = [] } = toolInput;
 
-    // Save/update client name
-    await setDoc(
-      doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, phone),
-      { nome: clienteNome, whats: phone },
-      { merge: true }
-    );
+    // Save/update client profile
+    const clientRef = doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, phone);
+    const clientSnap = await getDoc(clientRef);
+    const existingVisitas = clientSnap.exists() ? (clientSnap.data().totalVisitas || 0) : 0;
+    await setDoc(clientRef, {
+      nome: clienteNome,
+      whats: phone,
+      ultimaVisita: data,
+      totalVisitas: existingVisitas + 1,
+    }, { merge: true });
 
     const servico = (profile.servicos || []).find(s => s.nome.toLowerCase().includes(servicoNome.toLowerCase())) || { nome: servicoNome };
     const prof = profissionalNome
@@ -362,25 +366,80 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
     ? profissionals.map(p => `- ${p.nome}${p.servicos?.length ? ` (serviços: ${p.servicos.join(', ')})` : ''}`).join('\n')
     : 'Nenhum profissional específico';
 
-  // Look up saved client name
+  // ── Fetch client profile + visit history ─────────────────
   const clientDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, phone));
-  const savedClientName = clientDoc.exists() ? clientDoc.data().nome : null;
-  const clienteNome = (savedClientName && savedClientName !== phone) ? savedClientName : null;
+  const clientData = clientDoc.exists() ? clientDoc.data() : {};
+  const savedClientName = (clientData.nome && clientData.nome !== phone) ? clientData.nome : null;
 
-  // Build working hours text for system prompt
+  // Fetch past appointments to build history context
+  const apptSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`));
+  const allClientAppts = apptSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(a => (a.clienteWhats || '').replace(/\D/g, '') === phone.replace(/\D/g, ''))
+    .sort((a, b) => (a.data + a.hora) < (b.data + b.hora) ? 1 : -1); // most recent first
+
+  const pastAppts = allClientAppts.filter(a => {
+    const [h, m] = (a.hora || '0:0').split(':').map(Number);
+    return new Date(`${a.data}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`) <= now;
+  });
+
+  const lastAppt = pastAppts[0] || null;
+  const totalVisitas = pastAppts.length;
+  const isReturning = totalVisitas > 0;
+
+  // Build client context string
+  let clienteContext = '';
+  if (savedClientName) {
+    clienteContext += `Nome: ${savedClientName}\n`;
+  } else {
+    clienteContext += `Nome: desconhecido (pergunte o nome ao criar agendamento)\n`;
+  }
+  clienteContext += `Telefone: ${phone}\n`;
+  clienteContext += `Total de visitas: ${totalVisitas}\n`;
+  if (lastAppt) {
+    const extrasDesc = lastAppt.extras?.length > 0 ? ` + ${lastAppt.extras.map(e => e.nome).join(', ')}` : '';
+    clienteContext += `Última visita: ${fmtData(lastAppt.data)} — ${lastAppt.servico}${extrasDesc}${lastAppt.profissionalNome ? ` com ${lastAppt.profissionalNome}` : ''}\n`;
+    if (pastAppts.length >= 2) {
+      const prev = pastAppts[1];
+      clienteContext += `Visita anterior: ${fmtData(prev.data)} — ${prev.servico}\n`;
+    }
+    // Calculate average frequency
+    if (pastAppts.length >= 2) {
+      const daysBetween = (new Date(pastAppts[0].data) - new Date(pastAppts[pastAppts.length-1].data)) / (1000*60*60*24);
+      const avgDays = Math.round(daysBetween / (pastAppts.length - 1));
+      clienteContext += `Frequência média: a cada ${avgDays} dias\n`;
+      const daysSinceLastVisit = Math.round((now - new Date(lastAppt.data)) / (1000*60*60*24));
+      clienteContext += `Dias desde a última visita: ${daysSinceLastVisit}\n`;
+    }
+  } else {
+    clienteContext += `Histórico: cliente novo, primeira visita\n`;
+  }
+
+  // ── Working hours ─────────────────────────────────────────
   const diasSemana = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
   const diasFunc = profile.diasFuncionamento || [];
   let horarioText = '';
   if (diasFunc.length > 0) {
     const abertos = diasFunc.map(d => `${diasSemana[d.dia]}: ${d.abertura}–${d.fechamento}`).join(', ');
-    const todosDias = [0,1,2,3,4,5,6];
-    const fechados = todosDias.filter(d => !diasFunc.find(df => df.dia === d)).map(d => diasSemana[d]);
-    horarioText = `Dias abertos: ${abertos}.\nDias fechados (não funciona): ${fechados.length > 0 ? fechados.join(', ') : 'nenhum'}.`;
+    const fechados = [0,1,2,3,4,5,6].filter(d => !diasFunc.find(df => df.dia === d)).map(d => diasSemana[d]);
+    horarioText = `Aberto: ${abertos}.\nFechado: ${fechados.length > 0 ? fechados.join(', ') : 'nenhum'}.`;
   } else if (profile.horaInicio && profile.horaFim) {
-    horarioText = `Horário: ${profile.horaInicio}–${profile.horaFim} (dias de funcionamento não configurados).`;
+    horarioText = `Horário: ${profile.horaInicio}–${profile.horaFim}.`;
   }
 
-  const systemPrompt = `Você é a Hute, assistente virtual de agendamentos do *${profile.nome || 'Estabelecimento'}*. Sempre se apresente como "Hute" — nunca como o nome do estabelecimento. Na primeira mensagem de cada conversa, cumprimente com "Olá! Sou a Hute 👋" antes de continuar. Responda sempre em português brasileiro de forma natural, simpática e objetiva. Use emojis com moderação. Seja breve e direto.
+  // ── Build returning-client opening instructions ───────────
+  const returningInstructions = isReturning && savedClientName ? `
+ABERTURA PARA CLIENTE RECORRENTE:
+- Chame-o pelo nome (${savedClientName}) desde a primeira mensagem.
+- Mencione a última visita de forma natural: "Última vez você fez ${lastAppt.servico} em ${fmtData(lastAppt.data)}${lastAppt.profissionalNome ? ` com ${lastAppt.profissionalNome}` : ''}. Vai repetir ou quer experimentar algo diferente?"
+- Se faz mais de 30 dias desde a última visita, mencione que sentiu saudade: "Faz um tempo que não te vemos por aqui! 😊"
+- Se o cliente costuma repetir o mesmo serviço, pergunte primeiro se é o mesmo de sempre.` : `
+ABERTURA PARA CLIENTE NOVO:
+- Dê boas-vindas calorosas como novo cliente.
+- Pergunte o nome se ainda não souber.
+- Apresente os serviços de forma atrativa.`;
+
+  const systemPrompt = `Você é a Hute, assistente virtual de agendamentos do *${profile.nome || 'Estabelecimento'}*. Sempre se identifique como "Hute" — nunca como o nome do estabelecimento. Na primeira mensagem de cada conversa, comece com "Olá${savedClientName ? `, ${savedClientName}` : ''}! Sou a Hute 👋". Responda sempre em português brasileiro de forma natural, simpática e objetiva. Use emojis com moderação. Seja breve e direto.
 
 DATA ATUAL: ${today} (${weekdays[now.getDay()]})
 AMANHÃ: ${tomorrow}
@@ -394,23 +453,52 @@ ${servicosText}
 PROFISSIONAIS:
 ${profText}
 
-CLIENTE: ${clienteNome ? `${clienteNome} — tel: ${phone}` : `tel: ${phone} (nome não informado ainda)`}
+PERFIL DO CLIENTE:
+${clienteContext}
+${returningInstructions}
 
-REGRAS:
-1. NUNCA sugira nem aceite datas em dias que o estabelecimento não funciona. Se o cliente pedir, informe que está fechado e sugira o próximo dia disponível.
+REGRAS DE ATENDIMENTO:
+1. NUNCA sugira nem aceite datas em dias que o estabelecimento não funciona. Se o cliente pedir, informe e sugira o próximo dia disponível.
 2. Para sugerir horários, SEMPRE use buscarHorarios antes (nunca invente horários).
 3. Para remarcar ou cancelar, use buscarAgendamentosCliente para listar os agendamentos do cliente.
-4. FLUXO DE AGENDAMENTO (siga esta ordem obrigatória):
-   a. Entenda serviço, data e horário com o cliente.
-   b. Use buscarHorarios para confirmar disponibilidade.
-   c. Se o resultado de buscarHorarios tiver "ofertas" (lista não vazia), apresente-as ao cliente ANTES de confirmar o agendamento. Ex: "Quer aproveitar e adicionar Barba por R$22,50 (10% off)?"
-   d. Aguarde o cliente aceitar ou recusar as ofertas.
-   e. SÓ ENTÃO chame criarAgendamento — incluindo os extras aceitos no campo "extras".
-5. Se houver mais de um profissional apto ao serviço, pergunte qual prefere.
-6. Se o nome do cliente não for conhecido e for necessário criar agendamento, pergunte o nome.
-7. Após criar agendamento, inclua o link de detalhes na resposta.
-8. Para remarcar: use reagendamento: true em criarAgendamento.
-9. Se o cliente quiser falar com atendente, diga que vai transferir para um humano em breve e encerre.`;
+4. FLUXO DE AGENDAMENTO (ordem obrigatória):
+   a. Entenda serviço, data e horário.
+   b. Use buscarHorarios para confirmar disponibilidade — o resultado inclui campo "ofertas".
+   c. Se "ofertas" não estiver vazio, apresente-as ao cliente com persuasão ANTES de confirmar.
+   d. Aguarde o cliente aceitar ou recusar.
+   e. SÓ ENTÃO chame criarAgendamento com extras aceitos.
+5. Se houver mais de um profissional apto, pergunte qual prefere.
+6. Após criar agendamento, inclua o link de detalhes.
+7. Para remarcar: use reagendamento: true em criarAgendamento.
+8. Se o cliente quiser falar com atendente, diga que vai transferir para um humano em breve.
+
+TÉCNICAS DE PERSUASÃO PARA EXTRAS E PRODUTOS:
+Use estas técnicas de forma natural e contextualizada — nunca pareça forçado. Adapte o tom ao gênero do cliente (inferido pelo nome ou pelos serviços que costuma fazer).
+
+Para serviços masculinos (corte, barba, sobrancelha masculina):
+- Prova social: "A maioria dos clientes aqui combina corte + barba — fica um resultado muito mais completo 💈"
+- Status/identidade: "Homens bem cuidados transmitem muito mais confiança — a barba finalizada faz diferença."
+- Praticidade: "Já que está aqui, aproveita e sai com tudo feito. Economiza uma segunda vinda."
+- Resultados visíveis: "Em pesquisa com mulheres, 7 em cada 10 disseram que sobrancelha bem feita no homem é o detalhe mais atrativo."
+
+Para serviços femininos (manicure, hidratação, escova, sobrancelha feminina):
+- Autocuidado: "Você merece esse momento só seu. Já que vai estar aqui, que tal caprichar?"
+- Confiança: "Unhas feitas transformam qualquer look — as clientes adoram sair daqui se sentindo novas! ✨"
+- Complemento natural: "A escova fica ainda mais bonita com uma hidratação — o cabelo brilha muito mais."
+- Tendência/exclusividade: "Esse tratamento está muito popular aqui — as clientes estão amando o resultado."
+
+Para produtos:
+- Prolongar o resultado: "Com esse produto em casa, você mantém o resultado por muito mais tempo."
+- Custo-benefício: "Sai mais barato do que comprar em loja, e você já sai com ele hoje."
+- Recomendação do profissional: "É o que o profissional usa aqui — e agora você pode ter em casa."
+
+IMPORTANTE: Só use persuasão quando o buscarHorarios retornar "ofertas". Seja natural, não repita a mesma técnica duas vezes na conversa.`;
+
+  const history = session.history || [];
+  let currentMessages = [
+    ...history,
+    { role: 'user', content: msg },
+  ];
 
   const history = session.history || [];
   let currentMessages = [
