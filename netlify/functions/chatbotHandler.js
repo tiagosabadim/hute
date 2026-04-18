@@ -79,7 +79,7 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'JSON inválido' }) }; }
 
-  const { message = '' } = body;
+  const { message = '', origemAviso = null } = body;
   let { phone = '', connectedPhone = '' } = body;
 
   phone = phone.replace(/\D/g, '');
@@ -119,9 +119,9 @@ exports.handler = async (event) => {
 
     let session = await getSession(db, phone, lojaId);
 
-    // No session → show menu
+    // No session → show menu (optionally pre-seed origemAviso from n8n notice)
     if (!session) {
-      await saveSession(db, phone, lojaId, { step: 'menu' });
+      await saveSession(db, phone, lojaId, { step: 'menu', ...(origemAviso ? { origemAviso } : {}) });
       return reply(menuText(nomeEstab));
     }
 
@@ -301,6 +301,8 @@ exports.handler = async (event) => {
         dataHoraInternacional: dtInt.toISOString(),
         createdAt: new Date().toISOString(),
         criadoPorChatbot: true,
+        ...(session.isRemarcar ? { reagendamento: true } : {}),
+        ...(session.origemAviso ? { origemAviso: session.origemAviso } : {}),
       };
 
       // Build upsell/cross-sell offers

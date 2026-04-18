@@ -4200,9 +4200,11 @@ function AdminDashboard({ user, profile }) {
         const ref = c.cancelledAt || (c.data + 'T00:00:00');
         const cd = new Date(ref); return cd.getMonth()===m&&cd.getFullYear()===y;
       });
+      const monthReagend = monthAppts.filter(a => a.reagendamento === true).length;
+      const monthViaAviso = monthAppts.filter(a => a.origemAviso === 'manutencao' || a.origemAviso === 'reagendamento').length;
       const total = monthAppts.length + monthCancels.length;
       const taxa = total > 0 ? parseFloat(((monthCancels.length / total) * 100).toFixed(1)) : 0;
-      absMonths.push({ label, agendados: monthAppts.length, cancelados: monthCancels.length, total, taxa });
+      absMonths.push({ label, agendados: monthAppts.length, cancelados: monthCancels.length, reagendados: monthReagend, viaAviso: monthViaAviso, total, taxa });
     }
     const totalCancels = cancellations.filter(c => {
       const ref = c.cancelledAt || (c.data ? c.data + 'T00:00:00' : null);
@@ -4211,6 +4213,10 @@ function AdminDashboard({ user, profile }) {
       const { start, end } = getPeriodRange(period, customFrom, customTo);
       return cd >= start && cd < end;
     }).length;
+    const totalReagend = filteredAppts.filter(a => a.reagendamento === true).length;
+    const totalViaAviso = filteredAppts.filter(a => a.origemAviso === 'manutencao' || a.origemAviso === 'reagendamento').length;
+    const totalViaManut = filteredAppts.filter(a => a.origemAviso === 'manutencao').length;
+    const totalViaReagendAviso = filteredAppts.filter(a => a.origemAviso === 'reagendamento').length;
     const taxaGeral = (filteredAppts.length + totalCancels) > 0
       ? parseFloat(((totalCancels / (filteredAppts.length + totalCancels)) * 100).toFixed(1))
       : 0;
@@ -4239,12 +4245,12 @@ function AdminDashboard({ user, profile }) {
     const spark30=[];
     for(let i=29;i>=0;i--){ const d=new Date(now); d.setDate(now.getDate()-i); const iso=toDateISO(d); const dayA=filteredAppts.filter(a=>a.data===iso); const [,mo,dy]=iso.split('-'); spark30.push({ label:`${dy}/${mo}`, agendamentos:dayA.length, receita:dayA.reduce((s,a)=>s+(Number(a.valor)||0),0), extras:dayA.filter(a=>a.extras?.length>0).length }); }
 
-    return { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30, absMonths, totalCancels, taxaGeral };
+    return { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30, absMonths, totalCancels, taxaGeral, totalReagend, totalViaAviso, totalViaManut, totalViaReagendAviso };
   }, [filteredAppts, appointments, cancellations, period, customFrom, customTo]);
 
   if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:80 }}><Loader2 className="w-6 h-6 animate-spin text-violet-400" /></div>;
 
-  const { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30, absMonths, totalCancels, taxaGeral } = dash;
+  const { daily, weekly, servicos, profissionaisData, horarios, upsell, retencao, totalTrend, receitaTrend, totalPeriod, receitaPeriod, todayAppts, spark30, absMonths, totalCancels, taxaGeral, totalReagend, totalViaAviso, totalViaManut, totalViaReagendAviso } = dash;
   const maxReceita = Math.max(...profissionaisData.map(p=>p.receita), 1);
   const hasFilters = filterProf || filterServico || filterHora;
   const periodLabel = getPeriodLabel(period, customFrom, customTo);
@@ -4482,8 +4488,8 @@ function AdminDashboard({ user, profile }) {
         {/* Cancelamentos & Absenteísmo */}
         <DChartCard>
           <DSectionTitle>Cancelamentos & Absenteísmo</DSectionTitle>
-          {/* Summary cards */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:16 }}>
+          {/* Summary cards row 1 */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
             <div style={{ background:"#FEF2F2", borderRadius:12, padding:14 }}>
               <div style={{ fontSize:22, fontWeight:700, color:"#DC2626" }}>{totalCancels}</div>
               <div style={{ fontSize:11, color:"#991B1B", marginTop:2 }}>Cancelamentos no período</div>
@@ -4493,19 +4499,36 @@ function AdminDashboard({ user, profile }) {
               <div style={{ fontSize:11, color: taxaGeral >= 20 ? "#991B1B" : taxaGeral >= 10 ? "#92400E" : "#15803D", marginTop:2 }}>Taxa de absenteísmo</div>
             </div>
           </div>
-          {/* Bar chart: agendados vs cancelados per month */}
+          {/* Summary cards row 2: reagendamentos + avisos */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:16 }}>
+            <div style={{ background:DC.primaryFaded, borderRadius:12, padding:12 }}>
+              <div style={{ fontSize:20, fontWeight:700, color:DC.primary }}>{totalReagend}</div>
+              <div style={{ fontSize:10, color:"#4338CA", marginTop:2, lineHeight:1.3 }}>Reagendamentos</div>
+            </div>
+            <div style={{ background:"#FFF7ED", borderRadius:12, padding:12 }}>
+              <div style={{ fontSize:20, fontWeight:700, color:"#C2410C" }}>{totalViaManut}</div>
+              <div style={{ fontSize:10, color:"#9A3412", marginTop:2, lineHeight:1.3 }}>Via aviso manutenção</div>
+            </div>
+            <div style={{ background:"#F0FDF4", borderRadius:12, padding:12 }}>
+              <div style={{ fontSize:20, fontWeight:700, color:"#16A34A" }}>{totalViaReagendAviso}</div>
+              <div style={{ fontSize:10, color:"#15803D", marginTop:2, lineHeight:1.3 }}>Via aviso reagend.</div>
+            </div>
+          </div>
+          {/* Bar chart: agendados vs cancelados vs reagendados per month */}
           <div style={{ fontSize:11, fontWeight:600, color:DC.textTertiary, marginBottom:8, letterSpacing:0.5, textTransform:"uppercase" }}>Últimos 6 meses</div>
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={absMonths} barGap={2} barCategoryGap="28%">
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={absMonths} barGap={2} barCategoryGap="22%">
               <CartesianGrid strokeDasharray="3 3" stroke={DC.border} vertical={false}/>
               <XAxis dataKey="label" tick={{ fontSize:10, fill:DC.textTertiary }} axisLine={false} tickLine={false}/>
               <YAxis tick={{ fontSize:10, fill:DC.textTertiary }} axisLine={false} tickLine={false} allowDecimals={false} width={24}/>
               <Tooltip
                 contentStyle={{ background:DC.card, border:`1px solid ${DC.border}`, borderRadius:10, fontSize:12 }}
-                formatter={(val, name) => [val, name === 'agendados' ? 'Realizados' : 'Cancelados']}
+                formatter={(val, name) => [val, name === 'agendados' ? 'Realizados' : name === 'cancelados' ? 'Cancelados' : name === 'reagendados' ? 'Reagendados' : 'Via aviso']}
               />
-              <Bar dataKey="agendados" name="agendados" fill={DC.primary} radius={[4,4,0,0]} maxBarSize={18}/>
-              <Bar dataKey="cancelados" name="cancelados" fill="#EF4444" radius={[4,4,0,0]} maxBarSize={18}/>
+              <Bar dataKey="agendados" name="agendados" fill={DC.primary} radius={[4,4,0,0]} maxBarSize={14}/>
+              <Bar dataKey="cancelados" name="cancelados" fill="#EF4444" radius={[4,4,0,0]} maxBarSize={14}/>
+              <Bar dataKey="reagendados" name="reagendados" fill="#8B5CF6" radius={[4,4,0,0]} maxBarSize={14}/>
+              <Bar dataKey="viaAviso" name="viaAviso" fill="#F97316" radius={[4,4,0,0]} maxBarSize={14}/>
             </BarChart>
           </ResponsiveContainer>
           {/* Line chart: taxa % per month */}
@@ -4523,14 +4546,24 @@ function AdminDashboard({ user, profile }) {
             </LineChart>
           </ResponsiveContainer>
           {/* Legend */}
-          <div style={{ display:"flex", gap:16, marginTop:10, justifyContent:"center" }}>
-            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:DC.textSecondary }}>
-              <div style={{ width:10, height:10, borderRadius:3, background:DC.primary }}/>Realizados
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:DC.textSecondary }}>
-              <div style={{ width:10, height:10, borderRadius:3, background:"#EF4444" }}/>Cancelados
-            </div>
+          <div style={{ display:"flex", gap:12, marginTop:10, flexWrap:"wrap", justifyContent:"center" }}>
+            {[
+              { color: DC.primary, label: 'Realizados' },
+              { color: '#EF4444', label: 'Cancelados' },
+              { color: '#8B5CF6', label: 'Reagendados' },
+              { color: '#F97316', label: 'Via aviso automático' },
+            ].map(({ color, label }) => (
+              <div key={label} style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:DC.textSecondary }}>
+                <div style={{ width:10, height:10, borderRadius:3, background:color }}/>
+                {label}
+              </div>
+            ))}
           </div>
+          {totalViaAviso === 0 && (
+            <div style={{ marginTop:12, padding:"10px 14px", background:DC.bg, borderRadius:10, fontSize:11, color:DC.textTertiary, lineHeight:1.5 }}>
+              💡 <strong>Avisos automáticos:</strong> Para rastrear agendamentos gerados por avisos de manutenção/reagendamento, configure o n8n para incluir <code style={{ background:"#e2e8f0", borderRadius:4, padding:"1px 4px" }}>origemAviso: "manutencao"</code> ou <code style={{ background:"#e2e8f0", borderRadius:4, padding:"1px 4px" }}>origemAviso: "reagendamento"</code> ao acionar o chatbot.
+            </div>
+          )}
         </DChartCard>
 
         {appointments.length===0 && (
