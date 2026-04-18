@@ -1895,6 +1895,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
                               <div className="min-w-0 flex-1">
                                 <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
                                 <p className="text-xs text-slate-500 truncate">{a.servico}</p>
+                                {a.extras?.length > 0 && a.extras.map((e, ei) => (
+                                  <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
+                                ))}
                                 {a.profissionalNome && (
                                   <button onClick={() => setSelectedProfId(a.profissionalId)}
                                     className="text-[10px] font-bold mt-0.5 hover:underline"
@@ -1903,7 +1906,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
                                   </button>
                                 )}
                                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                  {a.valor && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {Number(a.valor).toFixed(2)}</span>}
+                                  {(a.valor || a.extras?.length > 0) && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {(Number(a.valor||0) + (a.extras||[]).reduce((s,e)=>s+Number(e.precoDesconto||e.preco||0),0)).toFixed(2)}</span>}
                                   {a.clienteWhats && (
                                     <a href={`https://wa.me/${a.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.clienteNome}! Lembrete: ${a.servico} às ${a.hora}. Até breve!`)}`}
                                       target="_blank" rel="noopener noreferrer"
@@ -1944,6 +1947,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
                         <div className="min-w-0 flex-1">
                           <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
                           <p className="text-xs text-slate-500 truncate">{a.servico}</p>
+                          {a.extras?.length > 0 && a.extras.map((e, ei) => (
+                            <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
+                          ))}
                           {a.profissionalNome && (
                             <button onClick={() => setSelectedProfId(a.profissionalId)}
                               className="text-[10px] font-bold mt-0.5 hover:underline"
@@ -1952,7 +1958,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
                             </button>
                           )}
                           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            {a.valor && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {Number(a.valor).toFixed(2)}</span>}
+                            {(a.valor || a.extras?.length > 0) && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {(Number(a.valor||0) + (a.extras||[]).reduce((s,e)=>s+Number(e.precoDesconto||e.preco||0),0)).toFixed(2)}</span>}
                             {a.clienteWhats && (
                               <a href={`https://wa.me/${a.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.clienteNome}! Lembrete: ${a.servico} às ${a.hora}. Até breve!`)}`}
                                 target="_blank" rel="noopener noreferrer"
@@ -6639,6 +6645,9 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-slate-900 truncate">{a.servico}</p>
+                            {a.extras?.length > 0 && a.extras.map((e, ei) => (
+                              <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
+                            ))}
                             <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
                           </div>
                         </div>
@@ -6698,6 +6707,9 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-slate-900 truncate">{a.servico}</p>
+                          {a.extras?.length > 0 && a.extras.map((e, ei) => (
+                            <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
+                          ))}
                           <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${isPast ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600'}`}>

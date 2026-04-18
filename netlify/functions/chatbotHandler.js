@@ -93,7 +93,7 @@ const AI_TOOLS = [
   },
   {
     name: 'criarAgendamento',
-    description: 'Cria o agendamento. Use SOMENTE após o cliente confirmar explicitamente todos os detalhes (serviço, data, hora e, se houver, profissional).',
+    description: 'Cria o agendamento. Use SOMENTE após o cliente confirmar explicitamente todos os detalhes (serviço, data, hora e, se houver, profissional) E após oferecer os extras disponíveis (se houver). Os extras aceitos devem ser incluídos no campo extras.',
     input_schema: {
       type: 'object',
       properties: {
@@ -103,6 +103,20 @@ const AI_TOOLS = [
         data: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
         hora: { type: 'string', description: 'Horário no formato HH:MM' },
         reagendamento: { type: 'boolean', description: 'true se o cliente estiver remarcando um horário existente' },
+        extras: {
+          type: 'array',
+          description: 'Lista de extras/complementares aceitos pelo cliente. Deixar vazio se recusou ou não havia extras.',
+          items: {
+            type: 'object',
+            properties: {
+              nome: { type: 'string' },
+              tipo: { type: 'string', description: 'servico ou produto' },
+              preco: { type: 'number' },
+              precoDesconto: { type: 'number' },
+              desconto: { type: 'number' },
+            },
+          },
+        },
       },
       required: ['clienteNome', 'servicoNome', 'data', 'hora'],
     },
@@ -138,7 +152,21 @@ async function executeTool(toolName, toolInput, ctx) {
 
     const { slots, blocked } = await computeSlots(db, lojaId, profile, data, duracao, prof?.id || null);
 
-    return { data, servico: servico?.nome || null, profissional: prof?.nome || null, horarios: slots, fechado: blocked || slots.length === 0 };
+    // Build cross-sell / upsell offers for this service
+    const ofertas = [];
+    if (servico) {
+      for (const cs of (servico.crossSell || [])) {
+        const svc = (profile.servicos || []).find(s => s.nome === cs.servicoNome);
+        if (!svc) continue;
+        const precoDesconto = svc.preco ? Math.round(svc.preco * (1 - cs.desconto / 100) * 100) / 100 : null;
+        ofertas.push({ tipo: 'servico', nome: svc.nome, precoOriginal: svc.preco || null, precoDesconto, desconto: cs.desconto, duracao: svc.duracao || 0 });
+      }
+      for (const u of (servico.upsell || [])) {
+        ofertas.push({ tipo: 'produto', nome: u.nome, preco: u.preco || null, precoDesconto: null, desconto: 0, duracao: 0 });
+      }
+    }
+
+    return { data, servico: servico?.nome || null, profissional: prof?.nome || null, horarios: slots, fechado: blocked || slots.length === 0, ofertas };
   }
 
   // ── buscarAgendamentosCliente ───────────────────────────
@@ -160,7 +188,7 @@ async function executeTool(toolName, toolInput, ctx) {
 
   // ── criarAgendamento ────────────────────────────────────
   if (toolName === 'criarAgendamento') {
-    const { clienteNome, servicoNome, profissionalNome, data, hora, reagendamento } = toolInput;
+    const { clienteNome, servicoNome, profissionalNome, data, hora, reagendamento, extras = [] } = toolInput;
 
     // Save/update client name
     await setDoc(
@@ -178,13 +206,24 @@ async function executeTool(toolName, toolInput, ctx) {
     const dtInt = new Date(`${data}T00:00:00`);
     dtInt.setHours(h, m, 0, 0);
 
+    // Calculate total duration including extra services
+    const duracaoBase = servico.duracao || profile.intervalo || 60;
+    const duracaoExtras = extras.reduce((sum, e) => {
+      if (e.tipo === 'servico') {
+        const svc = (profile.servicos || []).find(s => s.nome === e.nome);
+        return sum + (svc?.duracao || 0);
+      }
+      return sum;
+    }, 0);
+    const duracaoTotal = duracaoBase + duracaoExtras;
+
     const apptData = {
       clienteNome,
       clienteWhats: phone,
       clienteNascimento: '',
       servico: servico.nome,
       valor: servico.preco || null,
-      duracao: servico.duracao || profile.intervalo || 60,
+      duracao: duracaoTotal,
       profissionalId: prof?.id || null,
       profissionalNome: prof?.nome || null,
       data,
@@ -192,21 +231,10 @@ async function executeTool(toolName, toolInput, ctx) {
       dataHoraInternacional: dtInt.toISOString(),
       createdAt: new Date().toISOString(),
       criadoPorChatbot: true,
+      ...(extras.length > 0 ? { extras } : {}),
       ...(reagendamento ? { reagendamento: true } : {}),
       ...(session.origemAviso ? { origemAviso: session.origemAviso } : {}),
     };
-
-    // Build upsell offers to mention in conversation
-    const allOffers = [];
-    for (const cs of (servico.crossSell || [])) {
-      const svc = (profile.servicos || []).find(s => s.nome === cs.servicoNome);
-      if (!svc) continue;
-      const precoDesconto = svc.preco ? Math.round(svc.preco * (1 - cs.desconto / 100) * 100) / 100 : null;
-      allOffers.push({ tipo: 'servico', nome: svc.nome, precoOriginal: svc.preco || null, precoDesconto, desconto: cs.desconto });
-    }
-    for (const u of (servico.upsell || [])) {
-      allOffers.push({ tipo: 'produto', nome: u.nome, preco: u.preco || null });
-    }
 
     const accessToken = crypto.randomUUID();
     const apptRef = await addDoc(
@@ -240,7 +268,7 @@ async function executeTool(toolName, toolInput, ctx) {
       sendFCMPush(profile.fcmToken, 'Novo agendamento! 🗓️', `${clienteNome} — ${servico.nome} às ${hora}`, { type: 'new', lojaId }).catch(() => {});
     }
 
-    return { success: true, appointmentId: apptRef.id, linkAgendamento, servico: servico.nome, profissional: prof?.nome || null, data, hora, valor: servico.preco || null, ofertas: allOffers };
+    return { success: true, appointmentId: apptRef.id, linkAgendamento, servico: servico.nome, profissional: prof?.nome || null, data, hora, valor: servico.preco || null, extras };
   }
 
   // ── cancelarAgendamento ─────────────────────────────────
@@ -339,10 +367,26 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
   const savedClientName = clientDoc.exists() ? clientDoc.data().nome : null;
   const clienteNome = (savedClientName && savedClientName !== phone) ? savedClientName : null;
 
+  // Build working hours text for system prompt
+  const diasSemana = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+  const diasFunc = profile.diasFuncionamento || [];
+  let horarioText = '';
+  if (diasFunc.length > 0) {
+    const abertos = diasFunc.map(d => `${diasSemana[d.dia]}: ${d.abertura}–${d.fechamento}`).join(', ');
+    const todosDias = [0,1,2,3,4,5,6];
+    const fechados = todosDias.filter(d => !diasFunc.find(df => df.dia === d)).map(d => diasSemana[d]);
+    horarioText = `Dias abertos: ${abertos}.\nDias fechados (não funciona): ${fechados.length > 0 ? fechados.join(', ') : 'nenhum'}.`;
+  } else if (profile.horaInicio && profile.horaFim) {
+    horarioText = `Horário: ${profile.horaInicio}–${profile.horaFim} (dias de funcionamento não configurados).`;
+  }
+
   const systemPrompt = `Você é o assistente virtual do *${profile.nome || 'Estabelecimento'}*. Responda sempre em português brasileiro de forma natural, simpática e objetiva. Use emojis com moderação. Seja breve e direto.
 
 DATA ATUAL: ${today} (${weekdays[now.getDay()]})
 AMANHÃ: ${tomorrow}
+
+HORÁRIO DE FUNCIONAMENTO:
+${horarioText || 'Não configurado.'}
 
 SERVIÇOS DISPONÍVEIS:
 ${servicosText}
@@ -353,15 +397,20 @@ ${profText}
 CLIENTE: ${clienteNome ? `${clienteNome} — tel: ${phone}` : `tel: ${phone} (nome não informado ainda)`}
 
 REGRAS:
-1. Para sugerir horários, SEMPRE use buscarHorarios antes (nunca invente horários).
-2. Para remarcar ou cancelar, use buscarAgendamentosCliente para listar os agendamentos do cliente.
-3. Só chame criarAgendamento depois que o cliente confirmar explicitamente (serviço + data + hora).
-4. Se houver mais de um profissional apto ao serviço, pergunte qual prefere.
-5. Se o nome do cliente não for conhecido e for necessário criar agendamento, pergunte o nome.
-6. Após criar agendamento, inclua o link de detalhes na resposta.
-7. Para remarcar: use reagendamento: true em criarAgendamento.
-8. Se o cliente quiser falar com atendente, diga que vai transferir para um humano em breve e encerre.
-9. Se o resultado de criarAgendamento tiver "ofertas", mencione as opções de forma natural antes de fechar.`;
+1. NUNCA sugira nem aceite datas em dias que o estabelecimento não funciona. Se o cliente pedir, informe que está fechado e sugira o próximo dia disponível.
+2. Para sugerir horários, SEMPRE use buscarHorarios antes (nunca invente horários).
+3. Para remarcar ou cancelar, use buscarAgendamentosCliente para listar os agendamentos do cliente.
+4. FLUXO DE AGENDAMENTO (siga esta ordem obrigatória):
+   a. Entenda serviço, data e horário com o cliente.
+   b. Use buscarHorarios para confirmar disponibilidade.
+   c. Se o resultado de buscarHorarios tiver "ofertas" (lista não vazia), apresente-as ao cliente ANTES de confirmar o agendamento. Ex: "Quer aproveitar e adicionar Barba por R$22,50 (10% off)?"
+   d. Aguarde o cliente aceitar ou recusar as ofertas.
+   e. SÓ ENTÃO chame criarAgendamento — incluindo os extras aceitos no campo "extras".
+5. Se houver mais de um profissional apto ao serviço, pergunte qual prefere.
+6. Se o nome do cliente não for conhecido e for necessário criar agendamento, pergunte o nome.
+7. Após criar agendamento, inclua o link de detalhes na resposta.
+8. Para remarcar: use reagendamento: true em criarAgendamento.
+9. Se o cliente quiser falar com atendente, diga que vai transferir para um humano em breve e encerre.`;
 
   const history = session.history || [];
   let currentMessages = [
