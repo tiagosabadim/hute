@@ -198,6 +198,8 @@ async function executeTool(toolName, toolInput, ctx) {
       nome: clienteNome,
       whats: phone,
       ultimaVisita: data,
+      ultimoServico: servico.nome,
+      ultimoProfissional: prof?.nome || null,
       totalVisitas: existingVisitas + 1,
     }, { merge: true });
 
@@ -336,7 +338,7 @@ async function callClaude(messages, systemPrompt) {
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 1024,
+      max_tokens: 512,
       system: systemPrompt,
       tools: AI_TOOLS,
       messages,
@@ -366,53 +368,26 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
     ? profissionals.map(p => `- ${p.nome}${p.servicos?.length ? ` (serviços: ${p.servicos.join(', ')})` : ''}`).join('\n')
     : 'Nenhum profissional específico';
 
-  // ── Fetch client profile + visit history ─────────────────
+  // ── Fetch client profile (single doc read, no collection scan) ──
   const clientDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, phone));
   const clientData = clientDoc.exists() ? clientDoc.data() : {};
   const savedClientName = (clientData.nome && clientData.nome !== phone) ? clientData.nome : null;
-
-  // Fetch past appointments to build history context
-  const apptSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`));
-  const allClientAppts = apptSnap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .filter(a => (a.clienteWhats || '').replace(/\D/g, '') === phone.replace(/\D/g, ''))
-    .sort((a, b) => (a.data + a.hora) < (b.data + b.hora) ? 1 : -1); // most recent first
-
-  const pastAppts = allClientAppts.filter(a => {
-    const [h, m] = (a.hora || '0:0').split(':').map(Number);
-    return new Date(`${a.data}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`) <= now;
-  });
-
-  const lastAppt = pastAppts[0] || null;
-  const totalVisitas = pastAppts.length;
+  const totalVisitas = clientData.totalVisitas || 0;
+  const ultimaVisita = clientData.ultimaVisita || null;      // YYYY-MM-DD
+  const ultimoServico = clientData.ultimoServico || null;
+  const ultimoProfissional = clientData.ultimoProfissional || null;
   const isReturning = totalVisitas > 0;
 
   // Build client context string
   let clienteContext = '';
-  if (savedClientName) {
-    clienteContext += `Nome: ${savedClientName}\n`;
-  } else {
-    clienteContext += `Nome: desconhecido (pergunte o nome ao criar agendamento)\n`;
-  }
+  clienteContext += savedClientName ? `Nome: ${savedClientName}\n` : `Nome: desconhecido (pergunte ao criar agendamento)\n`;
   clienteContext += `Telefone: ${phone}\n`;
   clienteContext += `Total de visitas: ${totalVisitas}\n`;
-  if (lastAppt) {
-    const extrasDesc = lastAppt.extras?.length > 0 ? ` + ${lastAppt.extras.map(e => e.nome).join(', ')}` : '';
-    clienteContext += `Última visita: ${fmtData(lastAppt.data)} — ${lastAppt.servico}${extrasDesc}${lastAppt.profissionalNome ? ` com ${lastAppt.profissionalNome}` : ''}\n`;
-    if (pastAppts.length >= 2) {
-      const prev = pastAppts[1];
-      clienteContext += `Visita anterior: ${fmtData(prev.data)} — ${prev.servico}\n`;
-    }
-    // Calculate average frequency
-    if (pastAppts.length >= 2) {
-      const daysBetween = (new Date(pastAppts[0].data) - new Date(pastAppts[pastAppts.length-1].data)) / (1000*60*60*24);
-      const avgDays = Math.round(daysBetween / (pastAppts.length - 1));
-      clienteContext += `Frequência média: a cada ${avgDays} dias\n`;
-      const daysSinceLastVisit = Math.round((now - new Date(lastAppt.data)) / (1000*60*60*24));
-      clienteContext += `Dias desde a última visita: ${daysSinceLastVisit}\n`;
-    }
+  if (ultimaVisita) {
+    const daysSince = Math.round((now - new Date(ultimaVisita)) / (1000*60*60*24));
+    clienteContext += `Última visita: ${fmtData(ultimaVisita)}${ultimoServico ? ` — ${ultimoServico}` : ''}${ultimoProfissional ? ` com ${ultimoProfissional}` : ''} (${daysSince} dias atrás)\n`;
   } else {
-    clienteContext += `Histórico: cliente novo, primeira visita\n`;
+    clienteContext += `Histórico: cliente novo\n`;
   }
 
   // ── Working hours ─────────────────────────────────────────
@@ -428,14 +403,15 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
   }
 
   // ── Build returning-client opening instructions ───────────
+  const daysSinceVisit = ultimaVisita ? Math.round((now - new Date(ultimaVisita)) / (1000*60*60*24)) : null;
   const returningInstructions = isReturning && savedClientName ? `
 ABERTURA PARA CLIENTE RECORRENTE:
 - Chame-o pelo nome (${savedClientName}) desde a primeira mensagem.
-- Mencione a última visita de forma natural: "Última vez você fez ${lastAppt.servico} em ${fmtData(lastAppt.data)}${lastAppt.profissionalNome ? ` com ${lastAppt.profissionalNome}` : ''}. Vai repetir ou quer experimentar algo diferente?"
-- Se faz mais de 30 dias desde a última visita, mencione que sentiu saudade: "Faz um tempo que não te vemos por aqui! 😊"
-- Se o cliente costuma repetir o mesmo serviço, pergunte primeiro se é o mesmo de sempre.` : `
+${ultimoServico ? `- Mencione a última visita: "Última vez você fez ${ultimoServico}${ultimoProfissional ? ` com ${ultimoProfissional}` : ''} em ${fmtData(ultimaVisita)}. Vai repetir ou quer algo diferente?"` : '- Pergunte o que vai fazer hoje.'}
+${daysSinceVisit > 30 ? `- Diga que sentiu saudade: "Faz um tempinho que não aparecia por aqui! 😊"` : ''}
+- Se o cliente quiser o mesmo serviço de antes, facilite: confirme o serviço e passe direto para data/horário.` : `
 ABERTURA PARA CLIENTE NOVO:
-- Dê boas-vindas calorosas como novo cliente.
+- Dê boas-vindas calorosas como primeira visita.
 - Pergunte o nome se ainda não souber.
 - Apresente os serviços de forma atrativa.`;
 
@@ -508,8 +484,8 @@ IMPORTANTE: Só use persuasão quando o buscarHorarios retornar "ofertas". Seja 
 
   let finalText = null;
 
-  // Agentic loop — up to 6 tool call rounds
-  for (let turn = 0; turn < 6; turn++) {
+  // Agentic loop — up to 4 tool call rounds
+  for (let turn = 0; turn < 4; turn++) {
     const response = await callClaude(currentMessages, systemPrompt);
 
     if (response.stop_reason === 'end_turn') {
