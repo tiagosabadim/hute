@@ -1228,6 +1228,18 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 
   const handleLogout = async () => { await signOut(auth); };
 
+  // ── Sync status-bar colour with trial banner ──────────────
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    if (isTrial) {
+      meta.setAttribute('content', trialUrgent ? '#ef4444' : '#fbbf24');
+    } else {
+      meta.setAttribute('content', '#7c3aed');
+    }
+    return () => { meta.setAttribute('content', '#7c3aed'); };
+  }, [isTrial, trialUrgent]);
+
   const navItems = [
     { key: 'agenda',    icon: Calendar,  label: 'Agenda' },
     { key: 'clients',   icon: Users,     label: 'Clientes' },
@@ -1238,8 +1250,31 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   return (
     <div className="max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200">
 
+      {/* ── Sticky top block: trial banner + header ── */}
+      <div className="sticky top-0 z-10">
+
+      {/* ── Trial banner (above header) ── */}
+      {isTrial && (
+        <div className={`px-4 py-2.5 flex items-center justify-between gap-3 ${trialUrgent ? 'bg-red-500' : 'bg-amber-400'}`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${trialUrgent ? 'text-white' : 'text-amber-900'}`} />
+            <p className={`text-xs font-semibold truncate ${trialUrgent ? 'text-white' : 'text-amber-900'}`}>
+              {trialDaysLeft > 0
+                ? `Período de teste: ${trialDaysLeft} dia${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}. Assine para continuar.`
+                : 'Período de teste expirado. Assine para continuar usando.'}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowPlansModal(true)}
+            className={`text-[11px] font-black px-2.5 py-1 rounded-full flex-shrink-0 transition-colors
+              ${trialUrgent ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-amber-900/20 text-amber-900 hover:bg-amber-900/30'}`}>
+            Ver planos
+          </button>
+        </div>
+      )}
+
       {/* ── Header ── */}
-      <header className="bg-white border-b border-slate-100 px-5 py-4 sticky top-0 z-10">
+      <header className="bg-white border-b border-slate-100 px-5 py-4">
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" />
@@ -1302,28 +1337,10 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </div>
       </header>
 
+      </div>{/* end sticky top block */}
+
       {/* Click-outside to close notif panel */}
       {notifOpen && <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />}
-
-      {/* ── Trial banner ── */}
-      {isTrial && (
-        <div className={`px-4 py-2.5 flex items-center justify-between gap-3 ${trialUrgent ? 'bg-red-500' : 'bg-amber-400'}`}>
-          <div className="flex items-center gap-2 min-w-0">
-            <Zap className={`w-3.5 h-3.5 flex-shrink-0 ${trialUrgent ? 'text-white' : 'text-amber-900'}`} />
-            <p className={`text-xs font-semibold truncate ${trialUrgent ? 'text-white' : 'text-amber-900'}`}>
-              {trialDaysLeft > 0
-                ? `Período de teste: ${trialDaysLeft} dia${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}. Assine para continuar.`
-                : 'Período de teste expirado. Assine para continuar usando.'}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowPlansModal(true)}
-            className={`text-[11px] font-black px-2.5 py-1 rounded-full flex-shrink-0 transition-colors
-              ${trialUrgent ? 'bg-white text-red-600 hover:bg-red-50' : 'bg-amber-900/20 text-amber-900 hover:bg-amber-900/30'}`}>
-            Ver planos
-          </button>
-        </div>
-      )}
 
       {/* ── iOS PWA install banner ── */}
       {!fcmReady && isIOS && !isStandalone && (
