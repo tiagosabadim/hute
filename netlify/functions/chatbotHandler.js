@@ -190,6 +190,11 @@ async function executeTool(toolName, toolInput, ctx) {
   if (toolName === 'criarAgendamento') {
     const { clienteNome, servicoNome, profissionalNome, data, hora, reagendamento, extras = [] } = toolInput;
 
+    const servico = (profile.servicos || []).find(s => s.nome.toLowerCase().includes(servicoNome.toLowerCase())) || { nome: servicoNome };
+    const prof = profissionalNome
+      ? (profile.profissionals || []).find(p => p.nome.toLowerCase().includes(profissionalNome.toLowerCase()))
+      : null;
+
     // Save/update client profile
     const clientRef = doc(db, 'artifacts', APP_ID, 'public', 'data', `clients_${lojaId}`, phone);
     const clientSnap = await getDoc(clientRef);
@@ -202,11 +207,6 @@ async function executeTool(toolName, toolInput, ctx) {
       ultimoProfissional: prof?.nome || null,
       totalVisitas: existingVisitas + 1,
     }, { merge: true });
-
-    const servico = (profile.servicos || []).find(s => s.nome.toLowerCase().includes(servicoNome.toLowerCase())) || { nome: servicoNome };
-    const prof = profissionalNome
-      ? (profile.profissionals || []).find(p => p.nome.toLowerCase().includes(profissionalNome.toLowerCase()))
-      : null;
 
     const [h, m] = hora.split(':').map(Number);
     const dtInt = new Date(`${data}T00:00:00`);
@@ -420,19 +420,25 @@ ${clienteContext}
 ${returningInstructions}
 
 REGRAS DE ATENDIMENTO:
-1. NUNCA sugira nem aceite datas em dias que o estabelecimento não funciona. Se o cliente pedir, informe e sugira o próximo dia disponível.
-2. Para sugerir horários, SEMPRE use buscarHorarios antes (nunca invente horários).
-3. Para remarcar ou cancelar, use buscarAgendamentosCliente para listar os agendamentos do cliente.
-4. FLUXO DE AGENDAMENTO (ordem obrigatória):
-   a. Entenda serviço, data e horário.
-   b. Use buscarHorarios para confirmar disponibilidade — o resultado inclui campo "ofertas".
-   c. Se "ofertas" não estiver vazio, apresente-as ao cliente com persuasão ANTES de confirmar.
-   d. Aguarde o cliente aceitar ou recusar.
-   e. SÓ ENTÃO chame criarAgendamento com extras aceitos.
-5. Se houver mais de um profissional apto, pergunte qual prefere.
-6. Após criar agendamento, inclua o link de detalhes.
-7. Para remarcar: use reagendamento: true em criarAgendamento.
-8. Se o cliente quiser falar com atendente, diga que vai transferir para um humano em breve.
+1. Colete informações UMA POR VEZ — faça uma pergunta, espere a resposta, depois faça a próxima.
+2. NUNCA invente horários. Use sempre buscarHorarios.
+3. NUNCA chame criarAgendamento sem confirmação explícita do cliente.
+4. NUNCA exiba menus numéricos. Converse naturalmente.
+
+FLUXO DE AGENDAMENTO (siga esta ordem):
+   a. Identifique o serviço desejado.
+   b. Se houver mais de um profissional disponível para o serviço, pergunte qual prefere — aguarde resposta.
+   c. Pergunte qual dia prefere — aguarde resposta.
+   d. Chame buscarHorarios com o dia informado. Se fechado, informe e peça outro dia.
+   e. Apresente os horários disponíveis de forma clara. Pergunte qual horário prefere — aguarde resposta.
+   f. Se buscarHorarios retornou "ofertas", apresente-as naturalmente e pergunte se quer adicionar — aguarde resposta.
+   g. Mostre um resumo claro: serviço, profissional (se houver), data, hora, valor total. Pergunte "Confirma?" — aguarde resposta.
+   h. Quando o cliente confirmar com qualquer variação de "sim" (isso, confirmo, ok, perfeito, pode ser, pode, fechou, tá bom, 👍), chame criarAgendamento imediatamente.
+   i. Após criar: informe o sucesso e envie o link de detalhes.
+
+FLUXO DE REMARCAÇÃO: use buscarAgendamentosCliente → apresente o agendamento atual → colete nova data/hora → confirme → criarAgendamento com reagendamento: true.
+FLUXO DE CANCELAMENTO: use buscarAgendamentosCliente → confirme qual cancelar → confirme com o cliente → cancelarAgendamento.
+Se o cliente quiser falar com atendente: diga que vai transferir em breve.
 
 TÉCNICAS DE PERSUASÃO PARA EXTRAS E PRODUTOS:
 Use estas técnicas de forma natural e contextualizada — nunca pareça forçado. Adapte o tom ao gênero do cliente (inferido pelo nome ou pelos serviços que costuma fazer).
