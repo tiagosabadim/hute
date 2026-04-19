@@ -329,27 +329,33 @@ async function executeTool(toolName, toolInput, ctx) {
 }
 
 async function callClaude(messages, systemPrompt) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 512,
-      system: systemPrompt,
-      tools: AI_TOOLS,
-      messages,
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Anthropic API ${res.status}: ${errText}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000); // 8s hard limit
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: 400,
+        system: systemPrompt,
+        tools: AI_TOOLS,
+        messages,
+      }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Anthropic API ${res.status}: ${errText}`);
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json();
 }
 
 async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, origemAviso) {
@@ -431,30 +437,7 @@ REGRAS DE ATENDIMENTO:
 TÉCNICAS DE PERSUASÃO PARA EXTRAS E PRODUTOS:
 Use estas técnicas de forma natural e contextualizada — nunca pareça forçado. Adapte o tom ao gênero do cliente (inferido pelo nome ou pelos serviços que costuma fazer).
 
-Para serviços masculinos (corte, barba, sobrancelha masculina):
-- Prova social: "A maioria dos clientes aqui combina corte + barba — fica um resultado muito mais completo 💈"
-- Status/identidade: "Homens bem cuidados transmitem muito mais confiança — a barba finalizada faz diferença."
-- Praticidade: "Já que está aqui, aproveita e sai com tudo feito. Economiza uma segunda vinda."
-- Resultados visíveis: "Em pesquisa com mulheres, 7 em cada 10 disseram que sobrancelha bem feita no homem é o detalhe mais atrativo."
-
-Para serviços femininos (manicure, hidratação, escova, sobrancelha feminina):
-- Autocuidado: "Você merece esse momento só seu. Já que vai estar aqui, que tal caprichar?"
-- Confiança: "Unhas feitas transformam qualquer look — as clientes adoram sair daqui se sentindo novas! ✨"
-- Complemento natural: "A escova fica ainda mais bonita com uma hidratação — o cabelo brilha muito mais."
-- Tendência/exclusividade: "Esse tratamento está muito popular aqui — as clientes estão amando o resultado."
-
-Para produtos:
-- Prolongar o resultado: "Com esse produto em casa, você mantém o resultado por muito mais tempo."
-- Custo-benefício: "Sai mais barato do que comprar em loja, e você já sai com ele hoje."
-- Recomendação do profissional: "É o que o profissional usa aqui — e agora você pode ter em casa."
-
 IMPORTANTE: Só use persuasão quando o buscarHorarios retornar "ofertas". Seja natural, não repita a mesma técnica duas vezes na conversa.`;
-
-  const history = session.history || [];
-  let currentMessages = [
-    ...history,
-    { role: 'user', content: msg },
-  ];
 
   const history = session.history || [];
   let currentMessages = [
