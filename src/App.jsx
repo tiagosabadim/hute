@@ -1278,10 +1278,12 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       {/* ── Header ── */}
       <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
         <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
+            <span className="font-black text-white text-base tracking-tight leading-none">hute</span>
+            <span className="text-white/30 text-lg font-thin leading-none">|</span>
             <div className="flex flex-col">
-              <span className="font-black text-white text-base tracking-tight leading-none">{profile.nome || 'Painel de Gestão'}</span>
+              <span className="font-bold text-white text-sm leading-none">{profile.nome || 'Painel de Gestão'}</span>
               {profile.subtitulo && (
                 <span className="text-[11px] text-white/60 font-medium leading-none mt-0.5">{profile.subtitulo}</span>
               )}
