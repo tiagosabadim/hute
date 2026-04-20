@@ -75,15 +75,15 @@ function menuText(nomeEstab) {
 const AI_TOOLS = [
   {
     name: 'buscarHorarios',
-    description: 'Busca horários disponíveis para um serviço em uma data específica. Use sempre antes de sugerir horários ao cliente.',
+    description: 'Busca horários disponíveis para um serviço em uma data específica. SEMPRE passe servicoNome para calcular duração correta e retornar ofertas de upsell. Use antes de sugerir horários.',
     input_schema: {
       type: 'object',
       properties: {
         data: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
-        servicoNome: { type: 'string', description: 'Nome do serviço (para calcular duração correta)' },
-        profissionalNome: { type: 'string', description: 'Nome do profissional preferido (opcional)' },
+        servicoNome: { type: 'string', description: 'Nome do serviço — OBRIGATÓRIO para calcular duração e retornar upsell/cross-sell' },
+        profissionalNome: { type: 'string', description: 'Nome do profissional preferido (se o cliente escolheu um)' },
       },
-      required: ['data'],
+      required: ['data', 'servicoNome'],
     },
   },
   {
@@ -166,7 +166,14 @@ async function executeTool(toolName, toolInput, ctx) {
       }
     }
 
-    return { data, servico: servico?.nome || null, profissional: prof?.nome || null, horarios: slots, fechado: blocked || slots.length === 0, ofertas };
+    const result = { data, servico: servico?.nome || null, profissional: prof?.nome || null, horarios: slots, fechado: blocked || slots.length === 0, ofertas };
+
+    // Inject explicit AI instruction when offers exist
+    if (ofertas.length > 0) {
+      result._instrucao = `ATENÇÃO: Este serviço tem ${ofertas.length} oferta(s) de upsell/cross-sell. Após o cliente escolher o horário, você DEVE apresentar estas ofertas ANTES de mostrar o resumo ou criar o agendamento. Ofertas: ${ofertas.map(o => `${o.nome} (${o.tipo === 'produto' ? `R$ ${o.preco || '?'}` : `R$ ${o.precoDesconto || o.precoOriginal || '?'}`})`).join(', ')}`;
+    }
+
+    return result;
   }
 
   // ── buscarAgendamentosCliente ───────────────────────────
