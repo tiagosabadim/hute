@@ -353,12 +353,9 @@ export default function App() {
   }, [fetchProfile]);
 
   const Loading = () => (
-    <div className="h-screen flex flex-col items-center justify-center bg-gradient-to-br from-violet-600 to-violet-800">
-      <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-        <Sparkles className="w-8 h-8 text-white" />
-      </div>
-      <span className="text-white font-black text-2xl tracking-tight mb-2">hute</span>
-      <Loader2 className="w-5 h-5 animate-spin text-white/70" />
+    <div className="h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
+      <img src="/logosplash.svg" alt="hute" className="w-56 mb-8" />
+      <Loader2 className="w-5 h-5 animate-spin text-white/50" />
     </div>
   );
 
@@ -767,15 +764,12 @@ function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-600 via-violet-700 to-violet-900 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
       <div className="w-full max-w-sm">
         {/* Branding */}
         <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <Sparkles className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-white font-black text-3xl tracking-tight">hute</h1>
-          <p className="text-violet-200 text-sm mt-1">Mais que uma agenda, a sua secretária inteligente</p>
+          <img src="/logosplash.svg" alt="hute" className="w-52 mx-auto mb-3" />
+          <p className="text-white/50 text-sm">Mais que uma agenda, a sua secretária inteligente</p>
         </div>
 
         {/* Card */}
