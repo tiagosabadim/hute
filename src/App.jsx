@@ -725,6 +725,11 @@ function LoginScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', '#6C3CE1');
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -5306,10 +5311,14 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
   // ── Status-bar preta para acompanhar máscara do banner ───
   useEffect(() => {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (!meta) return;
-    meta.setAttribute('content', '#000000');
-    return () => { meta.setAttribute('content', '#6C3CE1'); };
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    const statusMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (themeMeta) themeMeta.setAttribute('content', '#000000');
+    if (statusMeta) statusMeta.setAttribute('content', 'black');
+    return () => {
+      if (themeMeta) themeMeta.setAttribute('content', '#6C3CE1');
+      if (statusMeta) statusMeta.setAttribute('content', 'default');
+    };
   }, []);
 
   // ── Token validation ─────────────────────────────────────
@@ -5478,17 +5487,23 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   // ── Dynamic PWA manifest ─────────────────────────────────
   useEffect(() => {
     if (!profile?.nome) return;
+    const slug = profile.slug || lojaUid;
+    const startUrl = `${window.location.origin}/#${slug}`;
     const icons = profile.logo
-      ? [{ src: profile.logo, sizes: 'any', type: 'image/png', purpose: 'any' }]
+      ? [
+          { src: profile.logo, sizes: 'any', type: 'image/png', purpose: 'any' },
+          { src: profile.logo, sizes: 'any', type: 'image/png', purpose: 'maskable' },
+        ]
       : [{ src: '/ICON.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }];
     const manifest = {
       name: profile.nome,
       short_name: profile.nome,
       description: `Agende com ${profile.nome}`,
-      start_url: window.location.href,
+      start_url: startUrl,
+      scope: '/',
       display: 'standalone',
-      background_color: '#f8fafc',
-      theme_color: '#6C3CE1',
+      background_color: '#000000',
+      theme_color: '#000000',
       orientation: 'portrait',
       icons,
     };
@@ -5496,19 +5511,24 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     const blobUrl = URL.createObjectURL(blob);
     const link = document.querySelector('link[rel="manifest"]');
     if (link) link.href = blobUrl;
+    // Título iOS homescreen
     const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
     if (metaTitle) metaTitle.content = profile.nome;
-    if (profile.logo) {
-      let touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
-      if (!touchIcon) {
-        touchIcon = document.createElement('link');
-        touchIcon.rel = 'apple-touch-icon';
-        document.head.appendChild(touchIcon);
-      }
-      touchIcon.href = profile.logo;
+    document.title = profile.nome;
+    // Ícone iOS homescreen
+    let touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
+    if (!touchIcon) {
+      touchIcon = document.createElement('link');
+      touchIcon.rel = 'apple-touch-icon';
+      document.head.appendChild(touchIcon);
     }
-    return () => URL.revokeObjectURL(blobUrl);
-  }, [profile?.nome, profile?.logo]);
+    touchIcon.href = profile.logo || '/ICON.svg';
+    return () => {
+      URL.revokeObjectURL(blobUrl);
+      document.title = 'Hute - Sua secretária inteligente';
+      if (metaTitle) metaTitle.content = 'Hute';
+    };
+  }, [profile?.nome, profile?.logo, profile?.slug, lojaUid]);
 
   // ── PWA install prompt ───────────────────────────────────
   useEffect(() => {
