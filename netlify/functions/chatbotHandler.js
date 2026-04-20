@@ -482,11 +482,42 @@ ATENDENTE: "Vou transferir você para um atendente agora! 😊"`;
   // Build the upsell injection for the system prompt (if pending and not yet shown)
   let upsellInjection = '';
   if (pendingOfertas.length > 0 && !session.ofertasApresentadas) {
-    const ofertasText = pendingOfertas.map(o => {
-      const preco = o.precoDesconto != null ? `R$ ${o.precoDesconto} (de R$ ${o.precoOriginal || o.preco})` : `R$ ${o.preco || '?'}`;
-      return `• *${o.nome}* — ${preco}`;
-    }).join('\n');
-    upsellInjection = `\n\n🚨 AÇÃO OBRIGATÓRIA NESTA MENSAGEM — UPSELL PENDENTE:\nO cliente ainda não viu estas ofertas. Apresente-as AGORA antes de qualquer resumo ou agendamento:\n${ofertasText}\nDiga algo como: "Aproveitando a visita, temos também [nome] — quer incluir? 😊" → PARE e aguarde a resposta do cliente.`;
+    const servicos = pendingOfertas.filter(o => o.tipo === 'servico');
+    const produtos = pendingOfertas.filter(o => o.tipo === 'produto');
+
+    // Build natural description of services
+    const servicosDesc = servicos.map(o => {
+      const desconto = o.desconto ? `${o.desconto}% de desconto` : null;
+      return `${o.nome}${desconto ? ` (${desconto})` : ''}`;
+    });
+    const produtosDesc = produtos.map(o => {
+      const preco = o.preco ? `R$ ${Number(o.preco).toFixed(2)}` : null;
+      return `${o.nome}${preco ? ` por ${preco}` : ''}`;
+    });
+
+    // Build example message similar to what a real secretary would say
+    const clienteRef = savedClientName ? savedClientName : 'você';
+    let exemploMsg = '';
+    if (servicos.length > 0 && produtos.length > 0) {
+      const nomesServicos = servicos.map(s => s.nome).join(' ou ');
+      const desconto = servicos[0].desconto ? `${servicos[0].desconto}% de desconto` : 'com desconto';
+      const nomesProd = produtos.map(p => p.nome).join(' e ');
+      exemploMsg = `"${clienteRef}, vamos aproveitar que o profissional está com horário livre e agendar também ${nomesServicos}? ${desconto} para ${servicos.length > 1 ? 'ambos' : 'o serviço'}! E ainda temos ${nomesProd} em promoção levando junto — posso adicionar?"`;
+    } else if (servicos.length > 0) {
+      const nomesServicos = servicos.map(s => s.nome).join(' ou ');
+      const desconto = servicos[0].desconto ? `${servicos[0].desconto}% de desconto` : 'com desconto';
+      exemploMsg = `"${clienteRef}, vamos aproveitar e adicionar ${nomesServicos} também? ${desconto}!"`;
+    } else if (produtos.length > 0) {
+      const nomesProd = produtos.map(p => p.nome).join(' e ');
+      exemploMsg = `"${clienteRef}, temos ${nomesProd} em promoção — quer levar junto?"`;
+    }
+
+    const ofertasData = [
+      ...servicos.map(o => `Serviço: ${o.nome}, desconto: ${o.desconto || 0}%, preço com desconto: R$ ${o.precoDesconto || o.precoOriginal || '?'}`),
+      ...produtos.map(o => `Produto: ${o.nome}, preço: R$ ${o.preco || '?'}`),
+    ].join(' | ');
+
+    upsellInjection = `\n\n🚨 UPSELL OBRIGATÓRIO NESTA MENSAGEM (antes do resumo ou agendamento):\nDados das ofertas: ${ofertasData}\nSeja natural e calorosa, como uma secretária real. Use o nome do cliente e do profissional da conversa. Inspire-se neste exemplo (adapte com seu estilo):\n${exemploMsg}\n→ PARE após oferecer. Aguarde o cliente aceitar ou recusar antes de continuar.`;
     ofertasInjetadas = true;
   }
 
