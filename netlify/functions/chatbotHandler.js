@@ -396,18 +396,16 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
     horarioText = `Horário: ${profile.horaInicio}–${profile.horaFim}.`;
   }
 
-  // ── Build returning-client opening instructions ───────────
-  // Detect greeting in current message
-  const isGreeting = /^\s*(oi|olá|ola|bom\s*dia|boa\s*tarde|boa\s*noite|hey|hello|e\s*ai|eai|tudo\s*bem|tudo\s*bom)\W*\s*$/i.test(msg.trim());
-
   // Build professional list with their services for context
   const profListText = profissionals.length
     ? profissionals.map(p => `- ${p.nome}${p.servicos?.length ? ` → serviços: ${p.servicos.join(', ')}` : ' → todos os serviços'}`).join('\n')
     : 'Atendimento sem profissional fixo.';
 
+  const isFirstMessage = !session.history || session.history.length === 0;
   const saudacao = /boa\s*tarde/i.test(msg) ? 'Boa tarde' : /boa\s*noite/i.test(msg) ? 'Boa noite' : 'Bom dia';
+  const nomeEstab = profile.nome || 'Estabelecimento';
 
-  const systemPrompt = `Você é a Hute, secretária virtual do *${profile.nome || 'Estabelecimento'}*. Sempre se apresente como "Hute" — nunca como o nome do estabelecimento. Responda em português brasileiro de forma calorosa e objetiva. Emojis com moderação. Mensagens curtas.
+  const systemPrompt = `Você é a Hute, secretária virtual do ${nomeEstab}. Quando se apresentar, diga SEMPRE: "Sou a Hute, secretária do ${nomeEstab}" — nunca omita o nome do estabelecimento. Responda em português brasileiro de forma calorosa e objetiva. Emojis com moderação. Mensagens curtas.
 
 DATA ATUAL: ${today} (${weekdays[now.getDay()]})
 AMANHÃ: ${tomorrow}
@@ -423,7 +421,9 @@ ${profListText}
 
 CLIENTE: ${savedClientName ? `${savedClientName} (cliente conhecido — chame pelo nome desde a primeira mensagem)` : 'desconhecido (pergunte o nome ao agendar)'}
 
-${isGreeting ? `ESTA MENSAGEM É UMA SAUDAÇÃO. Responda apresentando-se como Hute, secretária do ${profile.nome || 'estabelecimento'}, usando "${saudacao}" e perguntando como pode ajudar. ${savedClientName ? `Inclua o nome: ${savedClientName}.` : ''}` : ''}
+${isFirstMessage ? `PRIMEIRA MENSAGEM DA CONVERSA: apresente-se obrigatoriamente com este formato exato (adapte a saudação ao horário):
+"${saudacao}${savedClientName ? `, ${savedClientName}` : ''}! Sou a Hute, secretária do ${nomeEstab} 😊 No que posso te ajudar?"
+Use essa estrutura exata. Depois pergunte como pode ajudar.` : ''}
 
 ═══ REGRAS ABSOLUTAS (nunca quebre estas regras) ═══
 • Faça UMA pergunta por mensagem. Espere a resposta antes de continuar.
