@@ -1278,29 +1278,16 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       {/* ── Header ── */}
       <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
         <div className="flex justify-between items-center">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
-            <div className="flex flex-col gap-0">
-              <div className="flex items-baseline gap-1.5">
-                <span className="font-black text-white text-base tracking-tight leading-none">hute</span>
-                <span className="text-[11px] text-white/70 font-medium leading-none">{profile.nome || 'Painel de Gestão'}</span>
-              </div>
+            <div className="flex flex-col">
+              <span className="font-black text-white text-base tracking-tight leading-none">{profile.nome || 'Painel de Gestão'}</span>
               {profile.subtitulo && (
-                <span className="text-[10px] text-white/50 font-medium leading-none mt-0.5">{profile.subtitulo}</span>
+                <span className="text-[11px] text-white/60 font-medium leading-none mt-0.5">{profile.subtitulo}</span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-1">
-            {/* Nova marcação — só na aba agenda */}
-            {view === 'agenda' && (
-              <button
-                onClick={() => setAgendaNewApptTrigger(t => t + 1)}
-                title="Nova marcação"
-                className="flex items-center justify-center w-9 h-9 rounded-xl border border-white/40 text-white hover:bg-white/10 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            )}
             {/* Bell with unread badge */}
             <div className="relative">
               <button
