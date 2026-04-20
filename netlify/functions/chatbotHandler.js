@@ -472,16 +472,38 @@ CANCELAR: buscarAgendamentosCliente → mostra opções → confirma → cancela
 ATENDENTE: "Vou transferir você para um atendente agora! 😊"`;
 
   const history = session.history || [];
+
+  // ── Upsell state persisted across turns ─────────────────────────────────────
+  // ofertas come from buscarHorarios but history only stores text, so we persist
+  // them in the session and inject them on the following turn.
+  let pendingOfertas = session.pendingOfertas || [];
+  let ofertasInjetadas = false; // did we inject the upsell instruction this turn?
+
+  // Build the upsell injection for the system prompt (if pending and not yet shown)
+  let upsellInjection = '';
+  if (pendingOfertas.length > 0 && !session.ofertasApresentadas) {
+    const ofertasText = pendingOfertas.map(o => {
+      const preco = o.precoDesconto != null ? `R$ ${o.precoDesconto} (de R$ ${o.precoOriginal || o.preco})` : `R$ ${o.preco || '?'}`;
+      return `• *${o.nome}* — ${preco}`;
+    }).join('\n');
+    upsellInjection = `\n\n🚨 AÇÃO OBRIGATÓRIA NESTA MENSAGEM — UPSELL PENDENTE:\nO cliente ainda não viu estas ofertas. Apresente-as AGORA antes de qualquer resumo ou agendamento:\n${ofertasText}\nDiga algo como: "Aproveitando a visita, temos também [nome] — quer incluir? 😊" → PARE e aguarde a resposta do cliente.`;
+    ofertasInjetadas = true;
+  }
+
+  const fullSystemPrompt = systemPrompt + upsellInjection;
+
   let currentMessages = [
     ...history,
     { role: 'user', content: msg },
   ];
 
   let finalText = null;
+  let newPendingOfertas = pendingOfertas.slice();
+  let criarAgendamentoCalled = false;
 
   // Agentic loop — up to 4 tool call rounds
   for (let turn = 0; turn < 4; turn++) {
-    const response = await callClaude(currentMessages, systemPrompt);
+    const response = await callClaude(currentMessages, fullSystemPrompt);
 
     if (response.stop_reason === 'end_turn') {
       finalText = response.content.find(b => b.type === 'text')?.text || '';
@@ -500,6 +522,17 @@ ATENDENTE: "Vou transferir você para um atendente agora! 😊"`;
         console.log(`[AI tool] ${tb.name}`, JSON.stringify(tb.input));
         const result = await executeTool(tb.name, tb.input, { db, lojaId, phone, profile, slugFinal, session });
         console.log(`[AI tool result] ${tb.name}`, JSON.stringify(result));
+
+        // Track upsell offers returned by buscarHorarios
+        if (tb.name === 'buscarHorarios' && result.ofertas?.length > 0) {
+          newPendingOfertas = result.ofertas;
+        }
+        // Clear offers after booking
+        if (tb.name === 'criarAgendamento') {
+          newPendingOfertas = [];
+          criarAgendamentoCalled = true;
+        }
+
         toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: JSON.stringify(result) });
       }
 
@@ -514,16 +547,23 @@ ATENDENTE: "Vou transferir você para um atendente agora! 😊"`;
 
   if (!finalText) finalText = 'Desculpe, não consegui processar sua mensagem. Tente novamente.';
 
-  // Persist history — only text turns (user + assistant final text), max MAX_HISTORY messages
+  // Persist history — only text turns, max MAX_HISTORY messages
   const newHistory = [
     ...history,
     { role: 'user', content: msg },
     { role: 'assistant', content: finalText },
   ].slice(-MAX_HISTORY);
 
+  // Upsell session state:
+  // - ofertasApresentadas: true after we injected the upsell (next turn we clear)
+  // - pendingOfertas: cleared after booking or after they were presented+acknowledged
+  const ofertasApresentadas = ofertasInjetadas ? true : (session.ofertasApresentadas && !criarAgendamentoCalled ? false : false);
+
   await saveSession(db, phone, lojaId, {
     mode: 'ai',
     history: newHistory,
+    pendingOfertas: criarAgendamentoCalled ? [] : newPendingOfertas,
+    ofertasApresentadas,
     ...(origemAviso ? { origemAviso } : session.origemAviso ? { origemAviso: session.origemAviso } : {}),
   });
 
