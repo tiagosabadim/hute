@@ -353,7 +353,7 @@ export default function App() {
   }, [fetchProfile]);
 
   const Loading = () => (
-    <div className="h-screen flex flex-col items-center justify-center" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
+    <div className="flex flex-col items-center justify-center" style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', paddingTop: 'env(safe-area-inset-top)' }}>
       <img src="/logosplash.svg" alt="hute" className="w-56 mb-8" />
       <Loader2 className="w-5 h-5 animate-spin text-white/50" />
     </div>
@@ -769,7 +769,7 @@ function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
+    <div className="flex flex-col items-center justify-center p-6" style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}>
       <div className="w-full max-w-sm">
         {/* Branding */}
         <div className="text-center mb-10">
@@ -1275,7 +1275,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       )}
 
       {/* ── Header ── */}
-      <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
+      <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -5203,8 +5203,8 @@ function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showS
         {/* Bottom mask — destaca nome */}
         <div className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black/85 to-transparent pointer-events-none" />
 
-        {/* Top bar: back / signout */}
-        <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
+        {/* Top bar: back / signout — respeitando safe-area-inset-top */}
+        <div className="absolute left-4 right-4 flex items-center justify-between" style={{ top: 'max(0.75rem, env(safe-area-inset-top))' }}>
           {showBack
             ? <button onClick={onBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
             : <div />
@@ -5343,15 +5343,15 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const profissionals = profile.profissionals || [];
   const servicos = profile.servicos || [];
 
-  // ── Status-bar preta para acompanhar máscara do banner ───
+  // ── Status-bar preta (black-translucent) para loja ───────
   useEffect(() => {
     const themeMeta = document.querySelector('meta[name="theme-color"]');
     const statusMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
     if (themeMeta) themeMeta.setAttribute('content', '#000000');
-    if (statusMeta) statusMeta.setAttribute('content', 'black');
+    if (statusMeta) statusMeta.setAttribute('content', 'black-translucent');
     return () => {
       if (themeMeta) themeMeta.setAttribute('content', '#6C3CE1');
-      if (statusMeta) statusMeta.setAttribute('content', 'default');
+      if (statusMeta) statusMeta.setAttribute('content', 'black-translucent');
     };
   }, []);
 
@@ -5518,23 +5518,24 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     return () => unsub();
   }, [clientUser, lojaUid, clientAccount]);
 
-  // ── Dynamic PWA manifest ─────────────────────────────────
+  // ── Dynamic PWA manifest — roda cedo, atualiza quando profile carrega ──
   useEffect(() => {
-    if (!profile?.nome) return;
-    const slug = profile.slug || lojaUid;
+    const slug = profile?.slug || lojaUid;
+    const nome = profile?.nome || slug;
     const startUrl = `${window.location.origin}/#${slug}`;
-    const icons = profile.logo
+    const logoSrc = profile?.logo || null;
+    const icons = logoSrc
       ? [
-          { src: profile.logo, sizes: 'any', type: 'image/png', purpose: 'any' },
-          { src: profile.logo, sizes: 'any', type: 'image/png', purpose: 'maskable' },
+          { src: logoSrc, sizes: 'any', type: 'image/png', purpose: 'any' },
+          { src: logoSrc, sizes: 'any', type: 'image/png', purpose: 'maskable' },
         ]
       : [{ src: '/ICON.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }];
     const manifest = {
-      name: profile.nome,
-      short_name: profile.nome,
-      description: `Agende com ${profile.nome}`,
+      name: nome,
+      short_name: nome,
+      description: `Agende com ${nome}`,
       start_url: startUrl,
-      scope: '/',
+      scope: `${window.location.origin}/`,
       display: 'standalone',
       background_color: '#000000',
       theme_color: '#000000',
@@ -5544,21 +5545,18 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
     const blobUrl = URL.createObjectURL(blob);
     const link = document.querySelector('link[rel="manifest"]');
+    const prevHref = link?.href;
     if (link) link.href = blobUrl;
-    // Título iOS homescreen
+    // iOS homescreen title + icon
     const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    if (metaTitle) metaTitle.content = profile.nome;
-    document.title = profile.nome;
-    // Ícone iOS homescreen
+    if (metaTitle) metaTitle.content = nome;
+    document.title = nome;
     let touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
-    if (!touchIcon) {
-      touchIcon = document.createElement('link');
-      touchIcon.rel = 'apple-touch-icon';
-      document.head.appendChild(touchIcon);
-    }
-    touchIcon.href = profile.logo || '/ICON.svg';
+    if (!touchIcon) { touchIcon = document.createElement('link'); touchIcon.rel = 'apple-touch-icon'; document.head.appendChild(touchIcon); }
+    touchIcon.href = logoSrc || '/ICON.svg';
     return () => {
       URL.revokeObjectURL(blobUrl);
+      if (link && prevHref) link.href = prevHref;
       document.title = 'Hute - Sua secretária inteligente';
       if (metaTitle) metaTitle.content = 'Hute';
     };
