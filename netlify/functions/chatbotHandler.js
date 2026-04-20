@@ -405,6 +405,10 @@ async function handleAI(msg, phone, session, profile, db, lojaId, slugFinal, ori
   const saudacao = /boa\s*tarde/i.test(msg) ? 'Boa tarde' : /boa\s*noite/i.test(msg) ? 'Boa noite' : 'Bom dia';
   const nomeEstab = profile.nome || 'Estabelecimento';
 
+  // Pre-compute professional guard: if >1 professional, inject blocking rule
+  const temMultiplosProfissionais = profissionals.length > 1;
+  const nomesProfs = profissionals.map(p => p.nome).join(', ');
+
   const systemPrompt = `Você é a Hute, secretária virtual do ${nomeEstab}. Quando se apresentar, diga SEMPRE: "Sou a Hute, secretária do ${nomeEstab}" — nunca omita o nome do estabelecimento. Responda em português brasileiro de forma calorosa e objetiva. Emojis com moderação. Mensagens curtas.
 
 DATA ATUAL: ${today} (${weekdays[now.getDay()]})
@@ -431,15 +435,14 @@ Use essa estrutura exata. Depois pergunte como pode ajudar.` : ''}
 • NUNCA mostre menus numéricos.
 • NUNCA chame criarAgendamento sem o cliente ter confirmado explicitamente.
 • NUNCA repita a pergunta "Confirma?" se já fez uma vez — se o cliente disse qualquer variante de "sim" (isso, ok, pode, perfeito, confirmo, fechou, tá bom, 👍, ✅, claro, com certeza), CHAME criarAgendamento IMEDIATAMENTE.
+${temMultiplosProfissionais ? `• BLOQUEIO OBRIGATÓRIO — Este estabelecimento tem ${profissionals.length} profissionais: ${nomesProfs}. Sempre que o cliente pedir um serviço, a sua PRÓXIMA mensagem DEVE perguntar qual profissional prefere. Você NÃO PODE perguntar o dia antes de saber o profissional. Exemplo: "Temos ${nomesProfs} disponíveis — qual você prefere? 😊"` : ''}
 
 ═══ FLUXO DE AGENDAMENTO (siga em ordem) ═══
 
 PASSO 1 — SERVIÇO: Identifique o serviço. "Cabelo", "corte", "escova" → mapeie para o serviço mais próximo da lista.
 
-PASSO 2 — PROFISSIONAL: Filtre os profissionais que atendem o serviço.
-  • Se houver 2 ou mais: liste-os pelo nome e pergunte qual prefere. Exemplo: "Temos o João e a Maria especializados em corte — qual você prefere? 😊" → PARE e aguarde resposta.
-  • Se houver apenas 1: use-o sem perguntar.
-  • Se nenhum tiver serviços definidos: liste todos e pergunte.
+PASSO 2 — PROFISSIONAL:${temMultiplosProfissionais ? ` OBRIGATÓRIO. Liste os profissionais pelo nome e pergunte qual prefere: "${nomesProfs} — qual você prefere?" PARE. Aguarde resposta antes de continuar.` : ' Apenas 1 profissional disponível, use-o automaticamente.'}
+  • Se apenas 1: use-o sem perguntar.
 
 PASSO 3 — DIA: Pergunte o dia preferido. Se o cliente já mencionou ("amanhã", "hoje", "sexta", uma data) — use esse dia diretamente, não pergunte de novo.
 
