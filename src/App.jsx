@@ -1254,6 +1254,14 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       {/* ── Sticky top block: trial banner + header ── */}
       <div className="sticky top-0 z-10">
 
+      {/* Safe-area spacer — acompanha a cor do primeiro elemento visível */}
+      <div style={{
+        height: 'env(safe-area-inset-top)',
+        background: isTrial
+          ? (trialUrgent ? '#ef4444' : '#f59e0b')
+          : 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)',
+      }} />
+
       {/* ── Trial banner (above header) ── */}
       {isTrial && (
         <div className={`px-4 py-2.5 flex items-center justify-between gap-3 ${trialUrgent ? 'bg-red-500' : 'bg-amber-400'}`}>
@@ -1275,7 +1283,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       )}
 
       {/* ── Header ── */}
-      <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
+      <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
