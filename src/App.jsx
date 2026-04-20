@@ -3241,6 +3241,7 @@ function AdminServicos({ user, profile, setProfile }) {
   const [servicos, setServicos] = useState(profile.servicos || []);
   const [nome, setNome] = useState('');
   const [preco, setPreco] = useState('');
+  const [sobOrcamento, setSobOrcamento] = useState(false);
   const [duracao, setDuracao] = useState(60);
   const [novaFoto, setNovaFoto] = useState(null);
   const [tipoAviso, setTipoAviso] = useState('nenhum');
@@ -3264,21 +3265,23 @@ function AdminServicos({ user, profile, setProfile }) {
   const addServico = async (overrides = {}) => {
     const nomeVal = (overrides.nome || nome).trim();
     if (!nomeVal) return;
+    const isSobOrc = overrides.sobOrcamento !== undefined ? overrides.sobOrcamento : sobOrcamento;
     const novo = {
       nome: nomeVal,
-      preco: overrides.preco !== undefined ? overrides.preco : (preco ? Number(preco) : null),
+      preco: isSobOrc ? null : (overrides.preco !== undefined ? overrides.preco : (preco ? Number(preco) : null)),
+      sobOrcamento: isSobOrc || undefined,
       duracao: overrides.duracao !== undefined ? overrides.duracao : Number(duracao),
       foto: overrides.foto !== undefined ? overrides.foto : (novaFoto || null),
       tipoAviso: overrides.tipoAviso !== undefined ? overrides.tipoAviso : (tipoAviso !== 'nenhum' ? tipoAviso : undefined),
       diasAviso: overrides.diasAviso !== undefined ? overrides.diasAviso : (tipoAviso !== 'nenhum' && diasAviso ? Number(diasAviso) : undefined),
       servicoManutencao: overrides.servicoManutencao !== undefined ? overrides.servicoManutencao : (tipoAviso === 'manutencao' ? servicoManutencao || undefined : undefined),
     };
-    // Remove undefined keys
-    Object.keys(novo).forEach(k => novo[k] === undefined && delete novo[k]);
+    // Remove undefined/false keys
+    Object.keys(novo).forEach(k => (novo[k] === undefined || novo[k] === false) && delete novo[k]);
     const updated = [...servicos, novo];
     await saveServicos(updated);
     if (!overrides.nome) {
-      setNome(''); setPreco(''); setDuracao(60); setNovaFoto(null);
+      setNome(''); setPreco(''); setSobOrcamento(false); setDuracao(60); setNovaFoto(null);
       setTipoAviso('nenhum'); setDiasAviso(''); setServicoManutencao('');
     }
     return novo;
@@ -3334,9 +3337,23 @@ function AdminServicos({ user, profile, setProfile }) {
                       placeholder="Nome do serviço"
                       className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
                     <div className="grid grid-cols-2 gap-2">
-                      <input type="number" value={editData.preco || ''} onChange={e => setEditData(p => ({ ...p, preco: e.target.value ? Number(e.target.value) : null }))}
-                        placeholder="Preço R$"
-                        className="px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                      {editData.sobOrcamento ? (
+                        <button onClick={() => setEditData(p => ({ ...p, sobOrcamento: false }))}
+                          className="px-3 py-2 border border-amber-300 bg-amber-50 rounded-xl text-amber-700 text-xs font-bold text-left">
+                          Sob Orçamento ✕
+                        </button>
+                      ) : (
+                        <div className="flex gap-1">
+                          <input type="number" value={editData.preco || ''} onChange={e => setEditData(p => ({ ...p, preco: e.target.value ? Number(e.target.value) : null }))}
+                            placeholder="Preço R$"
+                            className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                          <button onClick={() => setEditData(p => ({ ...p, sobOrcamento: true, preco: null }))}
+                            title="Sob Orçamento"
+                            className="px-2 py-2 border border-slate-200 rounded-xl text-slate-400 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-colors text-xs font-bold">
+                            S/O
+                          </button>
+                        </div>
+                      )}
                       <select value={editData.duracao || 60} onChange={e => setEditData(p => ({ ...p, duracao: Number(e.target.value) }))}
                         className="px-3 py-2 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
                         {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
@@ -3469,7 +3486,10 @@ function AdminServicos({ user, profile, setProfile }) {
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-slate-900 truncate">{s.nome}</p>
                   <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {s.preco && <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">R$ {Number(s.preco).toFixed(2)}</span>}
+                    {s.sobOrcamento
+                      ? <span className="text-xs text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-full">Sob Orçamento</span>
+                      : s.preco ? <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full">R$ {Number(s.preco).toFixed(2)}</span> : null
+                    }
                     {s.duracao && (
                       <span className="text-xs text-slate-400 flex items-center gap-1">
                         <Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}
@@ -3508,8 +3528,22 @@ function AdminServicos({ user, profile, setProfile }) {
             <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do serviço"
               className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
             <div className="grid grid-cols-2 gap-2">
-              <input type="number" value={preco} onChange={e => setPreco(e.target.value)} placeholder="Preço (R$)"
-                className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              {sobOrcamento ? (
+                <button onClick={() => setSobOrcamento(false)}
+                  className="px-4 py-3 border border-amber-300 bg-amber-50 rounded-xl text-amber-700 text-sm font-bold text-left">
+                  Sob Orçamento ✕
+                </button>
+              ) : (
+                <div className="flex gap-1">
+                  <input type="number" value={preco} onChange={e => setPreco(e.target.value)} placeholder="Preço (R$)"
+                    className="flex-1 min-w-0 px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                  <button onClick={() => { setSobOrcamento(true); setPreco(''); }}
+                    title="Sob Orçamento"
+                    className="px-3 py-3 border border-slate-200 rounded-xl text-slate-400 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-colors text-xs font-bold">
+                    S/O
+                  </button>
+                </div>
+              )}
               <select value={duracao} onChange={e => setDuracao(e.target.value)}
                 className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
                 {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
@@ -6061,7 +6095,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                         <p className="font-bold text-slate-900">{s.nome}</p>
                         <div className="flex items-center gap-3 mt-1 flex-wrap">
                           {s.duracao && <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}</span>}
-                          {s.preco && <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span>}
+                          {s.sobOrcamento
+                            ? <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Sob Orçamento</span>
+                            : s.preco ? <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span> : null
+                          }
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-slate-300 mr-4 self-center flex-shrink-0" />
@@ -6253,9 +6290,12 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Hora</span>
                 <span className="text-sm font-bold text-violet-900">{selectedHora}</span>
               </div>
-              {selectedService?.preco && <div className="flex justify-between items-center pt-1 border-t border-violet-100">
+              {(selectedService?.preco || selectedService?.sobOrcamento) && <div className="flex justify-between items-center pt-1 border-t border-violet-100">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Preço</span>
-                <span className="text-base font-black text-violet-900">R$ {Number(selectedService.preco).toFixed(2)}</span>
+                {selectedService.sobOrcamento
+                  ? <span className="text-sm font-black text-amber-600">Sob Orçamento</span>
+                  : <span className="text-base font-black text-violet-900">R$ {Number(selectedService.preco).toFixed(2)}</span>
+                }
               </div>}
               {selectedExtras.length > 0 && <div className="pt-1 border-t border-violet-100 space-y-1">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Extras</span>
