@@ -4266,14 +4266,13 @@ function AdminDashboard({ user, profile }) {
   const periodLabel = getPeriodLabel(period, customFrom, customTo);
 
   return (
-    <div style={{ fontFamily:"'DM Sans','SF Pro Display',-apple-system,sans-serif", background:DC.bg, minHeight:"100vh", padding:"0 0 40px", margin:"0 -20px" }}>
+    <div style={{ fontFamily:"'DM Sans','SF Pro Display',-apple-system,sans-serif", background:DC.bg, minHeight:"100vh", padding:"0 0 40px", margin:"-20px -20px 0" }}>
       {/* Header */}
       <div style={{ background:`linear-gradient(135deg, ${DC.primary} 0%, #4F21A8 100%)`, padding:"24px 20px 16px", borderRadius:"0 0 24px 24px", color:"#fff" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
           <div style={{ minWidth:0 }}>
-            <div style={{ fontSize:11, opacity:0.7, fontWeight:500 }}>Dashboard</div>
-            <div style={{ fontSize:19, fontWeight:700, letterSpacing:-0.5, marginTop:2 }}>{profile.nome||'Estabelecimento'}</div>
-            {periodLabel && <div style={{ fontSize:11, opacity:0.75, marginTop:1 }}>{periodLabel}</div>}
+            <div style={{ fontSize:26, fontWeight:800, letterSpacing:-0.5 }}>Dashboard</div>
+            {periodLabel && <div style={{ fontSize:11, opacity:0.75, marginTop:2 }}>{periodLabel}</div>}
           </div>
           <div style={{ display:"flex", gap:4, flexWrap:"wrap", justifyContent:"flex-end", flexShrink:0 }}>
             {[["hoje","Hoje"],["sem","7d"],["mes","30d"],["tri","90d"],["custom","Custom"]].map(([p,label])=>(
