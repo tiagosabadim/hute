@@ -6642,7 +6642,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                     ) : cancelConfirmAppt?.id === a.id ? (
                       <div className="text-center py-1">
                         <p className="text-sm font-bold text-slate-700 mb-1">Cancelar marcação?</p>
-                        <p className="text-xs text-slate-400 mb-3">{a.servico} · {fmtData(a.data)} às {a.hora}</p>
+                          <p className="text-xs text-slate-400 mb-1">{a.servico}{a.extras?.length > 0 ? ` + ${a.extras.map(e=>e.nome).join(', ')}` : ''} · {fmtData(a.data)} às {a.hora}</p>
                         <div className="flex gap-2">
                           <button onClick={() => setCancelConfirmAppt(null)} className="flex-1 py-2 rounded-xl bg-slate-100 text-xs font-bold text-slate-600 hover:bg-slate-200 transition-colors">Não</button>
                           <button onClick={() => cancelAppt(a)} disabled={cancelingId === a.id} className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-colors disabled:opacity-50">
@@ -6658,9 +6658,15 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-slate-900 truncate">{a.servico}</p>
-                            {a.extras?.length > 0 && a.extras.map((e, ei) => (
-                              <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
-                            ))}
+                            {a.extras?.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1 mb-0.5">
+                                {a.extras.map((e, ei) => (
+                                  <span key={ei} className="inline-flex items-center gap-0.5 bg-violet-50 text-violet-600 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-violet-100">
+                                    + {e.nome}{(e.precoDesconto || e.preco) ? ` · R$ ${Number(e.precoDesconto || e.preco).toFixed(2)}` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
                           </div>
                         </div>
@@ -6720,9 +6726,15 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-slate-900 truncate">{a.servico}</p>
-                          {a.extras?.length > 0 && a.extras.map((e, ei) => (
-                            <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
-                          ))}
+                          {a.extras?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1 mb-0.5">
+                              {a.extras.map((e, ei) => (
+                                <span key={ei} className={`inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${isPast ? 'bg-slate-50 text-slate-400 border-slate-100' : 'bg-violet-50 text-violet-600 border-violet-100'}`}>
+                                  + {e.nome}{(e.precoDesconto || e.preco) ? ` · R$ ${Number(e.precoDesconto || e.preco).toFixed(2)}` : ''}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <p className="text-xs text-slate-400">{fmtData(a.data)} às {a.hora}{a.profissionalNome ? ` · ${a.profissionalNome}` : ''}</p>
                         </div>
                         <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${isPast ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600'}`}>
