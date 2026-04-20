@@ -272,6 +272,7 @@ async function executeTool(toolName, toolInput, ctx) {
           lojaId,
           connectedPhone: profile.whatsappNumber || '',
           linkAgendamento,
+          source: 'ai',
         }),
       }).catch(() => {});
     }

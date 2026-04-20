@@ -1233,12 +1233,14 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
     const meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) return;
     if (isTrial) {
-      meta.setAttribute('content', trialUrgent ? '#ef4444' : '#fbbf24');
+      meta.setAttribute('content', trialUrgent ? '#ef4444' : '#f59e0b');
     } else {
-      meta.setAttribute('content', '#7c3aed');
+      meta.setAttribute('content', '#6C3CE1');
     }
-    return () => { meta.setAttribute('content', '#7c3aed'); };
+    return () => { meta.setAttribute('content', '#6C3CE1'); };
   }, [isTrial, trialUrgent]);
+
+  const [agendaNewApptTrigger, setAgendaNewApptTrigger] = useState(0);
 
   const navItems = [
     { key: 'agenda',    icon: Calendar,  label: 'Agenda' },
@@ -1274,65 +1276,79 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       )}
 
       {/* ── Header ── */}
-      <header className="bg-white border-b border-slate-100 px-5 py-4">
+      <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2.5">
-            <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" />
-            <div className="flex items-baseline gap-1.5">
-              <span className="font-black text-slate-900 text-lg tracking-tight leading-none">hute</span>
-              <span className="text-[11px] text-slate-400 font-medium leading-none">{profile.nome || 'Painel de Gestão'}</span>
+            <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
+            <div className="flex flex-col gap-0">
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-black text-white text-base tracking-tight leading-none">hute</span>
+                <span className="text-[11px] text-white/70 font-medium leading-none">{profile.nome || 'Painel de Gestão'}</span>
+              </div>
+              {profile.subtitulo && (
+                <span className="text-[10px] text-white/50 font-medium leading-none mt-0.5">{profile.subtitulo}</span>
+              )}
             </div>
           </div>
-          {/* Bell with unread badge */}
-          <div className="relative">
-            <button
-              onClick={() => { setNotifOpen(o => !o); setNotifications(prev => prev.map(n => ({ ...n, read: true }))); }}
-              className="relative flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors"
-            >
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-black text-white flex items-center justify-center px-1"
-                  style={{ backgroundColor: '#6C3CE1' }}
-                >
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-
-            {/* Notification history panel */}
-            {notifOpen && (
-              <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                  <span className="text-sm font-black text-slate-900">Notificações</span>
-                  {notifications.length > 0 && (
-                    <button onClick={() => setNotifications([])} className="text-[10px] text-slate-400 hover:text-red-400 font-semibold transition-colors">
-                      Limpar tudo
-                    </button>
-                  )}
-                </div>
-                <div className="max-h-72 overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="py-8 text-center">
-                      <Bell className="w-6 h-6 text-slate-200 mx-auto mb-2" />
-                      <p className="text-xs text-slate-400">Sem notificações</p>
-                    </div>
-                  ) : (
-                    notifications.map(n => (
-                      <div key={n.id} className={`px-4 py-3 border-b border-slate-50 flex items-start gap-3 ${n.read ? '' : 'bg-violet-50/60'}`}>
-                        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.type === 'cancel' ? 'bg-red-400' : 'bg-violet-500'}`} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-slate-800 leading-snug">{n.msg}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            {n.time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
+          <div className="flex items-center gap-1">
+            {/* Nova marcação — só na aba agenda */}
+            {view === 'agenda' && (
+              <button
+                onClick={() => setAgendaNewApptTrigger(t => t + 1)}
+                title="Nova marcação"
+                className="flex items-center justify-center w-9 h-9 rounded-xl border border-white/40 text-white hover:bg-white/10 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
             )}
+            {/* Bell with unread badge */}
+            <div className="relative">
+              <button
+                onClick={() => { setNotifOpen(o => !o); setNotifications(prev => prev.map(n => ({ ...n, read: true }))); }}
+                className="relative flex items-center justify-center w-9 h-9 rounded-xl text-white hover:bg-white/10 transition-colors"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-black text-white flex items-center justify-center px-1 bg-red-500">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Notification history panel */}
+              {notifOpen && (
+                <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                    <span className="text-sm font-black text-slate-900">Notificações</span>
+                    {notifications.length > 0 && (
+                      <button onClick={() => setNotifications([])} className="text-[10px] text-slate-400 hover:text-red-400 font-semibold transition-colors">
+                        Limpar tudo
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center">
+                        <Bell className="w-6 h-6 text-slate-200 mx-auto mb-2" />
+                        <p className="text-xs text-slate-400">Sem notificações</p>
+                      </div>
+                    ) : (
+                      notifications.map(n => (
+                        <div key={n.id} className={`px-4 py-3 border-b border-slate-50 flex items-start gap-3 ${n.read ? '' : 'bg-violet-50/60'}`}>
+                          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.type === 'cancel' ? 'bg-red-400' : 'bg-violet-500'}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-800 leading-snug">{n.msg}</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              {n.time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -1412,7 +1428,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 
       {/* ── Main content ── */}
       <main className="p-5">
-        {view === 'agenda'    && <AdminAgenda user={user} lojaId={user.uid} profile={profile} />}
+        {view === 'agenda'    && <AdminAgenda user={user} lojaId={user.uid} profile={profile} newApptTrigger={agendaNewApptTrigger} />}
         {view === 'clients'   && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
         {view === 'dashboard' && <AdminDashboard user={user} profile={profile} />}
         {view === 'equipa'    && <AdminEquipe user={user} profile={profile} setProfile={setProfile} />}
@@ -1550,7 +1566,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 }
 
 // ── Admin Agenda ──────────────────────────────────────────
-function AdminAgenda({ user, lojaId, filterProfId, profile }) {
+function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }) {
   const profissionals = profile?.profissionals || [];
   const defaultProfId = filterProfId || (profissionals.length > 1 ? null : (profissionals[0]?.id ?? null));
 
@@ -1568,6 +1584,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile }) {
   const colId = lojaId || user.uid;
   const dateISO = toDateISO(selectedDate);
   const todayISO = toDateISO(new Date());
+
+  // Respond to external "new appointment" trigger from header "+" button
+  useEffect(() => {
+    if (newApptTrigger > 0) { setPreHora(''); setActiveSlot(null); setShowNewAppt(true); }
+  }, [newApptTrigger]);
 
   // Subscribe to all appointments
   useEffect(() => {
@@ -5148,46 +5169,53 @@ function HuteMasterAdmin() {
 function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showSignOut = false }) {
   return (
     <header className="sticky top-0 z-10">
-      {(profile.coverFoto || profile.logo) ? (
-        <div className="relative h-36 overflow-hidden">
-          {profile.coverFoto
-            ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
-            : <div className="w-full h-full bg-gradient-to-br from-violet-700 to-violet-500" />
+      {/* Banner: cover photo or purple gradient fallback */}
+      <div className="relative overflow-hidden" style={{ height: '40vh', minHeight: '200px', maxHeight: '300px' }}>
+        {profile.coverFoto
+          ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
+          : <div className="w-full h-full" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }} />
+        }
+
+        {/* Top mask — status bar always legível */}
+        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
+
+        {/* Bottom mask — destaca nome */}
+        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+
+        {/* Top bar: back / @slug / signout */}
+        <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
+          {showBack
+            ? <button onClick={onBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
+            : <div />
           }
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-          <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
-            {showBack
-              ? <button onClick={onBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
-              : <div />
-            }
-            {showSignOut && (
-              <button onClick={onSignOut} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><LogOut className="w-4 h-4" /></button>
-            )}
-          </div>
-          <div className="absolute bottom-4 left-5 flex items-center gap-3">
-            {profile.logo
-              ? <img src={profile.logo} alt="" className="w-11 h-11 rounded-xl object-cover border-2 border-white/80 shadow-lg" />
-              : <div className="w-11 h-11 rounded-xl bg-violet-600 border-2 border-white/80 shadow-lg flex items-center justify-center"><Sparkles className="w-5 h-5 text-white" /></div>
-            }
-            <div>
-              <p className="font-black text-white text-base leading-tight">{profile.nome || 'Agendamento'}</p>
-              {profile.subtitulo && <p className="text-white/75 text-xs">{profile.subtitulo}</p>}
-            </div>
-          </div>
+          {profile.slug && (
+            <span className="text-white/80 text-xs font-medium">@{profile.slug}</span>
+          )}
+          {showSignOut
+            ? <button onClick={onSignOut} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><LogOut className="w-4 h-4" /></button>
+            : <div />
+          }
         </div>
-      ) : (
-        <div className="bg-white border-b border-slate-100">
-          <div className="flex items-center gap-3 px-5 py-3.5">
-            {showBack && <button onClick={onBack} className="p-1.5 -ml-1 text-violet-600 hover:text-violet-800"><ArrowLeft className="w-5 h-5" /></button>}
-            {profile.logo
-              ? <img src={profile.logo} alt="" className="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
-              : <div className="w-7 h-7 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
-            }
-            <p className="font-black text-slate-900 flex-1 truncate text-sm">{profile.nome || 'Agendamento'}</p>
-            {showSignOut && <button onClick={onSignOut} className="p-1.5 text-slate-400 hover:text-slate-600"><LogOut className="w-4 h-4" /></button>}
+
+        {/* Bottom content: nome + tipo + "by hute" */}
+        <div className="absolute bottom-4 left-5 right-5 flex items-end justify-between">
+          <div>
+            <p className="font-black text-white text-xl leading-tight drop-shadow">{profile.nome || 'Agendamento'}</p>
+            {profile.subtitulo && <p className="text-white/80 text-sm leading-tight mt-0.5">{profile.subtitulo}</p>}
           </div>
+          <p className="text-white/40 text-[10px] font-medium mb-0.5">by hute</p>
         </div>
-      )}
+      </div>
+
+      {/* Profile photo — circular, overlapping banner bottom */}
+      <div className="flex justify-center">
+        <div className="-mt-8 z-10 relative">
+          {profile.logo
+            ? <img src={profile.logo} alt="" className="w-16 h-16 rounded-full object-cover border-4 border-white shadow-xl" />
+            : <div className="w-16 h-16 rounded-full border-4 border-white shadow-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-7 h-7 text-white" /></div>
+          }
+        </div>
+      </div>
     </header>
   );
 }
@@ -5298,6 +5326,14 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
   const profissionals = profile.profissionals || [];
   const servicos = profile.servicos || [];
+
+  // ── Status-bar preta para acompanhar máscara do banner ───
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    meta.setAttribute('content', '#000000');
+    return () => { meta.setAttribute('content', '#6C3CE1'); };
+  }, []);
 
   // ── Token validation ─────────────────────────────────────
   useEffect(() => {
