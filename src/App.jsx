@@ -5180,7 +5180,7 @@ function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showS
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
 
         {/* Bottom mask — destaca nome */}
-        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/85 to-transparent pointer-events-none" />
 
         {/* Top bar: back / @slug / signout */}
         <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
@@ -5197,23 +5197,20 @@ function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showS
           }
         </div>
 
-        {/* Bottom content: nome + tipo + "by hute" */}
-        <div className="absolute bottom-4 left-5 right-5 flex items-end justify-between">
-          <div>
-            <p className="font-black text-white text-xl leading-tight drop-shadow">{profile.nome || 'Agendamento'}</p>
-            {profile.subtitulo && <p className="text-white/80 text-sm leading-tight mt-0.5">{profile.subtitulo}</p>}
+        {/* Bottom content: logo + nome + tipo + "by hute" */}
+        <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-3">
+          <div className="flex items-end gap-3 min-w-0">
+            {/* Logo — quadrada com cantos arredondados */}
+            {profile.logo
+              ? <img src={profile.logo} alt="" className="w-20 h-20 rounded-2xl object-cover border-2 border-white/80 shadow-xl flex-shrink-0" />
+              : <div className="w-20 h-20 rounded-2xl border-2 border-white/80 shadow-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-9 h-9 text-white" /></div>
+            }
+            <div className="mb-1 min-w-0">
+              <p className="font-black text-white text-[1.625rem] leading-tight drop-shadow">{profile.nome || 'Agendamento'}</p>
+              {profile.subtitulo && <p className="text-white/80 text-base leading-tight mt-0.5">{profile.subtitulo}</p>}
+            </div>
           </div>
-          <p className="text-white/40 text-[10px] font-medium mb-0.5">by hute</p>
-        </div>
-      </div>
-
-      {/* Profile photo — circular, overlapping banner bottom */}
-      <div className="flex justify-center">
-        <div className="-mt-8 z-10 relative">
-          {profile.logo
-            ? <img src={profile.logo} alt="" className="w-16 h-16 rounded-full object-cover border-4 border-white shadow-xl" />
-            : <div className="w-16 h-16 rounded-full border-4 border-white shadow-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-7 h-7 text-white" /></div>
-          }
+          <p className="text-white/40 text-[10px] font-medium mb-0.5 flex-shrink-0">by hute</p>
         </div>
       </div>
     </header>
