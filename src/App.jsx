@@ -5180,34 +5180,32 @@ function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showS
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
 
         {/* Bottom mask — destaca nome */}
-        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/85 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-black/85 to-transparent pointer-events-none" />
 
-        {/* Top bar: back / @slug / signout */}
+        {/* Top bar: back / signout */}
         <div className="absolute top-3 left-4 right-4 flex items-center justify-between">
           {showBack
             ? <button onClick={onBack} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><ArrowLeft className="w-4 h-4" /></button>
             : <div />
           }
-          {profile.slug && (
-            <span className="text-white/80 text-xs font-medium">@{profile.slug}</span>
-          )}
           {showSignOut
             ? <button onClick={onSignOut} className="w-8 h-8 bg-black/30 hover:bg-black/50 rounded-xl flex items-center justify-center text-white transition-colors"><LogOut className="w-4 h-4" /></button>
             : <div />
           }
         </div>
 
-        {/* Bottom content: logo + nome + tipo + "by hute" */}
+        {/* Bottom content: logo + nome + tipo + @slug + "by hute" */}
         <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-3">
           <div className="flex items-end gap-3 min-w-0">
             {/* Logo — quadrada com cantos arredondados */}
             {profile.logo
-              ? <img src={profile.logo} alt="" className="w-20 h-20 rounded-2xl object-cover border-2 border-white/80 shadow-xl flex-shrink-0" />
-              : <div className="w-20 h-20 rounded-2xl border-2 border-white/80 shadow-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-9 h-9 text-white" /></div>
+              ? <img src={profile.logo} alt="" className="w-28 h-28 rounded-2xl object-cover border-2 border-white/80 shadow-xl flex-shrink-0" />
+              : <div className="w-28 h-28 rounded-2xl border-2 border-white/80 shadow-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-12 h-12 text-white" /></div>
             }
             <div className="mb-1 min-w-0">
-              <p className="font-black text-white text-[1.625rem] leading-tight drop-shadow">{profile.nome || 'Agendamento'}</p>
-              {profile.subtitulo && <p className="text-white/80 text-base leading-tight mt-0.5">{profile.subtitulo}</p>}
+              <p className="font-black text-white text-[2.1rem] leading-tight drop-shadow">{profile.nome || 'Agendamento'}</p>
+              {profile.subtitulo && <p className="text-white/80 text-[1.3rem] leading-tight mt-0.5">{profile.subtitulo}</p>}
+              {profile.slug && <p className="text-white/55 text-sm font-medium mt-0.5">@{profile.slug}</p>}
             </div>
           </div>
           <p className="text-white/40 text-[10px] font-medium mb-0.5 flex-shrink-0">by hute</p>
