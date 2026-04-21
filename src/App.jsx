@@ -982,10 +982,7 @@ function OnboardingScreen({ user, onComplete }) {
     <div className="min-h-screen bg-gradient-to-br from-violet-600 via-violet-700 to-violet-900 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Sparkles className="w-6 h-6 text-white" />
-            <span className="text-white font-black text-2xl tracking-tight">hute</span>
-          </div>
+          <img src="/logosplash.svg" alt="hute" className="w-40 mx-auto mb-2" />
           <p className="text-violet-200 text-sm">Configure o seu espaço</p>
         </div>
 
