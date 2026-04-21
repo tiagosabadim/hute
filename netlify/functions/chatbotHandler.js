@@ -699,7 +699,7 @@ async function handleMenu(msg, phone, session, profile, db, lojaId, slugFinal, o
     const dtInt = new Date(`${data}T00:00:00`); dtInt.setHours(h,m,0,0);
     const pendingAppt = { clienteNome, clienteWhats:phone, clienteNascimento:'', servico:servico.nome, valor:servico.preco||null, duracao:servico.duracao||profile.intervalo||60, profissionalId:profissional?.id||null, profissionalNome:profissional?.nome||null, data, hora, dataHoraInternacional:dtInt.toISOString(), createdAt:new Date().toISOString(), criadoPorChatbot:true, ...(session.isRemarcar?{reagendamento:true}:{}), ...(session.origemAviso?{origemAviso:session.origemAviso}:{}) };
     const allOffers = [];
-    for (const cs of (servico.crossSell||[])) { const svc=(profile.servicos||[]).find(s=>s.nome===cs.servicoNome); if(!svc) continue; const precoDesconto=svc.preco?Math.round(svc.preco*(1-cs.desconto/100)*100)/100:null; allOffers.push({tipo:'servico',nome:svc.nome,precoOriginal:svc.preco||null,precoDesconto,desconto:cs.desconto}); }
+    for (const cs of (servico.crossSell||[])) { const svc=(profile.servicos||[]).find(s=>s.nome===cs.servicoNome); if(!svc) continue; const precoDesconto=svc.preco?Math.round(svc.preco*(1-cs.desconto/100)*100)/100:null; allOffers.push({tipo:'servico',nome:svc.nome,precoOriginal:svc.preco||null,precoDesconto,desconto:cs.desconto,duracao:svc.duracao||null}); }
     for (const u of (servico.upsell||[])) { allOffers.push({tipo:'produto',nome:u.nome,preco:u.preco||null}); }
     if (allOffers.length > 0) {
       const offerLines = allOffers.map((o,i)=>{ if(o.tipo==='servico'){const pt=o.precoDesconto?`R$ ${o.precoDesconto.toFixed(2)} (${o.desconto}% off)`:''; return `${numEmoji(i)} ${o.nome}${pt?` — ${pt}`:''}`; } return `${numEmoji(i)} ${o.nome}${o.preco?` — R$ ${Number(o.preco).toFixed(2)}`:''}`;});
@@ -723,7 +723,12 @@ async function handleMenu(msg, phone, session, profile, db, lojaId, slugFinal, o
     if (isNaN(idx)||idx<0||idx>allOffers.length) { const offerLines=allOffers.map((o,i)=>{if(o.tipo==='servico'){const pt=o.precoDesconto?`R$ ${o.precoDesconto.toFixed(2)} (${o.desconto}% off)`:'';return `${numEmoji(i)} ${o.nome}${pt?` — ${pt}`:''}`;}return `${numEmoji(i)} ${o.nome}${o.preco?` — R$ ${Number(o.preco).toFixed(2)}`:''}`;}); offerLines.push(`${numEmoji(allOffers.length)} Não, obrigado`); return reply(`Opção inválida. Escolha:\n\n${offerLines.join('\n')}`); }
     const extras = idx < allOffers.length ? [allOffers[idx]] : [];
     const accessToken = crypto.randomUUID();
-    const apptData = { ...pendingAppt, ...(extras.length>0?{extras}:{}), accessToken };
+    const intervaloBase = Number(profile.intervaloBase || profile.intervalo) || 60;
+    let duracaoTotal = Number(pendingAppt.duracao) || intervaloBase;
+    if (extras.length > 0 && extras[0].tipo === 'servico') {
+      duracaoTotal += Number(extras[0].duracao) || intervaloBase;
+    }
+    const apptData = { ...pendingAppt, duracaoTotal, ...(extras.length>0?{extras}:{}), accessToken };
     const apptRef = await addDoc(collection(db,'artifacts',APP_ID,'public','data',`appointments_${lojaId}`),apptData);
     const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}?token=${accessToken}`;
     if (process.env.N8N_WEBHOOK_URL) { fetch(process.env.N8N_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telefoneCliente:phone,nomeCliente:pendingAppt.clienteNome,servico:pendingAppt.servico,data:pendingAppt.data,hora:pendingAppt.hora,profissionalNome:pendingAppt.profissionalNome||'',slug:slugFinal,lojaId,connectedPhone:profile.whatsappNumber||'',linkAgendamento})}).catch(()=>{}); }
