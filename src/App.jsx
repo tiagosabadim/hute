@@ -1354,7 +1354,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   ];
 
   return (
-    <div className="md:flex md:h-screen md:overflow-hidden">
+    <div className="md:flex md:h-screen md:overflow-hidden overflow-x-hidden">
 
       {/* ── Sidebar (tablet/desktop) ── */}
       <AdminSidebar
@@ -1930,7 +1930,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
       {/* Professional selector — hidden for staff (filterProfId set) */}
       {!filterProfId && profissionals.length > 1 && (
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
           <button
             onClick={() => setSelectedProfId(null)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-all ${
@@ -5512,9 +5512,9 @@ function HuteMasterAdmin() {
 // ── HeroBanner (extracted outside ClientPortal to prevent re-mount on re-render) ──
 function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showSignOut = false }) {
   return (
-    <header className="sticky top-0 z-10">
-      {/* Safe-area spacer: preto para casar com o banner */}
-      <div style={{ height: 'env(safe-area-inset-top)', background: '#000000' }} />
+    <header className="sticky top-0 z-10" style={{ backgroundColor: '#000000' }}>
+      {/* Safe-area spacer: height para empurrar o banner para baixo do status bar */}
+      <div style={{ height: 'env(safe-area-inset-top)' }} />
       {/* Banner: cover photo or purple gradient fallback */}
       <div className="relative overflow-hidden" style={{ height: '40vh', minHeight: '200px', maxHeight: '300px' }}>
         {profile.coverFoto
@@ -6997,7 +6997,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
   // ── MAIN LOGGED-IN VIEW (tabs) ───────────────────────────
   return (
-    <div className="md:flex md:h-screen md:overflow-hidden">
+    <div className="md:flex md:h-screen md:overflow-hidden overflow-x-hidden">
       <ClientSidebar tab={tab} setTab={setTab} profile={profile} onSignOut={handleSignOut} clientUser={clientUser} />
       <div className="flex-1 md:overflow-y-auto md:h-screen">
       <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col md:max-w-none md:min-h-0">
