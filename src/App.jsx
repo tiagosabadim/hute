@@ -353,9 +353,13 @@ export default function App() {
   }, [fetchProfile]);
 
   const Loading = () => (
-    <div className="flex flex-col items-center justify-center" style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', paddingTop: 'env(safe-area-inset-top)' }}>
-      <img src="/logosplash.svg" alt="hute" className="w-56 mb-8" />
-      <Loader2 className="w-5 h-5 animate-spin text-white/50" />
+    <div style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', display: 'flex', flexDirection: 'column' }}>
+      {/* Safe-area spacer roxo */}
+      <div style={{ height: 'env(safe-area-inset-top)', flexShrink: 0 }} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <img src="/logosplash.svg" alt="hute" className="w-56 mb-8" />
+        <Loader2 className="w-5 h-5 animate-spin text-white/50" />
+      </div>
     </div>
   );
 
@@ -769,7 +773,10 @@ function LoginScreen() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center p-6" style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}>
+    <div style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', display: 'flex', flexDirection: 'column' }}>
+      {/* Safe-area spacer roxo */}
+      <div style={{ height: 'env(safe-area-inset-top)', flexShrink: 0 }} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
       <div className="w-full max-w-sm">
         {/* Branding */}
         <div className="text-center mb-10">
@@ -863,6 +870,7 @@ function LoginScreen() {
             </>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -5198,6 +5206,8 @@ function HuteMasterAdmin() {
 function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showSignOut = false }) {
   return (
     <header className="sticky top-0 z-10">
+      {/* Safe-area spacer: preto para casar com o banner */}
+      <div style={{ height: 'env(safe-area-inset-top)', background: '#000000' }} />
       {/* Banner: cover photo or purple gradient fallback */}
       <div className="relative overflow-hidden" style={{ height: '40vh', minHeight: '200px', maxHeight: '300px' }}>
         {profile.coverFoto
