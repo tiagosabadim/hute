@@ -3263,6 +3263,7 @@ function AdminServicos({ user, profile, setProfile }) {
   const [saving, setSaving] = useState(false);
   const [editIdx, setEditIdx] = useState(null);
   const [editData, setEditData] = useState({});
+  const [showAddDrawer, setShowAddDrawer] = useState(false);
 
   const saveServicos = async (list) => {
     setSaving(true);
@@ -3296,6 +3297,7 @@ function AdminServicos({ user, profile, setProfile }) {
     if (!overrides.nome) {
       setNome(''); setPreco(''); setSobOrcamento(false); setDuracao(60); setNovaFoto(null);
       setTipoAviso('nenhum'); setDiasAviso(''); setServicoManutencao('');
+      setShowAddDrawer(false);
     }
     return novo;
   };
@@ -3333,9 +3335,15 @@ function AdminServicos({ user, profile, setProfile }) {
 
   return (
     <div>
-      <div className="mb-5">
-        <h2 className="text-xl font-black text-slate-900">Serviços</h2>
-        <p className="text-xs text-slate-400">{servicos.length} serviço{servicos.length !== 1 ? 's' : ''} disponível{servicos.length !== 1 ? 'is' : ''}</p>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-xl font-black text-slate-900">Serviços</h2>
+          <p className="text-xs text-slate-400">{servicos.length} serviço{servicos.length !== 1 ? 's' : ''} disponível{servicos.length !== 1 ? 'is' : ''}</p>
+        </div>
+        <button onClick={() => setShowAddDrawer(true)}
+          className="p-2 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+          <Plus className="w-4 h-4" />
+        </button>
       </div>
 
       <div className="space-y-3 mb-5">
@@ -3529,80 +3537,92 @@ function AdminServicos({ user, profile, setProfile }) {
         ))}
       </div>
 
-      {/* Add form */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 space-y-4">
-        <h3 className="font-bold text-slate-900 text-sm">Adicionar serviço</h3>
-        <div className="flex items-start gap-3">
-          <div>
-            <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Foto</label>
-            <ImageUpload value={novaFoto} onChange={setNovaFoto} aspect="thumb" />
-          </div>
-          <div className="flex-1 space-y-3">
-            <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do serviço"
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-            <div className="grid grid-cols-2 gap-2">
-              {sobOrcamento ? (
-                <button onClick={() => setSobOrcamento(false)}
-                  className="px-4 py-3 border border-amber-300 bg-amber-50 rounded-xl text-amber-700 text-sm font-bold text-left">
-                  Sob Orçamento ✕
-                </button>
-              ) : (
-                <div className="flex gap-1">
-                  <input type="number" value={preco} onChange={e => setPreco(e.target.value)} placeholder="Preço (R$)"
-                    className="flex-1 min-w-0 px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-                  <button onClick={() => { setSobOrcamento(true); setPreco(''); }}
-                    title="Sob Orçamento"
-                    className="px-3 py-3 border border-slate-200 rounded-xl text-slate-400 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-colors text-xs font-bold">
-                    S/O
-                  </button>
+      {/* Add drawer */}
+      {showAddDrawer && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ maxWidth: 480, margin: '0 auto' }}>
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddDrawer(false)} />
+          <div className="relative bg-white rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+            {/* Handle */}
+            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-1" />
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-slate-900 text-base">Novo serviço</h3>
+              <button onClick={() => setShowAddDrawer(false)} className="p-1.5 text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex items-start gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Foto</label>
+                <ImageUpload value={novaFoto} onChange={setNovaFoto} aspect="thumb" />
+              </div>
+              <div className="flex-1 space-y-3">
+                <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do serviço"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                <div className="grid grid-cols-2 gap-2">
+                  {sobOrcamento ? (
+                    <button onClick={() => setSobOrcamento(false)}
+                      className="px-4 py-3 border border-amber-300 bg-amber-50 rounded-xl text-amber-700 text-sm font-bold text-left">
+                      Sob Orçamento ✕
+                    </button>
+                  ) : (
+                    <div className="flex gap-1">
+                      <input type="number" value={preco} onChange={e => setPreco(e.target.value)} placeholder="Preço (R$)"
+                        className="flex-1 min-w-0 px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                      <button onClick={() => { setSobOrcamento(true); setPreco(''); }}
+                        title="Sob Orçamento"
+                        className="px-3 py-3 border border-slate-200 rounded-xl text-slate-400 hover:border-amber-300 hover:text-amber-600 hover:bg-amber-50 transition-colors text-xs font-bold">
+                        S/O
+                      </button>
+                    </div>
+                  )}
+                  <select value={duracao} onChange={e => setDuracao(e.target.value)}
+                    className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                    {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
+                      <option key={v} value={v}>{fmtDuracao(v)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+            {/* Aviso de retorno */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Aviso de retorno</label>
+              <select value={tipoAviso} onChange={e => { setTipoAviso(e.target.value); setDiasAviso(''); setServicoManutencao(''); }}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                <option value="nenhum">Nenhum</option>
+                <option value="reagendamento">Reagendamento</option>
+                <option value="manutencao">Manutenção</option>
+              </select>
+              {tipoAviso !== 'nenhum' && (
+                <input type="number" value={diasAviso} onChange={e => setDiasAviso(e.target.value)}
+                  placeholder="Intervalo em dias (ex: 15)"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              )}
+              {tipoAviso === 'manutencao' && (
+                <div className="space-y-1.5">
+                  <select value={servicoManutencao} onChange={e => setServicoManutencao(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                    <option value="">Selecionar serviço de manutenção</option>
+                    {servicos.map(s => (
+                      <option key={s.nome} value={s.nome}>{s.nome}</option>
+                    ))}
+                  </select>
+                  {!servicoManutencao && (
+                    <button onClick={criarServicoManutencaoRapido} className="w-full py-2.5 border border-dashed border-violet-300 text-violet-600 rounded-xl text-xs font-bold hover:bg-violet-50 transition-colors flex items-center justify-center gap-1.5">
+                      <Plus className="w-3.5 h-3.5" /> Criar serviço de manutenção
+                    </button>
+                  )}
                 </div>
               )}
-              <select value={duracao} onChange={e => setDuracao(e.target.value)}
-                className="px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-                {[15, 20, 30, 45, 60, 90, 120, 150, 180].map(v => (
-                  <option key={v} value={v}>{fmtDuracao(v)}</option>
-                ))}
-              </select>
             </div>
+            <button onClick={() => addServico()} disabled={!nome.trim() || saving}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition-colors">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+              Adicionar serviço
+            </button>
           </div>
         </div>
-        {/* Aviso de retorno — add */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">Aviso de retorno</label>
-          <select value={tipoAviso} onChange={e => { setTipoAviso(e.target.value); setDiasAviso(''); setServicoManutencao(''); }}
-            className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-            <option value="nenhum">Nenhum</option>
-            <option value="reagendamento">Reagendamento</option>
-            <option value="manutencao">Manutenção</option>
-          </select>
-          {tipoAviso !== 'nenhum' && (
-            <input type="number" value={diasAviso} onChange={e => setDiasAviso(e.target.value)}
-              placeholder="Intervalo em dias (ex: 15)"
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-          )}
-          {tipoAviso === 'manutencao' && (
-            <div className="space-y-1.5">
-              <select value={servicoManutencao} onChange={e => setServicoManutencao(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-                <option value="">Selecionar serviço de manutenção</option>
-                {servicos.map(s => (
-                  <option key={s.nome} value={s.nome}>{s.nome}</option>
-                ))}
-              </select>
-              {!servicoManutencao && (
-                <button onClick={criarServicoManutencaoRapido} className="w-full py-2.5 border border-dashed border-violet-300 text-violet-600 rounded-xl text-xs font-bold hover:bg-violet-50 transition-colors flex items-center justify-center gap-1.5">
-                  <Plus className="w-3.5 h-3.5" /> Criar serviço de manutenção
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        <button onClick={() => addServico()} disabled={!nome.trim() || saving}
-          className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-xl text-sm flex items-center justify-center gap-2 disabled:opacity-40 transition-colors">
-          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Adicionar serviço
-        </button>
-      </div>
+      )}
     </div>
   );
 }
