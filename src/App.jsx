@@ -1157,6 +1157,106 @@ function playChime(type = 'new') {
   } catch (_) {}
 }
 
+// ── Admin Sidebar (tablet/desktop only) ───────────────────
+function AdminSidebar({ view, setView, profile, unreadCount, notifOpen, setNotifOpen,
+                        setNotifications, notifications, isTrial, trialDaysLeft,
+                        trialUrgent, setShowPlansModal, handleLogout, setMenuSection }) {
+  const items = [
+    { key: 'agenda',    icon: Calendar,  label: 'Agenda' },
+    { key: 'clients',   icon: Users,     label: 'Clientes' },
+    { key: 'dashboard', icon: BarChart2, label: 'Dashboard' },
+    { key: 'servicos',  icon: Tag,       label: 'Serviços' },
+    { key: 'equipa',    icon: Briefcase, label: 'Equipa' },
+    { key: 'config',    icon: Settings,  label: 'Configurações' },
+  ];
+  return (
+    <aside className="hidden md:flex flex-col flex-shrink-0 w-sidebar-sm lg:w-sidebar-lg h-screen sticky top-0 overflow-hidden z-30" style={{ background: '#18102e' }}>
+      {/* Logo */}
+      <div className="flex items-center gap-3 px-4 py-5 flex-shrink-0 border-b border-white/10">
+        <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
+        <span className="hidden lg:block font-black text-white text-base tracking-tight whitespace-nowrap">hute</span>
+      </div>
+      {/* Establishment name (lg only) */}
+      {profile.nome && (
+        <div className="hidden lg:block px-4 py-3 border-b border-white/10">
+          <p className="text-xs text-white/40 font-semibold uppercase tracking-wider truncate">{profile.nome}</p>
+          {profile.subtitulo && <p className="text-[10px] text-white/25 truncate mt-0.5">{profile.subtitulo}</p>}
+        </div>
+      )}
+      {/* Trial badge */}
+      {isTrial && (
+        <button onClick={() => setShowPlansModal(true)}
+          className={`mx-2 mt-3 rounded-xl p-2.5 flex items-center gap-2 overflow-hidden transition-colors ${trialUrgent ? 'bg-red-500 hover:bg-red-600' : 'bg-amber-400 hover:bg-amber-500'}`}>
+          <Zap className="w-4 h-4 text-white flex-shrink-0" />
+          <span className="hidden lg:block text-[11px] font-black text-white whitespace-nowrap truncate">
+            {trialDaysLeft > 0 ? `${trialDaysLeft}d de teste` : 'Trial expirado'}
+          </span>
+        </button>
+      )}
+      {/* Nav items */}
+      <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+        {items.map(({ key, icon: Icon, label }) => {
+          const active = view === key;
+          return (
+            <button key={key} onClick={() => { setView(key); if (key === 'config') setMenuSection(s => s || 'dados'); }}
+              title={label}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left overflow-hidden ${active ? 'bg-white/15 text-white' : 'text-white/50 hover:bg-white/10 hover:text-white'}`}>
+              <Icon className="w-5 h-5 flex-shrink-0" />
+              <span className="hidden lg:block text-sm font-semibold whitespace-nowrap">{label}</span>
+            </button>
+          );
+        })}
+      </nav>
+      {/* Bottom: bell + logout */}
+      <div className="px-2 pb-4 space-y-0.5 flex-shrink-0 border-t border-white/10 pt-2">
+        <div className="relative">
+          <button onClick={() => { setNotifOpen(o => !o); setNotifications(prev => prev.map(n => ({ ...n, read: true }))); }}
+            title="Notificações"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/50 hover:bg-white/10 hover:text-white transition-all overflow-hidden">
+            <div className="relative flex-shrink-0">
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] rounded-full text-[9px] font-black text-white flex items-center justify-center px-0.5 bg-red-500">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </div>
+            <span className="hidden lg:block text-sm font-semibold whitespace-nowrap">Notificações</span>
+          </button>
+          {notifOpen && (
+            <div className="absolute bottom-full left-full ml-2 mb-1 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                <span className="text-sm font-black text-slate-900">Notificações</span>
+                {notifications.length > 0 && (
+                  <button onClick={() => setNotifications([])} className="text-[10px] text-slate-400 hover:text-red-400 font-semibold">Limpar tudo</button>
+                )}
+              </div>
+              <div className="max-h-72 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="py-8 text-center"><Bell className="w-6 h-6 text-slate-200 mx-auto mb-2" /><p className="text-xs text-slate-400">Sem notificações</p></div>
+                ) : notifications.map(n => (
+                  <div key={n.id} className={`px-4 py-3 border-b border-slate-50 flex items-start gap-3 ${n.read ? '' : 'bg-violet-50/60'}`}>
+                    <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.type === 'cancel' ? 'bg-red-400' : 'bg-violet-500'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-slate-800 leading-snug">{n.msg}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{n.time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <button onClick={handleLogout} title="Terminar sessão"
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/40 hover:bg-red-500/20 hover:text-red-300 transition-all overflow-hidden">
+          <LogOut className="w-5 h-5 flex-shrink-0" />
+          <span className="hidden lg:block text-sm font-semibold whitespace-nowrap">Terminar sessão</span>
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 // ── Admin Panel Shell ─────────────────────────────────────
 function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   const [view, setView] = useState('agenda');
@@ -1254,10 +1354,25 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   ];
 
   return (
-    <div className="max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200">
+    <div className="md:flex md:h-screen md:overflow-hidden">
 
-      {/* ── Sticky top block: trial banner + header ── */}
-      <div className="sticky top-0 z-10">
+      {/* ── Sidebar (tablet/desktop) ── */}
+      <AdminSidebar
+        view={view} setView={setView} profile={profile}
+        unreadCount={unreadCount} notifOpen={notifOpen}
+        setNotifOpen={setNotifOpen} setNotifications={setNotifications}
+        notifications={notifications} isTrial={isTrial}
+        trialDaysLeft={trialDaysLeft} trialUrgent={trialUrgent}
+        setShowPlansModal={setShowPlansModal} handleLogout={handleLogout}
+        setMenuSection={setMenuSection}
+      />
+
+      {/* ── Content column ── */}
+      <div className="flex-1 md:overflow-y-auto md:h-screen flex flex-col min-w-0">
+      <div className="max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200 md:max-w-none md:mx-0 md:pb-0 md:shadow-none md:flex-1">
+
+      {/* ── Sticky top block: trial banner + header (mobile only) ── */}
+      <div className="sticky top-0 z-10 md:hidden">
 
       {/* Safe-area spacer — acompanha a cor do primeiro elemento visível */}
       <div style={{
@@ -1354,7 +1469,59 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </div>
       </header>
 
-      </div>{/* end sticky top block */}
+      </div>{/* end mobile sticky top block */}
+
+      {/* ── Desktop top bar (md+ only) ── */}
+      <div className="hidden md:flex items-center justify-between px-8 py-4 bg-white border-b border-slate-100 sticky top-0 z-10">
+        <h1 className="font-black text-slate-900 text-lg">
+          {view === 'agenda' && 'Agenda'}
+          {view === 'clients' && 'Clientes'}
+          {view === 'dashboard' && 'Dashboard'}
+          {view === 'servicos' && 'Serviços'}
+          {view === 'equipa' && 'Equipa'}
+          {view === 'config' && 'Configurações'}
+        </h1>
+        <div className="flex items-center gap-2">
+          {isTrial && (
+            <button onClick={() => setShowPlansModal(true)}
+              className={`text-xs font-black px-3 py-1.5 rounded-full transition-colors ${trialUrgent ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}>
+              {trialDaysLeft > 0 ? `${trialDaysLeft}d de teste` : 'Trial expirado'}
+            </button>
+          )}
+          <div className="relative">
+            <button onClick={() => { setNotifOpen(o => !o); setNotifications(prev => prev.map(n => ({ ...n, read: true }))); }}
+              className="relative flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
+              <Bell className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-black text-white flex items-center justify-center px-1 bg-red-500">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+            {notifOpen && (
+              <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                  <span className="text-sm font-black text-slate-900">Notificações</span>
+                  {notifications.length > 0 && <button onClick={() => setNotifications([])} className="text-[10px] text-slate-400 hover:text-red-400 font-semibold">Limpar tudo</button>}
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="py-8 text-center"><Bell className="w-6 h-6 text-slate-200 mx-auto mb-2" /><p className="text-xs text-slate-400">Sem notificações</p></div>
+                  ) : notifications.map(n => (
+                    <div key={n.id} className={`px-4 py-3 border-b border-slate-50 flex items-start gap-3 ${n.read ? '' : 'bg-violet-50/60'}`}>
+                      <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.type === 'cancel' ? 'bg-red-400' : 'bg-violet-500'}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-slate-800 leading-snug">{n.msg}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{n.time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Click-outside to close notif panel */}
       {notifOpen && <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />}
@@ -1428,16 +1595,33 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       )}
 
       {/* ── Main content ── */}
-      <main className="p-5">
+      <main className="p-5 md:px-8 md:py-6">
         {view === 'agenda'    && <AdminAgenda user={user} lojaId={user.uid} profile={profile} newApptTrigger={agendaNewApptTrigger} />}
         {view === 'clients'   && <AdminClients user={user} lojaId={user.uid} isAdmin={true} />}
         {view === 'dashboard' && <AdminDashboard user={user} profile={profile} />}
         {view === 'equipa'    && <AdminEquipe user={user} profile={profile} setProfile={setProfile} />}
         {view === 'servicos'  && <AdminServicos user={user} profile={profile} setProfile={setProfile} />}
+        {view === 'config'    && (
+          <div>
+            <div className="flex gap-2 mb-6 border-b border-slate-200 pb-4 overflow-x-auto">
+              {[
+                { key: 'dados',    label: 'Dados do estabelecimento' },
+                { key: 'whatsapp', label: 'WhatsApp' },
+                { key: 'google',   label: 'Google Agenda' },
+              ].map(({ key, label }) => (
+                <button key={key} onClick={() => setMenuSection(key)}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${(menuSection || 'dados') === key ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <AdminSettings user={user} profile={profile} setProfile={setProfile} section={menuSection || 'dados'} />
+          </div>
+        )}
       </main>
 
-      {/* ── Bottom navigation ── */}
-      <nav className="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-slate-100 flex justify-around py-2 px-1 z-20">
+      {/* ── Bottom navigation (mobile only) ── */}
+      <nav className="fixed bottom-0 w-full max-w-[480px] bg-white border-t border-slate-100 flex justify-around py-2 px-1 z-20 md:hidden">
         {navItems.map(({ key, icon: Icon, label }) => {
           const active = view === key && !menuOpen;
           return (
@@ -1459,9 +1643,9 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         </button>
       </nav>
 
-      {/* ── Side drawer (right) ── */}
+      {/* ── Side drawer (mobile only) ── */}
       {menuOpen && (
-        <div className="fixed inset-0 z-40 flex" onClick={() => { setMenuOpen(false); setMenuSection(null); }}>
+        <div className="fixed inset-0 z-40 flex md:hidden" onClick={() => { setMenuOpen(false); setMenuSection(null); }}>
           <div className="flex-1 bg-black/50" />
           <div className="w-[88%] max-w-[440px] bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-5 border-b border-slate-100 flex-shrink-0">
@@ -1562,6 +1746,8 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
           </div>
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }
@@ -5296,7 +5482,52 @@ function firstAvailableDate(profile) {
   return d;
 }
 
-// ── Client Portal ─────────────────────────────────────────
+// ── Client Sidebar (tablet/desktop only) ──────────────────
+function ClientSidebar({ tab, setTab, profile, onSignOut, clientUser }) {
+  const items = [
+    { key: 'agenda',    icon: CalendarCheck, label: 'Agenda' },
+    { key: 'historico', icon: Clock,         label: 'Histórico' },
+    { key: 'conta',     icon: User,          label: 'Conta' },
+  ];
+  return (
+    <aside className="hidden md:flex flex-col flex-shrink-0 w-sidebar-sm lg:w-sidebar-lg h-screen sticky top-0 overflow-hidden z-30" style={{ background: '#18102e' }}>
+      {/* Establishment branding */}
+      <div className="flex items-center gap-3 px-4 py-5 flex-shrink-0 border-b border-white/10">
+        {profile.logo
+          ? <img src={profile.logo} alt={profile.nome} className="w-9 h-9 rounded-xl object-cover flex-shrink-0 border border-white/20" />
+          : <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-4 h-4 text-white" /></div>
+        }
+        <div className="hidden lg:block min-w-0">
+          <p className="font-black text-white text-sm leading-tight truncate">{profile.nome || 'Agendamento'}</p>
+          {profile.subtitulo && <p className="text-white/50 text-[11px] leading-tight truncate">{profile.subtitulo}</p>}
+        </div>
+      </div>
+      {/* Nav tabs (only when logged in) */}
+      {clientUser && (
+        <nav className="flex-1 px-2 py-3 space-y-0.5">
+          {items.map(({ key, icon: Icon, label }) => (
+            <button key={key} onClick={() => setTab(key)} title={label}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left overflow-hidden ${tab === key ? 'bg-white/15 text-white' : 'text-white/50 hover:bg-white/10 hover:text-white'}`}>
+              <Icon className="w-5 h-5 flex-shrink-0" />
+              <span className="hidden lg:block text-sm font-semibold whitespace-nowrap">{label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
+      {/* Sign out */}
+      {clientUser && (
+        <div className="px-2 pb-4 flex-shrink-0 border-t border-white/10 pt-2">
+          <button onClick={onSignOut} title="Sair"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/40 hover:bg-red-500/20 hover:text-red-300 transition-all overflow-hidden">
+            <LogOut className="w-5 h-5 flex-shrink-0" />
+            <span className="hidden lg:block text-sm font-semibold whitespace-nowrap">Sair da conta</span>
+          </button>
+        </div>
+      )}
+    </aside>
+  );
+}
+
 // ── Client Portal ─────────────────────────────────────────
 function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   // ── Auth state ───────────────────────────────────────────
@@ -6662,8 +6893,24 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
   // ── MAIN LOGGED-IN VIEW (tabs) ───────────────────────────
   return (
-    <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col">
-      <HeroBanner profile={profile} onSignOut={handleSignOut} showSignOut />
+    <div className="md:flex md:h-screen md:overflow-hidden">
+      <ClientSidebar tab={tab} setTab={setTab} profile={profile} onSignOut={handleSignOut} clientUser={clientUser} />
+      <div className="flex-1 md:overflow-y-auto md:h-screen">
+      <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col md:max-w-none md:min-h-0">
+
+      {/* HeroBanner: mobile only */}
+      <div className="md:hidden">
+        <HeroBanner profile={profile} onSignOut={handleSignOut} showSignOut />
+      </div>
+
+      {/* Desktop top bar */}
+      <div className="hidden md:flex items-center justify-between px-8 py-4 bg-white border-b border-slate-100 sticky top-0 z-10">
+        <h1 className="font-black text-slate-900 text-lg">
+          {tab === 'agenda' && `Olá, ${(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}`}
+          {tab === 'historico' && 'Histórico'}
+          {tab === 'conta' && 'Minha Conta'}
+        </h1>
+      </div>
 
       {confirmedAppt && (
         <div className="mx-5 mt-4 bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-center gap-3">
@@ -6676,7 +6923,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         </div>
       )}
 
-      <div className="flex-1 p-5 pt-5 pb-32 overflow-y-auto">
+      <div className="flex-1 p-5 pt-5 pb-32 overflow-y-auto md:pb-8 md:px-8">
 
         {/* ── AGENDA TAB ──────────────────────────────────── */}
         {tab === 'agenda' && (
@@ -7071,8 +7318,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         )}
       </div>
 
-      {/* ── Bottom navigation ───────────────────────────── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-slate-100" style={{ maxWidth: 480, margin: '0 auto' }}>
+      {/* ── Bottom navigation (mobile only) ───────────────────── */}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-slate-100 md:hidden" style={{ maxWidth: 480, margin: '0 auto' }}>
         <div className="flex">
           {[
             { key: 'agenda', label: 'Agenda', Icon: CalendarCheck },
@@ -7087,6 +7334,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
           ))}
         </div>
       </nav>
+      </div>
+      </div>
     </div>
   );
 }
