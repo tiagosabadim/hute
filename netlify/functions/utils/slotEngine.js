@@ -106,7 +106,9 @@ function busyFromGoogleEvents(eventos) {
 function busyFromMarcacoes(marcacoes, fallbackDuracao) {
   return marcacoes.map(m => {
     const start = toMin(m.hora);
-    return { start, end: start + (m.duracao ? Number(m.duracao) : fallbackDuracao) };
+    // duracaoTotal includes main service + all extra services booked via upsell
+    const dur = m.duracaoTotal ? Number(m.duracaoTotal) : (m.duracao ? Number(m.duracao) : fallbackDuracao);
+    return { start, end: start + dur };
   });
 }
 

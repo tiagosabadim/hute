@@ -1810,13 +1810,13 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
     ? [
         ...Object.entries(apptGroups).map(([hora, appts]) => ({
           tipo: 'group', hora,
-          duracao: Math.max(...appts.map(a => Number(a.duracao) || intervalo)),
+          duracao: Math.max(...appts.map(a => Number(a.duracaoTotal || a.duracao) || intervalo)),
           appts,
         })),
         ...slotBlocks.map(b => ({ tipo:'block', hora:b.hora, duracao:Number(b.duracao)||60, block:b })),
       ].sort((a,b) => a.hora.localeCompare(b.hora))
     : [
-        ...dayAppts.map(a => ({ tipo:'appt', hora:a.hora, duracao:Number(a.duracao)||intervalo, appt:a })),
+        ...dayAppts.map(a => ({ tipo:'appt', hora:a.hora, duracao:Number(a.duracaoTotal || a.duracao)||intervalo, appt:a })),
         ...slotBlocks.map(b => ({ tipo:'block', hora:b.hora, duracao:Number(b.duracao)||60, block:b })),
         ...(googleFreeSlots !== null
           ? googleEvents.filter(e => !e.allDay).map(e => {
@@ -6135,13 +6135,20 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       const clientWhats = isRemarcar ? remarcarWhats.trim() : (clientAccount?.whats || '');
 
       const accessToken = crypto.randomUUID();
+      const mainDuracao = selectedService.duracao || profile.intervalo || 60;
+      const extrasDuracao = selectedExtras
+        .filter(e => e.tipo === 'servico')
+        .reduce((sum, e) => sum + (Number(e.duracao) || 0), 0);
+      const duracaoTotal = mainDuracao + extrasDuracao;
+
       const apptData = {
         clienteNome: clientNome,
         clienteWhats: clientWhats,
         clienteNascimento: '',
         servico: selectedService.nome,
         valor: selectedService.preco || null,
-        duracao: selectedService.duracao || profile.intervalo || 60,
+        duracao: mainDuracao,
+        ...(extrasDuracao > 0 ? { duracaoTotal } : {}),
         profissionalId: selectedProfissional?.id || null,
         profissionalNome: selectedProfissional?.nome || null,
         data: dataISO,
@@ -6595,7 +6602,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                           </div>
                           <button onClick={() => setSelectedExtras(prev => added
                             ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome))
-                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc ?? precoOrig ?? 0, ...(isAvailable === false ? { sujeito: true } : {}) }])}
+                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc ?? precoOrig ?? 0, duracao: svc.duracao || 0, ...(isAvailable === false ? { sujeito: true } : {}) }])}
                             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-colors flex-shrink-0 flex items-center gap-1.5 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-600 text-white hover:bg-violet-700'}`}>
                             {added ? <><CheckCircle className="w-3.5 h-3.5" />Adicionado</> : 'Adicionar'}
                           </button>
