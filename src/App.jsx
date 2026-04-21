@@ -2603,7 +2603,7 @@ function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
           <p className="text-xs text-slate-400">{clients.length} cliente{clients.length !== 1 ? 's' : ''} registado{clients.length !== 1 ? 's' : ''}</p>
         </div>
         <button onClick={() => setShowAddForm(v => !v)}
-          className="p-2 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+          className="p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
           <Plus className="w-4 h-4" />
         </button>
       </div>
@@ -3341,7 +3341,7 @@ function AdminServicos({ user, profile, setProfile }) {
           <p className="text-xs text-slate-400">{servicos.length} serviço{servicos.length !== 1 ? 's' : ''} disponível{servicos.length !== 1 ? 'is' : ''}</p>
         </div>
         <button onClick={() => setShowAddDrawer(true)}
-          className="p-2 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+          className="p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
           <Plus className="w-4 h-4" />
         </button>
       </div>
