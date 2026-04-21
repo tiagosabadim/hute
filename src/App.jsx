@@ -2010,12 +2010,15 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                     const prof = profissionals.find(p => p.id === a.profissionalId);
                     return (
                       <div key={a.id}
-                        className="mb-1.5 p-2 rounded-xl text-xs cursor-pointer hover:opacity-80 transition-opacity"
-                        style={{ background: prof?.cor ? prof.cor + '22' : '#6C3CE122', borderLeft: `3px solid ${prof?.cor || '#6C3CE1'}` }}
-                        onClick={() => { setSelectedDate(day); }}>
+                        className="mb-1.5 p-2 rounded-xl text-xs"
+                        style={{ background: prof?.cor ? prof.cor + '22' : '#6C3CE122', borderLeft: `3px solid ${prof?.cor || '#6C3CE1'}` }}>
                         <div className="font-bold text-slate-800 truncate">{a.hora}</div>
                         <div className="text-slate-600 truncate">{a.clienteNome}</div>
                         <div className="text-slate-400 truncate">{a.servico}</div>
+                        <div className="flex gap-1 mt-1.5">
+                          <button onClick={() => setReagendarAppt(a)} className="flex-1 text-[9px] font-bold text-violet-600 bg-violet-50 py-0.5 rounded-md hover:bg-violet-100 transition-colors">Reagendar</button>
+                          <button onClick={() => cancelar(a)} className="flex-1 text-[9px] font-bold text-red-500 bg-red-50 py-0.5 rounded-md hover:bg-red-100 transition-colors">Cancelar</button>
+                        </div>
                       </div>
                     );
                   })}
