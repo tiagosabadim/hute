@@ -1403,7 +1403,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       )}
 
       {/* ── Header ── */}
-      <header className="px-5 py-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
+      <header className="px-4 py-3" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2.5">
             <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -1683,11 +1683,11 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
                   </div>
                 </div>
               ) : menuSection === 'equipa' ? (
-                <div className="p-5">
+                <div className="p-4">
                   <AdminEquipe user={user} profile={profile} setProfile={setProfile} />
                 </div>
               ) : (
-                <div className="p-5">
+                <div className="p-4">
                   <AdminSettings user={user} profile={profile} setProfile={setProfile} section={menuSection} />
                 </div>
               )}
@@ -1920,7 +1920,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h2 className="text-xl font-black text-slate-900">Agenda</h2>
+          <h2 className="text-lg font-black text-slate-900">Agenda</h2>
           <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
         </div>
         <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
@@ -5522,7 +5522,7 @@ function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showS
       {/* Safe-area spacer: height para empurrar o banner para baixo do status bar */}
       <div style={{ height: 'env(safe-area-inset-top)' }} />
       {/* Banner: cover photo or purple gradient fallback */}
-      <div className="relative overflow-hidden" style={{ height: '40vh', minHeight: '200px', maxHeight: '300px' }}>
+      <div className="relative overflow-hidden" style={{ height: '32vh', minHeight: '180px', maxHeight: '260px' }}>
         {profile.coverFoto
           ? <img src={profile.coverFoto} alt="" className="w-full h-full object-cover" />
           : <div className="w-full h-full" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }} />
@@ -5547,16 +5547,16 @@ function HeroBanner({ profile, onSignOut, showBack = false, onBack = null, showS
         </div>
 
         {/* Bottom content: logo + nome + tipo + @slug + "by hute" */}
-        <div className="absolute bottom-5 left-5 right-5 flex items-end justify-between gap-3">
-          <div className="flex items-end gap-3 min-w-0">
+        <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-2">
+          <div className="flex items-end gap-2.5 min-w-0">
             {/* Logo — quadrada com cantos arredondados */}
             {profile.logo
-              ? <img src={profile.logo} alt="" className="w-28 h-28 rounded-2xl object-cover border-2 border-white/80 shadow-xl flex-shrink-0" />
-              : <div className="w-28 h-28 rounded-2xl border-2 border-white/80 shadow-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-12 h-12 text-white" /></div>
+              ? <img src={profile.logo} alt="" className="w-20 h-20 rounded-2xl object-cover border-2 border-white/80 shadow-xl flex-shrink-0" />
+              : <div className="w-20 h-20 rounded-2xl border-2 border-white/80 shadow-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}><Sparkles className="w-9 h-9 text-white" /></div>
             }
             <div className="mb-1 min-w-0">
-              <p className="font-black text-white text-[2.1rem] leading-tight drop-shadow">{profile.nome || 'Agendamento'}</p>
-              {profile.subtitulo && <p className="text-white/80 text-[1.3rem] leading-tight mt-0.5">{profile.subtitulo}</p>}
+              <p className="font-black text-white text-[1.5rem] leading-tight drop-shadow">{profile.nome || 'Agendamento'}</p>
+              {profile.subtitulo && <p className="text-white/80 text-[1rem] leading-tight mt-0.5">{profile.subtitulo}</p>}
               {profile.slug && <p className="text-white/55 text-sm font-medium mt-0.5">@{profile.slug}</p>}
             </div>
           </div>
@@ -6461,19 +6461,19 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
         {bookingStep === 'service' && (
           <div>
-            <h2 className="text-xl font-black text-slate-900 mb-1">Qual serviço?</h2>
-            <p className="text-sm text-slate-400 mb-5">Escolha o serviço que deseja</p>
+            <h2 className="text-lg font-black text-slate-900 mb-1">Qual serviço?</h2>
+            <p className="text-sm text-slate-400 mb-4">Escolha o serviço que deseja</p>
             {servicos.length === 0
               ? <p className="text-center text-slate-400 py-12 text-sm">Nenhum serviço disponível.</p>
-              : <div className="space-y-3">
+              : <div className="space-y-2">
                   {servicos.map((s, i) => (
                     <button key={i} onClick={() => handleSelectService(s)}
                       className="w-full bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex">
                       {s.foto
-                        ? <img src={s.foto} alt={s.nome} className="w-20 h-20 object-cover flex-shrink-0" />
-                        : <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0"><Scissors className="w-7 h-7 text-violet-400" /></div>
+                        ? <img src={s.foto} alt={s.nome} className="w-16 h-16 object-cover flex-shrink-0" />
+                        : <div className="w-16 h-16 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0"><Scissors className="w-6 h-6 text-violet-400" /></div>
                       }
-                      <div className="flex-1 min-w-0 px-4 py-3">
+                      <div className="flex-1 min-w-0 px-3 py-2.5">
                         <p className="font-bold text-slate-900">{s.nome}</p>
                         <div className="flex items-center gap-3 mt-1 flex-wrap">
                           {s.duracao && <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}</span>}
@@ -6493,13 +6493,13 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
         {bookingStep === 'professional' && (
           <div>
-            <h2 className="text-xl font-black text-slate-900 mb-1">Com quem?</h2>
-            <p className="text-sm text-slate-400 mb-5">{selectedService ? `Para "${selectedService.nome}"` : 'Escolha o profissional'}</p>
-            <div className="space-y-3">
+            <h2 className="text-lg font-black text-slate-900 mb-1">Com quem?</h2>
+            <p className="text-sm text-slate-400 mb-4">{selectedService ? `Para "${selectedService.nome}"` : 'Escolha o profissional'}</p>
+            <div className="space-y-2">
               {profForService.map(p => (
                 <button key={p.id} onClick={() => handleSelectProf(p)}
-                  className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-2xl flex-shrink-0" style={{ backgroundColor: p.cor || '#7c3aed' }}>
+                  className="w-full bg-white rounded-2xl p-3 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black text-xl flex-shrink-0" style={{ backgroundColor: p.cor || '#7c3aed' }}>
                     {(p.nome || '?')[0].toUpperCase()}
                   </div>
                   <div className="flex-1">
@@ -6519,8 +6519,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
         {bookingStep === 'datetime' && (
           <div>
-            <h2 className="text-xl font-black text-slate-900 mb-1">Quando?</h2>
-            <p className="text-sm text-slate-400 mb-4">Escolha o dia e horário</p>
+            <h2 className="text-lg font-black text-slate-900 mb-1">Quando?</h2>
+            <p className="text-sm text-slate-400 mb-3">Escolha o dia e horário</p>
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-4">
               <div className="flex items-center justify-between">
                 <button onClick={() => changeDate(-1)} className="p-2 rounded-xl hover:bg-slate-50 text-slate-400 hover:text-slate-700 transition-colors"><ChevronLeft className="w-5 h-5" /></button>
@@ -6537,12 +6537,12 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
               : slots.length === 0
                 ? <div className="text-center py-10"><CalendarCheck className="w-10 h-10 text-slate-200 mx-auto mb-2" /><p className="text-slate-400 text-sm font-medium">Sem horários neste dia.</p><p className="text-slate-300 text-xs mt-1">Tente outro dia</p></div>
                 : <>
-                    <div className="grid grid-cols-3 gap-2 mb-5">
+                    <div className="grid grid-cols-3 gap-1.5 mb-4">
                       {slots.map(slot => {
                         const isExt = extendedSlots.includes(slot);
                         return (
                           <button key={slot} onClick={() => setSelectedHora(slot)}
-                            className={`py-3 rounded-xl text-sm font-bold border-2 transition-all relative ${selectedHora === slot ? 'bg-violet-600 text-white border-violet-600 shadow-lg shadow-violet-200' : isExt ? 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
+                            className={`py-2.5 rounded-xl text-sm font-bold border-2 transition-all relative ${selectedHora === slot ? 'bg-violet-600 text-white border-violet-600 shadow-lg shadow-violet-200' : isExt ? 'bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400' : 'bg-white text-slate-700 border-slate-100 hover:border-violet-200'}`}>
                             {slot}
                             {isExt && selectedHora !== slot && <span className="absolute -top-1.5 -right-1 text-[8px] bg-amber-400 text-white px-1 rounded-full font-black leading-4">+</span>}
                           </button>
@@ -6551,7 +6551,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                     </div>
                     <button onClick={() => { if (!selectedHora) return; setBookingStep(serviceHasExtras ? 'upsell' : 'confirm'); }}
                       disabled={!selectedHora}
-                      className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors">
+                      className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-40 transition-colors">
                       Continuar
                     </button>
                   </>
@@ -6577,10 +6577,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 <CheckCircle className="w-5 h-5 text-violet-500 flex-shrink-0" />
               </div>
 
-              <h2 className="text-xl font-black text-slate-900 mb-1">Aproveite a visita!</h2>
-              <p className="text-sm text-slate-400 mb-4">Agende mais um serviço com desconto exclusivo</p>
+              <h2 className="text-lg font-black text-slate-900 mb-1">Aproveite a visita!</h2>
+              <p className="text-sm text-slate-400 mb-3">Agende mais um serviço com desconto exclusivo</p>
 
-              <div className="space-y-3 mb-5">
+              <div className="space-y-2 mb-4">
                 {allCrossSells.map(cs => {
                     const svc = servicos.find(s => s.nome === cs.servicoNome);
                     if (!svc) return null;
@@ -6641,10 +6641,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 </div>
 
               <button onClick={() => setBookingStep('confirm')}
-                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors">
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-2xl text-sm transition-colors">
                 {selectedExtras.length > 0 ? `Confirmar (+${selectedExtras.length} extra${selectedExtras.length > 1 ? 's' : ''})` : 'Continuar'}
               </button>
-              <button onClick={() => { setSelectedExtras([]); setBookingStep('confirm'); }} className="w-full mt-2 py-3 text-slate-400 text-sm hover:text-slate-600 transition-colors">
+              <button onClick={() => { setSelectedExtras([]); setBookingStep('confirm'); }} className="w-full mt-2 py-2.5 text-slate-400 text-sm hover:text-slate-600 transition-colors">
                 Não, obrigado
               </button>
             </div>
@@ -6653,8 +6653,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
         {bookingStep === 'confirm' && (
           <div>
-            <h2 className="text-xl font-black text-slate-900 mb-1">Confirmar marcação</h2>
-            <p className="text-sm text-slate-400 mb-4">Reveja os detalhes antes de confirmar</p>
+            <h2 className="text-lg font-black text-slate-900 mb-1">Confirmar marcação</h2>
+            <p className="text-sm text-slate-400 mb-3">Reveja os detalhes antes de confirmar</p>
             <div className="bg-violet-50 rounded-2xl p-4 mb-4 space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Serviço</span>
@@ -6724,7 +6724,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 handleConfirmBooking(isRemarcar);
               }
             }} disabled={submitting || (isRemarcar && (!remarcarNome.trim() || !remarcarWhats.trim()))}
-              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-3.5 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
               {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
               {clientUser ? 'Confirmar marcação' : 'Entrar para confirmar'}
             </button>
@@ -7032,12 +7032,12 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         </div>
       )}
 
-      <div className="flex-1 p-5 pt-5 pb-32 overflow-y-auto md:pb-8 md:px-8">
+      <div className="flex-1 px-4 py-4 pb-28 overflow-y-auto md:pb-8 md:px-8">
 
         {/* ── AGENDA TAB ──────────────────────────────────── */}
         {tab === 'agenda' && (
           <div>
-            <h2 className="text-xl font-black text-slate-900 mb-5">Olá, {(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}!</h2>
+            <h2 className="text-lg font-black text-slate-900 mb-4">Olá, {(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}!</h2>
 
             {!isStandalone && !pwaHidden && (
               <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4 mb-5">
