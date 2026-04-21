@@ -1170,7 +1170,7 @@ function AdminSidebar({ view, setView, profile, unreadCount, notifOpen, setNotif
     { key: 'config',    icon: Settings,  label: 'Configurações' },
   ];
   return (
-    <aside className="hidden md:flex flex-col flex-shrink-0 w-sidebar-sm lg:w-sidebar-lg h-screen sticky top-0 overflow-hidden z-30" style={{ background: '#18102e' }}>
+    <aside className="hidden md:flex flex-col flex-shrink-0 w-sidebar-sm lg:w-sidebar-lg h-screen sticky top-0 overflow-hidden z-30" style={{ background: 'linear-gradient(180deg, #6C3CE1 0%, #4F21A8 100%)' }}>
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 flex-shrink-0 border-b border-white/10">
         <img src="/favicon.svg" alt="Hute" className="w-8 h-8 flex-shrink-0" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -1470,58 +1470,6 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       </header>
 
       </div>{/* end mobile sticky top block */}
-
-      {/* ── Desktop top bar (md+ only) ── */}
-      <div className="hidden md:flex items-center justify-between px-8 py-4 bg-white border-b border-slate-100 sticky top-0 z-10">
-        <h1 className="font-black text-slate-900 text-lg">
-          {view === 'agenda' && 'Agenda'}
-          {view === 'clients' && 'Clientes'}
-          {view === 'dashboard' && 'Dashboard'}
-          {view === 'servicos' && 'Serviços'}
-          {view === 'equipa' && 'Equipa'}
-          {view === 'config' && 'Configurações'}
-        </h1>
-        <div className="flex items-center gap-2">
-          {isTrial && (
-            <button onClick={() => setShowPlansModal(true)}
-              className={`text-xs font-black px-3 py-1.5 rounded-full transition-colors ${trialUrgent ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}>
-              {trialDaysLeft > 0 ? `${trialDaysLeft}d de teste` : 'Trial expirado'}
-            </button>
-          )}
-          <div className="relative">
-            <button onClick={() => { setNotifOpen(o => !o); setNotifications(prev => prev.map(n => ({ ...n, read: true }))); }}
-              className="relative flex items-center justify-center w-9 h-9 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors">
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full text-[10px] font-black text-white flex items-center justify-center px-1 bg-red-500">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-            {notifOpen && (
-              <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-                  <span className="text-sm font-black text-slate-900">Notificações</span>
-                  {notifications.length > 0 && <button onClick={() => setNotifications([])} className="text-[10px] text-slate-400 hover:text-red-400 font-semibold">Limpar tudo</button>}
-                </div>
-                <div className="max-h-72 overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="py-8 text-center"><Bell className="w-6 h-6 text-slate-200 mx-auto mb-2" /><p className="text-xs text-slate-400">Sem notificações</p></div>
-                  ) : notifications.map(n => (
-                    <div key={n.id} className={`px-4 py-3 border-b border-slate-50 flex items-start gap-3 ${n.read ? '' : 'bg-violet-50/60'}`}>
-                      <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.type === 'cancel' ? 'bg-red-400' : 'bg-violet-500'}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-slate-800 leading-snug">{n.msg}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{n.time.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Click-outside to close notif panel */}
       {notifOpen && <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />}
@@ -5490,7 +5438,7 @@ function ClientSidebar({ tab, setTab, profile, onSignOut, clientUser }) {
     { key: 'conta',     icon: User,          label: 'Conta' },
   ];
   return (
-    <aside className="hidden md:flex flex-col flex-shrink-0 w-sidebar-sm lg:w-sidebar-lg h-screen sticky top-0 overflow-hidden z-30" style={{ background: '#18102e' }}>
+    <aside className="hidden md:flex flex-col flex-shrink-0 w-sidebar-sm lg:w-sidebar-lg h-screen sticky top-0 overflow-hidden z-30" style={{ background: 'linear-gradient(180deg, #6C3CE1 0%, #4F21A8 100%)' }}>
       {/* Establishment branding */}
       <div className="flex items-center gap-3 px-4 py-5 flex-shrink-0 border-b border-white/10">
         {profile.logo
@@ -6901,15 +6849,6 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       {/* HeroBanner: mobile only */}
       <div className="md:hidden">
         <HeroBanner profile={profile} onSignOut={handleSignOut} showSignOut />
-      </div>
-
-      {/* Desktop top bar */}
-      <div className="hidden md:flex items-center justify-between px-8 py-4 bg-white border-b border-slate-100 sticky top-0 z-10">
-        <h1 className="font-black text-slate-900 text-lg">
-          {tab === 'agenda' && `Olá, ${(clientAccount?.nome || '').split(' ')[0] || 'bem-vindo'}`}
-          {tab === 'historico' && 'Histórico'}
-          {tab === 'conta' && 'Minha Conta'}
-        </h1>
       </div>
 
       {confirmedAppt && (
