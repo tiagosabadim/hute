@@ -1166,7 +1166,7 @@ function AdminSidebar({ view, setView, profile, unreadCount, notifOpen, setNotif
     { key: 'clients',   icon: Users,     label: 'Clientes' },
     { key: 'dashboard', icon: BarChart2, label: 'Dashboard' },
     { key: 'servicos',  icon: Tag,       label: 'Serviços' },
-    { key: 'equipa',    icon: Briefcase, label: 'Equipa' },
+    { key: 'equipa',    icon: Briefcase, label: 'Equipe' },
     { key: 'config',    icon: Settings,  label: 'Configurações' },
   ];
   return (
@@ -1716,6 +1716,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const [showNewAppt, setShowNewAppt] = useState(false);
   const [preHora, setPreHora] = useState('');
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [reagendarAppt, setReagendarAppt] = useState(null);
   const colId = lojaId || user.uid;
   const dateISO = toDateISO(selectedDate);
   const todayISO = toDateISO(new Date());
@@ -2172,9 +2173,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                                   )}
                                 </div>
                               </div>
-                              <button onClick={() => cancelar(a)} className="p-1 text-slate-200 hover:text-red-400 transition-colors flex-shrink-0">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                <button onClick={() => setReagendarAppt(a)} className="text-[10px] font-bold text-violet-500 bg-violet-50 px-2 py-1 rounded-lg hover:bg-violet-100 transition-colors">Reagendar</button>
+                                <button onClick={() => cancelar(a)} className="text-[10px] font-bold text-red-400 bg-red-50 px-2 py-1 rounded-lg hover:bg-red-100 transition-colors">Cancelar</button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2224,9 +2226,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             )}
                           </div>
                         </div>
-                        <button onClick={() => cancelar(a)} className="p-1 text-slate-200 hover:text-red-400 transition-colors flex-shrink-0">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <button onClick={() => setReagendarAppt(a)} className="text-[10px] font-bold text-violet-500 bg-violet-50 px-2 py-1 rounded-lg hover:bg-violet-100 transition-colors">Reagendar</button>
+                          <button onClick={() => cancelar(a)} className="text-[10px] font-bold text-red-400 bg-red-50 px-2 py-1 rounded-lg hover:bg-red-100 transition-colors">Cancelar</button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2303,18 +2306,40 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           onSaved={() => { setShowBlockModal(false); setPreHora(''); }}
         />
       )}
+      {reagendarAppt && profile && (
+        <NewAppointmentModal
+          lojaId={colId} profile={profile}
+          filterProfId={filterProfId}
+          prefilledHora={''} prefilledDate={dateISO}
+          prefilledNome={reagendarAppt.clienteNome}
+          prefilledWhats={reagendarAppt.clienteWhats}
+          prefilledServico={reagendarAppt.servico}
+          prefilledProfId={reagendarAppt.profissionalId || filterProfId || selectedProfId || ''}
+          replacingApptId={reagendarAppt.id}
+          replacingAppt={reagendarAppt}
+          onClose={() => setReagendarAppt(null)}
+          onSaved={() => setReagendarAppt(null)}
+        />
+      )}
     </div>
   );
 }
 
 // ── New Appointment Modal ─────────────────────────────────
-function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, prefilledDate, onClose, onSaved }) {
-  const [clienteWhats, setClienteWhats] = useState('');
-  const [clienteNome, setClienteNome] = useState('');
+function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, prefilledDate, onClose, onSaved,
+  prefilledNome = '', prefilledWhats = '', prefilledServico = null, prefilledProfId = null,
+  replacingApptId = null, replacingAppt = null }) {
+  const [clienteWhats, setClienteWhats] = useState(prefilledWhats || '');
+  const [clienteNome, setClienteNome] = useState(prefilledNome || '');
   const [clienteNascimento, setClienteNascimento] = useState('');
   const [existingClient, setExistingClient] = useState(null);
-  const [selectedService, setSelectedService] = useState(null);
-  const [selectedProfId, setSelectedProfId] = useState(filterProfId || '');
+  const [selectedService, setSelectedService] = useState(() => {
+    if (prefilledServico && profile.servicos) {
+      return (profile.servicos).find(s => s.nome === prefilledServico) || null;
+    }
+    return null;
+  });
+  const [selectedProfId, setSelectedProfId] = useState(prefilledProfId || filterProfId || '');
   const [data, setData] = useState(prefilledDate || new Date().toISOString().split('T')[0]);
   const [hora, setHora] = useState(prefilledHora || '');
   const [slots, setSlots] = useState(null);
@@ -2428,6 +2453,24 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
         body: JSON.stringify({ lojaId, ...apptData, appointmentId: apptRef.id }),
       }).catch(() => {});
 
+      // If reagendando, silently cancel the old appointment
+      if (replacingApptId && replacingAppt) {
+        fetch(`${BACKEND_URL}/cancelAppointment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lojaId,
+            appointmentId: replacingApptId,
+            clienteWhats: replacingAppt.clienteWhats || '',
+            nomeCliente: replacingAppt.clienteNome || '',
+            servico: replacingAppt.servico || '',
+            data: replacingAppt.data || '',
+            hora: replacingAppt.hora || '',
+            profissionalNome: replacingAppt.profissionalNome || '',
+          }),
+        }).catch(() => {});
+      }
+
       onSaved();
       onClose();
     } finally {
@@ -2454,7 +2497,7 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
       <div className="bg-white rounded-t-3xl lg:rounded-3xl w-full max-w-[480px] max-h-[92vh] overflow-y-auto shadow-2xl"
         onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white rounded-t-3xl border-b border-slate-100 px-5 py-4 flex items-center justify-between z-10">
-          <h2 className="font-black text-slate-900">Nova Marcação</h2>
+          <h2 className="font-black text-slate-900">{replacingApptId ? 'Reagendar Marcação' : 'Nova Marcação'}</h2>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
@@ -4035,36 +4078,39 @@ function AdminSettings({ user, profile, setProfile, section }) {
 
       {/* ── Dados do estabelecimento ── */}
       {section === 'dados' && (
-        <>
-          {/* Identidade Visual */}
-          <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
-            <div className="px-5 pt-5 pb-3">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identidade Visual</p>
+        <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+          {/* Left column: Identidade Visual + Informações */}
+          <div className="space-y-5">
+            {/* Identidade Visual */}
+            <div className="bg-white rounded-3xl overflow-hidden shadow-sm border border-slate-100">
+              <div className="px-5 pt-5 pb-3">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identidade Visual</p>
 
-              <div className="mb-4">
-                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Foto de capa</label>
-                <ImageUpload value={coverFoto} onChange={setCoverFoto} aspect="cover" />
-              </div>
-
-              <div className="flex items-center gap-4 mb-4">
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Logótipo</label>
-                  <ImageUpload value={logo} onChange={setLogo} aspect="logo" />
+                <div className="mb-4">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Foto de capa</label>
+                  <ImageUpload value={coverFoto} onChange={setCoverFoto} aspect="cover" />
                 </div>
-                <div className="flex-1">
-                  <p className="text-xs text-slate-400 mb-1">Pré-visualização no portal do cliente:</p>
-                  <div className="rounded-2xl overflow-hidden border border-slate-100 bg-slate-50">
-                    <div className="relative h-20 bg-gradient-to-br from-violet-700 to-violet-900">
-                      {coverFoto && <img src={coverFoto} alt="" className="w-full h-full object-cover absolute inset-0" />}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                      <div className="absolute bottom-2 left-3 flex items-center gap-2">
-                        {logo
-                          ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-cover border-2 border-white/80 shadow" />
-                          : <div className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/60 flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
-                        }
-                        <div>
-                          <p className="font-black text-white text-xs leading-tight">{nome || 'Nome do espaço'}</p>
-                          {subtitulo && <p className="text-white/70 text-[10px] leading-tight">{subtitulo}</p>}
+
+                <div className="flex items-center gap-4 mb-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">Logótipo</label>
+                    <ImageUpload value={logo} onChange={setLogo} aspect="logo" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-slate-400 mb-1">Pré-visualização no portal do cliente:</p>
+                    <div className="rounded-2xl overflow-hidden border border-slate-100 bg-slate-50">
+                      <div className="relative h-20 bg-gradient-to-br from-violet-700 to-violet-900">
+                        {coverFoto && <img src={coverFoto} alt="" className="w-full h-full object-cover absolute inset-0" />}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                        <div className="absolute bottom-2 left-3 flex items-center gap-2">
+                          {logo
+                            ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-cover border-2 border-white/80 shadow" />
+                            : <div className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/60 flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+                          }
+                          <div>
+                            <p className="font-black text-white text-xs leading-tight">{nome || 'Nome do espaço'}</p>
+                            {subtitulo && <p className="text-white/70 text-[10px] leading-tight">{subtitulo}</p>}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -4072,86 +4118,89 @@ function AdminSettings({ user, profile, setProfile, section }) {
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Informações */}
-          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Informações</p>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do estabelecimento</label>
-              <input value={nome} onChange={e => setNome(e.target.value)}
-                placeholder="Ex: Studio da Ana"
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Especialidade</label>
-              <input value={subtitulo} onChange={e => setSubtitulo(e.target.value)}
-                placeholder="Ex: Cabeleireiro & Estética"
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Link do portal (slug)</label>
-              <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
-                <span className="pl-3 pr-1 text-slate-400 text-xs whitespace-nowrap">hute.app/#</span>
-                <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="studio-da-ana"
-                  className="flex-1 px-2 py-3 text-slate-800 outline-none text-sm bg-transparent" />
+            {/* Informações */}
+            <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Informações</p>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Nome do estabelecimento</label>
+                <input value={nome} onChange={e => setNome(e.target.value)}
+                  placeholder="Ex: Studio da Ana"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Especialidade</label>
+                <input value={subtitulo} onChange={e => setSubtitulo(e.target.value)}
+                  placeholder="Ex: Cabeleireiro & Estética"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Link do portal (slug)</label>
+                <div className="flex items-center border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
+                  <span className="pl-3 pr-1 text-slate-400 text-xs whitespace-nowrap">hute.app/#</span>
+                  <input value={slug} onChange={e => setSlug(e.target.value)} placeholder="studio-da-ana"
+                    className="flex-1 px-2 py-3 text-slate-800 outline-none text-sm bg-transparent" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp do estabelecimento</label>
+                <input type="tel" value={whatsappNumber} onChange={e => setWhatsappNumber(e.target.value)}
+                  placeholder="(11) 99999-9999"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
+                <p className="text-[10px] text-slate-400 mt-1">Usado pelo chatbot para identificar seu estabelecimento.</p>
               </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">WhatsApp do estabelecimento</label>
-              <input type="tel" value={whatsappNumber} onChange={e => setWhatsappNumber(e.target.value)}
-                placeholder="(11) 99999-9999"
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-300 outline-none focus:ring-2 focus:ring-violet-500 text-sm" />
-              <p className="text-[10px] text-slate-400 mt-1">Usado pelo chatbot para identificar seu estabelecimento.</p>
-            </div>
           </div>
 
-          {/* Horário */}
-          <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário de funcionamento</p>
-            <DiasHorariosEditor dias={diasFuncionamento} onChange={setDiasFuncionamento} />
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
-              <select value={intervaloBase} onChange={e => setIntervaloBase(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-                {[[30,'30 min'],[45,'45 min'],[60,'1h'],[90,'1h30'],[120,'2h']].map(([v,l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
+          {/* Right column: Horário + Save + Link */}
+          <div className="space-y-5 mt-5 lg:mt-0">
+            {/* Horário */}
+            <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 space-y-4">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Horário de funcionamento</p>
+              <DiasHorariosEditor dias={diasFuncionamento} onChange={setDiasFuncionamento} />
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Intervalo base entre marcações</label>
+                <select value={intervaloBase} onChange={e => setIntervaloBase(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                  {[[30,'30 min'],[45,'45 min'],[60,'1h'],[90,'1h30'],[120,'2h']].map(([v,l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Tolerância após o fecho</label>
+                <select value={toleranciaFechamento} onChange={e => setTolerancisFechamento(e.target.value)}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
+                  {[[0,'Fecha em ponto'],[15,'+15 min'],[30,'+30 min'],[45,'+45 min'],[60,'+1h']].map(([v,l]) => (
+                    <option key={v} value={v}>{l}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">Tolerância após o fecho</label>
-              <select value={toleranciaFechamento} onChange={e => setTolerancisFechamento(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 text-sm bg-white">
-                {[[0,'Fecha em ponto'],[15,'+15 min'],[30,'+30 min'],[45,'+45 min'],[60,'+1h']].map(([v,l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
-            </div>
-          </div>
 
-          {/* Save */}
-          <button onClick={saveAll} disabled={saving}
-            className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors shadow-lg shadow-violet-200">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
-            {saved ? 'Guardado!' : 'Guardar alterações'}
-          </button>
-
-          {/* Link de reservas */}
-          <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-3xl p-5 shadow-lg shadow-violet-200">
-            <div className="flex items-center gap-2 mb-3">
-              <Link className="w-4 h-4 text-violet-200" />
-              <p className="text-xs font-bold text-violet-200 uppercase tracking-widest">Link de reservas</p>
-            </div>
-            <p className="text-white/90 text-sm font-semibold break-all mb-3">{link}</p>
-            <button
-              onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-              className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
-              {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copied ? 'Copiado!' : 'Copiar link'}
+            {/* Save */}
+            <button onClick={saveAll} disabled={saving}
+              className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 disabled:opacity-60 transition-colors shadow-lg shadow-violet-200">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle className="w-4 h-4" /> : null}
+              {saved ? 'Guardado!' : 'Guardar alterações'}
             </button>
+
+            {/* Link de reservas */}
+            <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-3xl p-5 shadow-lg shadow-violet-200">
+              <div className="flex items-center gap-2 mb-3">
+                <Link className="w-4 h-4 text-violet-200" />
+                <p className="text-xs font-bold text-violet-200 uppercase tracking-widest">Link de reservas</p>
+              </div>
+              <p className="text-white/90 text-sm font-semibold break-all mb-3">{link}</p>
+              <button
+                onClick={() => { navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                className="w-full bg-white/20 hover:bg-white/30 text-white font-bold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
+                {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                {copied ? 'Copiado!' : 'Copiar link'}
+              </button>
+            </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* ── Integrar WhatsApp ── */}
