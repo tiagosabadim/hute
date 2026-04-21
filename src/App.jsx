@@ -1354,7 +1354,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
   ];
 
   return (
-    <div className="md:flex md:h-screen md:overflow-hidden overflow-x-hidden">
+    <div className="md:flex md:h-screen md:overflow-hidden">
 
       {/* ── Sidebar (tablet/desktop) ── */}
       <AdminSidebar
@@ -1596,6 +1596,7 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
         <div className="fixed inset-0 z-40 flex md:hidden" onClick={() => { setMenuOpen(false); setMenuSection(null); }}>
           <div className="flex-1 bg-black/50" />
           <div className="w-[88%] max-w-[440px] bg-white h-full shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div style={{ height: 'env(safe-area-inset-top)', background: '#ffffff', flexShrink: 0 }} />
             <div className="flex items-center justify-between px-5 py-5 border-b border-slate-100 flex-shrink-0">
               {menuSection ? (
                 <button onClick={() => setMenuSection(null)} className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors">
@@ -1930,7 +1931,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
       {/* Professional selector — hidden for staff (filterProfId set) */}
       {!filterProfId && profissionals.length > 1 && (
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 px-1 scrollbar-hide">
           <button
             onClick={() => setSelectedProfId(null)}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-all ${
@@ -7004,7 +7005,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
   // ── MAIN LOGGED-IN VIEW (tabs) ───────────────────────────
   return (
-    <div className="md:flex md:h-screen md:overflow-hidden overflow-x-hidden">
+    <div className="md:flex md:h-screen md:overflow-hidden">
       <ClientSidebar tab={tab} setTab={setTab} profile={profile} onSignOut={handleSignOut} clientUser={clientUser} />
       <div className="flex-1 md:overflow-y-auto md:h-screen">
       <div className="max-w-[480px] mx-auto min-h-screen bg-slate-50 flex flex-col md:max-w-none md:min-h-0">
