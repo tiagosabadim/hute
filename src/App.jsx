@@ -1526,8 +1526,8 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
 
       {/* ── Plans modal ── */}
       {showPlansModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={() => setShowPlansModal(false)}>
-          <div className="bg-white rounded-t-3xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 pb-10" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center lg:items-center" onClick={() => setShowPlansModal(false)}>
+          <div className="bg-white rounded-t-3xl lg:rounded-3xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto p-6 pb-10" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-5">
               <h2 className="font-black text-slate-900 text-lg">Escolha um plano</h2>
               <button onClick={() => setShowPlansModal(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
@@ -1882,6 +1882,29 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const openNewAppt = (hora) => { setPreHora(hora); setActiveSlot(null); setShowNewAppt(true); };
   const openBlock   = (hora) => { setPreHora(hora); setActiveSlot(null); setShowBlockModal(true); };
 
+  // ── Desktop week view ────────────────────────────────────
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
+  useEffect(() => {
+    const handler = () => setIsDesktop(window.innerWidth >= 1024);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  const weekStart = useMemo(() => {
+    const d = new Date(selectedDate);
+    d.setHours(0, 0, 0, 0);
+    const day = d.getDay();
+    const diff = day === 0 ? -6 : 1 - day; // Monday start
+    d.setDate(d.getDate() + diff);
+    return d;
+  }, [selectedDate]);
+
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  }), [weekStart]);
+
   const syncBadge = googleLoading
     ? <span className="text-[10px] text-slate-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Sincronizando...</span>
     : googleFreeSlots !== null
@@ -1931,6 +1954,83 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
         </div>
       )}
 
+      {isDesktop ? (
+        /* ── Week view (desktop lg+) ── */
+        <div>
+          {/* Week navigation */}
+          <div className="flex items-center justify-between mb-4 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 7); setSelectedDate(d); setActiveSlot(null); }}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors text-sm font-semibold">
+              <ChevronLeft className="w-4 h-4" /> semana anterior
+            </button>
+            <div className="text-center">
+              <span className="font-black text-slate-900 text-sm">
+                {weekDays[0].toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' }).replace('.', '')}
+                {' – '}
+                {weekDays[6].toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric' }).replace('.', '')}
+              </span>
+              {(() => {
+                const todayInWeek = weekDays.some(d => d.toISOString().split('T')[0] === todayISO);
+                return !todayInWeek ? (
+                  <button onClick={() => { setSelectedDate(new Date()); setActiveSlot(null); }}
+                    className="block w-full mt-1 text-xs text-violet-500 font-semibold hover:text-violet-700 transition-colors">
+                    Ir para hoje
+                  </button>
+                ) : null;
+              })()}
+            </div>
+            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 7); setSelectedDate(d); setActiveSlot(null); }}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors text-sm font-semibold">
+              próxima semana <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          {/* 7-column grid */}
+          <div className="grid grid-cols-7 gap-2">
+            {weekDays.map(day => {
+              const dayStr = day.toISOString().split('T')[0];
+              const dayAppts = appointments.filter(a =>
+                a.data === dayStr && (!selectedProfId || a.profissionalId === selectedProfId)
+              );
+              const isToday = dayStr === todayISO;
+              const isSelected = dayStr === selectedDate.toISOString().split('T')[0];
+              return (
+                <div key={dayStr} className="min-h-[200px]">
+                  <div
+                    className={`text-center py-2 rounded-xl mb-2 cursor-pointer transition-colors ${isToday ? 'bg-violet-600 text-white' : isSelected ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    onClick={() => setSelectedDate(day)}>
+                    <div className="text-[10px] font-bold uppercase tracking-wider">
+                      {day.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}
+                    </div>
+                    <div className="text-lg font-black">{day.getDate()}</div>
+                  </div>
+                  {dayAppts.length === 0 ? (
+                    <div className="text-center py-4 text-xs text-slate-300">–</div>
+                  ) : dayAppts.sort((a, b) => (a.hora || '').localeCompare(b.hora || '')).map(a => {
+                    const prof = profissionals.find(p => p.id === a.profissionalId);
+                    return (
+                      <div key={a.id}
+                        className="mb-1.5 p-2 rounded-xl text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                        style={{ background: prof?.cor ? prof.cor + '22' : '#6C3CE122', borderLeft: `3px solid ${prof?.cor || '#6C3CE1'}` }}
+                        onClick={() => { setSelectedDate(day); }}>
+                        <div className="font-bold text-slate-800 truncate">{a.hora}</div>
+                        <div className="text-slate-600 truncate">{a.clienteNome}</div>
+                        <div className="text-slate-400 truncate">{a.servico}</div>
+                      </div>
+                    );
+                  })}
+                  <button
+                    onClick={() => { setSelectedDate(day); setPreHora(''); setShowNewAppt(true); }}
+                    className="w-full mt-1 py-1.5 rounded-xl border border-dashed border-slate-200 text-slate-300 hover:border-violet-300 hover:text-violet-400 text-xs transition-colors">
+                    +
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        /* ── Day view (mobile / tablet) ── */
+        <div>
       {/* Date navigation */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 mb-4">
         <div className="flex items-center justify-between">
@@ -2182,6 +2282,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           })}
         </div>
       )}
+        </div>
+      )}
 
       {showNewAppt && profile && (
         <NewAppointmentModal
@@ -2348,8 +2450,8 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl w-full max-w-[480px] max-h-[92vh] overflow-y-auto shadow-2xl"
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center lg:items-center" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl lg:rounded-3xl w-full max-w-[480px] max-h-[92vh] overflow-y-auto shadow-2xl"
         onClick={e => e.stopPropagation()}>
         <div className="sticky top-0 bg-white rounded-t-3xl border-b border-slate-100 px-5 py-4 flex items-center justify-between z-10">
           <h2 className="font-black text-slate-900">Nova Marcação</h2>
@@ -2516,8 +2618,8 @@ function BlockModal({ lojaId, filterProfId, profile, prefilledHora, prefilledDat
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl w-full max-w-[480px] shadow-2xl" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center lg:items-center" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl lg:rounded-3xl w-full max-w-[480px] shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="border-b border-slate-100 px-5 py-4 flex items-center justify-between">
           <h2 className="font-black text-slate-900">Bloquear / Folga</h2>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
@@ -3480,7 +3582,7 @@ function AdminServicos({ user, profile, setProfile }) {
         </button>
       </div>
 
-      <div className="space-y-3 mb-5">
+      <div className="space-y-3 mb-5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
         {servicos.map((s, i) => (
           <div key={i} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             {editIdx === i ? (
@@ -3673,9 +3775,9 @@ function AdminServicos({ user, profile, setProfile }) {
 
       {/* Add drawer */}
       {showAddDrawer && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ maxWidth: 480, margin: '0 auto' }}>
+        <div className="fixed inset-0 z-50 flex flex-col justify-end lg:items-center lg:justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddDrawer(false)} />
-          <div className="relative bg-white rounded-t-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="relative bg-white rounded-t-3xl lg:rounded-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto lg:max-w-lg lg:w-full lg:max-h-[85vh]">
             {/* Handle */}
             <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-1" />
             <div className="flex items-center justify-between">
@@ -4527,19 +4629,20 @@ function AdminDashboard({ user, profile }) {
       )}
 
       <div style={{ padding:"16px 16px 0" }}>
-        {/* Metric cards */}
-        <div style={{ display:"flex", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+        {/* Metric cards — 2×2 on mobile/tablet, 4-col row on desktop */}
+        <div className="grid grid-cols-2 gap-2.5 mb-5 lg:grid-cols-4">
           <DMetricCard icon="📅" label="Marcações" value={totalPeriod} sub="vs mês anterior" trend={totalTrend} color={DC.primary}
             onClick={()=>setExpandedMetric(expandedMetric==="agend"?null:"agend")} active={expandedMetric==="agend"} expanded={expandedMetric==="agend"} sparkData={spark30} sparkKey="agendamentos"/>
           <DMetricCard icon="💰" label="Receita" value={`R$ ${receitaPeriod.toLocaleString("pt-BR")}`} sub="vs mês anterior" trend={receitaTrend} color={DC.accent}
             onClick={()=>setExpandedMetric(expandedMetric==="receita"?null:"receita")} active={expandedMetric==="receita"} expanded={expandedMetric==="receita"} sparkData={spark30} sparkKey="receita"/>
-        </div>
-        <div style={{ display:"flex", gap:10, marginBottom:20, flexWrap:"wrap" }}>
           <DMetricCard icon="📦" label="Extras vendidos" value={upsell.aceitos} sub={`+R$ ${upsell.receitaExtra}`} color={DC.amber}
             onClick={()=>setExpandedMetric(expandedMetric==="extras"?null:"extras")} active={expandedMetric==="extras"} expanded={expandedMetric==="extras"} sparkData={spark30} sparkKey="extras"/>
           <DMetricCard icon="🔄" label="Taxa extras" value={`${upsell.taxa}%`} sub="de aceitação" color={DC.coral}
             onClick={()=>setExpandedMetric(expandedMetric==="upsell"?null:"upsell")} active={expandedMetric==="upsell"} expanded={expandedMetric==="upsell"} sparkData={spark30} sparkKey="extras"/>
         </div>
+
+        {/* Charts — 1 col on mobile/tablet, 2-col grid on desktop */}
+        <div className="lg:grid lg:grid-cols-2 lg:gap-4">
 
         {/* Today */}
         {todayAppts.length>0 && (
@@ -4788,6 +4891,7 @@ function AdminDashboard({ user, profile }) {
             <p style={{ color:DC.textTertiary, fontSize:12, marginTop:4 }}>As métricas aparecerão assim que tiver marcações</p>
           </div>
         )}
+        </div>{/* end charts 2-col grid */}
       </div>
     </div>
   );
