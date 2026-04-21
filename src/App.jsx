@@ -2016,6 +2016,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                         <div className="font-bold text-slate-800 truncate">{a.hora}</div>
                         <div className="text-slate-600 truncate">{a.clienteNome}</div>
                         <div className="text-slate-400 truncate">{a.servico}</div>
+                        {a.extras?.filter(e => e.tipo === 'servico').length > 0 && (
+                          <div className="text-violet-500 truncate" style={{ fontSize: '9px', fontWeight: 700 }}>
+                            + {a.extras.filter(e => e.tipo === 'servico').map(e => e.nome).join(', ')}
+                          </div>
+                        )}
                         <div className="flex gap-1 mt-1.5">
                           <button onClick={() => setReagendarAppt(a)} className="flex-1 text-[9px] font-bold text-violet-600 bg-violet-50 py-0.5 rounded-md hover:bg-violet-100 transition-colors">Reagendar</button>
                           <button onClick={() => cancelar(a)} className="flex-1 text-[9px] font-bold text-red-500 bg-red-50 py-0.5 rounded-md hover:bg-red-100 transition-colors">Cancelar</button>
@@ -6136,10 +6141,11 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       const clientWhats = isRemarcar ? remarcarWhats.trim() : (clientAccount?.whats || '');
 
       const accessToken = crypto.randomUUID();
-      const mainDuracao = selectedService.duracao || profile.intervalo || 60;
+      const intervaloFallback = Number(profile.intervaloBase || profile.intervalo) || 60;
+      const mainDuracao = Number(selectedService.duracao) || intervaloFallback;
       const extrasDuracao = selectedExtras
         .filter(e => e.tipo === 'servico')
-        .reduce((sum, e) => sum + (Number(e.duracao) || 0), 0);
+        .reduce((sum, e) => sum + (Number(e.duracao) || intervaloFallback), 0);
       const duracaoTotal = mainDuracao + extrasDuracao;
 
       const apptData = {
@@ -6149,7 +6155,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         servico: selectedService.nome,
         valor: selectedService.preco || null,
         duracao: mainDuracao,
-        ...(extrasDuracao > 0 ? { duracaoTotal } : {}),
+        duracaoTotal,
         profissionalId: selectedProfissional?.id || null,
         profissionalNome: selectedProfissional?.nome || null,
         data: dataISO,
@@ -6603,7 +6609,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                           </div>
                           <button onClick={() => setSelectedExtras(prev => added
                             ? prev.filter(e => !(e.tipo === 'servico' && e.nome === svc.nome))
-                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc ?? precoOrig ?? 0, duracao: svc.duracao || 0, ...(isAvailable === false ? { sujeito: true } : {}) }])}
+                            : [...prev, { tipo: 'servico', nome: svc.nome, preco: precoDesc ?? precoOrig ?? 0, duracao: Number(svc.duracao) || Number(profile.intervaloBase || profile.intervalo) || 60, ...(isAvailable === false ? { sujeito: true } : {}) }])}
                             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-colors flex-shrink-0 flex items-center gap-1.5 ${added ? 'bg-emerald-500 text-white' : 'bg-violet-600 text-white hover:bg-violet-700'}`}>
                             {added ? <><CheckCircle className="w-3.5 h-3.5" />Adicionado</> : 'Adicionar'}
                           </button>
