@@ -1368,8 +1368,8 @@ function AdminPanel({ user, profile, setProfile, fetchProfile }) {
       />
 
       {/* ── Content column ── */}
-      <div className="flex-1 md:overflow-y-auto md:h-screen flex flex-col min-w-0">
-      <div className="max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200 md:max-w-none md:mx-0 md:pb-0 md:shadow-none md:flex-1">
+      <div className="flex-1 md:overflow-y-auto md:h-screen md:flex md:flex-col min-w-0">
+      <div className="w-full max-w-[480px] mx-auto bg-slate-50 min-h-screen pb-20 shadow-2xl shadow-slate-200 md:max-w-none md:mx-0 md:pb-0 md:shadow-none md:flex-1">
 
       {/* ── Sticky top block: trial banner + header (mobile only) ── */}
       <div className="sticky top-0 z-10 md:hidden">
