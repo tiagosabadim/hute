@@ -355,7 +355,7 @@ export default function App() {
   const Loading = () => (
     <div style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', display: 'flex', flexDirection: 'column' }}>
       {/* Safe-area spacer roxo */}
-      <div style={{ height: 'env(safe-area-inset-top)', flexShrink: 0 }} />
+      <div style={{ height: 'env(safe-area-inset-top)', flexShrink: 0, background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <img src="/logosplash.svg" alt="hute" className="w-56 mb-8" />
         <Loader2 className="w-5 h-5 animate-spin text-white/50" />
@@ -775,7 +775,7 @@ function LoginScreen() {
   return (
     <div style={{ minHeight: '100dvh', background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)', display: 'flex', flexDirection: 'column' }}>
       {/* Safe-area spacer roxo */}
-      <div style={{ height: 'env(safe-area-inset-top)', flexShrink: 0 }} />
+      <div style={{ height: 'env(safe-area-inset-top)', flexShrink: 0, background: '#6C3CE1' }} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
       <div className="w-full max-w-sm">
         {/* Branding */}
@@ -1759,7 +1759,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-xl font-black text-slate-900">Agenda</h2>
           <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
@@ -2597,7 +2597,7 @@ function AdminClients({ user, lojaId, filterProfId, isAdmin }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-start justify-between mb-4">
         <div>
           <h2 className="text-xl font-black text-slate-900">Clientes</h2>
           <p className="text-xs text-slate-400">{clients.length} cliente{clients.length !== 1 ? 's' : ''} registado{clients.length !== 1 ? 's' : ''}</p>
@@ -3335,7 +3335,7 @@ function AdminServicos({ user, profile, setProfile }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-start justify-between mb-5">
         <div>
           <h2 className="text-xl font-black text-slate-900">Serviços</h2>
           <p className="text-xs text-slate-400">{servicos.length} serviço{servicos.length !== 1 ? 's' : ''} disponível{servicos.length !== 1 ? 'is' : ''}</p>
