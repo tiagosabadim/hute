@@ -41,7 +41,11 @@ exports.handler = async (event) => {
     const profile = profileDoc.data();
     const duracaoServico = duracao ? Number(duracao) : (profile.intervalo || 60);
 
-    const result = await computeSlots(db, lojaId, profile, data, duracaoServico, profissionalId || null);
+    // Sanitize: URLSearchParams serialises null/undefined as the string "null"/"undefined"
+    const cleanProfId = (profissionalId && profissionalId !== 'null' && profissionalId !== 'undefined')
+      ? profissionalId : null;
+
+    const result = await computeSlots(db, lojaId, profile, data, duracaoServico, cleanProfId);
 
     return { statusCode: 200, headers, body: JSON.stringify(result) };
 

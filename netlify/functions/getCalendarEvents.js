@@ -41,9 +41,13 @@ exports.handler = async (event) => {
     const db = getDb();
     let refreshToken = null;
 
-    if (profissionalId) {
+    // Sanitize: URLSearchParams serialises null as the string "null"
+    const cleanProfId = (profissionalId && profissionalId !== 'null' && profissionalId !== 'undefined')
+      ? profissionalId : null;
+
+    if (cleanProfId) {
       const profCalDoc = await getDoc(
-        doc(db, 'artifacts', APP_ID, 'public', 'data', 'prof_cals', `${lojaId}_${profissionalId}`)
+        doc(db, 'artifacts', APP_ID, 'public', 'data', 'prof_cals', `${lojaId}_${cleanProfId}`)
       );
       if (profCalDoc.exists() && profCalDoc.data().googleCalendarConnected && profCalDoc.data().googleRefreshToken) {
         refreshToken = profCalDoc.data().googleRefreshToken;

@@ -1753,8 +1753,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const selectedProf = profissionals.find(p => p.id === selectedProfId) || null;
   useEffect(() => {
     setActiveSlot(null);
-    const usesGoogle = selectedProf?.agendaTipo === 'google';
-    if (!usesGoogle) { setGoogleFreeSlots(null); return; }
+    // Always try Google Calendar for any selected professional — agendaTipo not required.
+    // The backend checks prof_cals and returns googleSync: false if not connected.
+    if (!selectedProfId) { setGoogleFreeSlots(null); setGoogleEvents([]); return; }
 
     setGoogleLoading(true);
     setGoogleFreeSlots(null);
