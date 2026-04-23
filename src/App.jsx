@@ -6268,12 +6268,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     }
   }, [lojaUid, profile.intervaloBase, profile.intervalo]);
 
-  const profForService = selectedService
+  // All professionals shown at professional step (prof is chosen before services)
+  const profForService = profissionals;
+
+  // Services available for the selected professional
+  const servicosForProf = selectedProfissional
     ? (() => {
-        const assigned = profissionals.filter(p => (p.servicos || []).includes(selectedService.nome));
-        return assigned.length > 0 ? assigned : profissionals;
+        const assigned = (profile.servicos || []).filter(s => (selectedProfissional.servicos || []).includes(s.nome));
+        return assigned.length > 0 ? assigned : (profile.servicos || []);
       })()
-    : profissionals;
+    : (profile.servicos || []);
 
   const selectedNames = new Set(selectedServices.map(s => s.nome));
   const availableCrossSells = (selectedService?.crossSell || []).filter(cs => !selectedNames.has(cs.servicoNome));
@@ -6291,8 +6295,18 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     setSlots(null);
     setSelectedExtras([]);
     setConfirmedAppt(null);
-    setBookingStep(presetService ? (profissionals.length > 0 ? 'professional' : 'datetime') : 'service');
-    if (presetService && profissionals.length === 0) fetchSlots(initDate, Number(presetService.duracao) || _slotFallback, null);
+    // New order: professional → service → datetime
+    if (profissionals.length > 0) {
+      setBookingStep('professional');
+    } else {
+      // No professionals: go straight to service (or datetime if preset)
+      if (presetService) {
+        fetchSlots(initDate, Number(presetService.duracao) || _slotFallback, null);
+        setBookingStep('datetime');
+      } else {
+        setBookingStep('service');
+      }
+    }
     setBookingMode(true);
   };
 
@@ -6307,21 +6321,17 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
 
   const handleContinueService = () => {
     if (selectedServices.length === 0) return;
-    setSelectedProfissional(null);
     setSelectedHora('');
-    if (profissionals.length > 0) {
-      setBookingStep('professional');
-    } else {
-      fetchSlots(selectedDate, totalBookingDuration, null);
-      setBookingStep('datetime');
-    }
+    // Professional already chosen — go straight to datetime
+    fetchSlots(selectedDate, totalBookingDuration, selectedProfissional?.id || null);
+    setBookingStep('datetime');
   };
 
   const handleSelectProf = (p) => {
     setSelectedProfissional(p);
     setSelectedHora('');
-    fetchSlots(selectedDate, totalBookingDuration, p?.id || null);
-    setBookingStep('datetime');
+    setSelectedServices([]); // reset service selection when prof changes
+    setBookingStep('service');
   };
 
   const changeDate = (delta) => {
@@ -6333,8 +6343,9 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   };
 
   const bookingBack = () => {
-    if (bookingStep === 'professional') setBookingStep('service');
-    else if (bookingStep === 'datetime') setBookingStep(profForService.length > 0 ? 'professional' : 'service');
+    if (bookingStep === 'professional') setBookingMode(false);
+    else if (bookingStep === 'service') setBookingStep(profissionals.length > 0 ? 'professional' : 'service'); // service is first step when no profs
+    else if (bookingStep === 'datetime') setBookingStep('service');
     else if (bookingStep === 'upsell') setBookingStep('datetime');
     else if (bookingStep === 'confirm') setBookingStep(serviceHasExtras ? 'upsell' : 'datetime');
     else setBookingMode(false);
@@ -6668,10 +6679,10 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   function BookingStepsRender(isRemarcar = false) {
     return (
       <>
-        {['service', 'professional', 'datetime', 'upsell', 'confirm'].includes(bookingStep) && (
+        {['professional', 'service', 'datetime', 'upsell', 'confirm'].includes(bookingStep) && (
           <div className="flex gap-1.5 mb-6">
-            {['service', 'professional', 'datetime', 'confirm'].map((s, i) => {
-              const order = { service: 0, professional: 1, datetime: 2, upsell: 2, confirm: 3 };
+            {['professional', 'service', 'datetime', 'confirm'].map((s, i) => {
+              const order = { professional: 0, service: 1, datetime: 2, upsell: 2, confirm: 3 };
               const cur = order[bookingStep] ?? 0;
               return <div key={s} className={`h-1 flex-1 rounded-full transition-all ${i <= cur ? 'bg-violet-600' : 'bg-slate-200'}`} />;
             })}
@@ -6681,12 +6692,21 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         {bookingStep === 'service' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Qual serviço?</h2>
-            <p className="text-sm text-slate-400 mb-5">Escolha um ou mais serviços</p>
-            {servicos.length === 0
+            <p className="text-sm text-slate-400 mb-3">Escolha um ou mais serviços</p>
+            {selectedProfissional && (
+              <div className="flex items-center gap-2 bg-violet-50 border border-violet-100 rounded-xl px-3 py-2 mb-4">
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-black text-xs flex-shrink-0" style={{ backgroundColor: selectedProfissional.cor || '#7c3aed' }}>
+                  {(selectedProfissional.nome || '?')[0].toUpperCase()}
+                </div>
+                <span className="text-sm font-bold text-violet-900 flex-1">{selectedProfissional.nome}</span>
+                <button onClick={() => setBookingStep('professional')} className="text-[10px] text-violet-500 hover:text-violet-700 font-semibold">Trocar</button>
+              </div>
+            )}
+            {servicosForProf.length === 0
               ? <p className="text-center text-slate-400 py-12 text-sm">Nenhum serviço disponível.</p>
               : <>
                   <div className="space-y-3 pb-28">
-                    {servicos.map((s, i) => {
+                    {servicosForProf.map((s, i) => {
                       const isSelected = selectedServices.some(p => p.nome === s.nome);
                       return (
                         <button key={i} onClick={() => handleToggleService(s)}
@@ -6746,9 +6766,9 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         {bookingStep === 'professional' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Com quem?</h2>
-            <p className="text-sm text-slate-400 mb-5">{selectedService ? `Para "${selectedService.nome}"` : 'Escolha o profissional'}</p>
+            <p className="text-sm text-slate-400 mb-5">Escolha o profissional</p>
             <div className="space-y-3">
-              {profForService.map(p => (
+              {profissionals.map(p => (
                 <button key={p.id} onClick={() => handleSelectProf(p)}
                   className="w-full bg-white rounded-2xl p-4 shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex items-center gap-4">
                   <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-2xl flex-shrink-0" style={{ backgroundColor: p.cor || '#7c3aed' }}>
@@ -6757,7 +6777,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                   <div className="flex-1">
                     <p className="font-bold text-slate-900">{p.nome}</p>
                     <div className="flex flex-wrap gap-1 mt-1">
-                      {(p.servicos || []).slice(0, 3).map(s => (
+                      {(p.servicos || []).slice(0, 4).map(s => (
                         <span key={s} className="text-[10px] bg-violet-50 text-violet-600 px-2 py-0.5 rounded-full font-medium">{s}</span>
                       ))}
                     </div>
