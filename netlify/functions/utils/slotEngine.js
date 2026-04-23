@@ -236,7 +236,8 @@ async function computeSlots(db, lojaId, profile, data, duracaoServico, profissio
   );
   const marcacoes = apptSnap.docs
     .map(d => d.data())
-    .filter(a => a.data === data && (!profissionalId || a.profissionalId === profissionalId));
+    // Include: no prof filter (view all) OR appointment has no prof (general) OR exact prof match
+    .filter(a => a.data === data && (!profissionalId || !a.profissionalId || a.profissionalId === profissionalId));
   const busyMarcacoes = busyFromMarcacoes(marcacoes, intervalBase);
 
   const _finish = (slotsData, googleSync) => ({

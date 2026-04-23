@@ -1912,9 +1912,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
     ? <span className="text-[10px] text-slate-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Sincronizando...</span>
     : googleFreeSlots !== null
       ? <span className="text-[10px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><CheckCircle className="w-3 h-3" />Google Agenda</span>
-      : selectedProf
-        ? <span className="text-[10px] bg-violet-50 text-violet-600 font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><Calendar className="w-3 h-3" />Agenda nativa</span>
-        : null;
+      : selectedProf?.agendaTipo === 'google'
+        ? <span className="text-[10px] bg-amber-50 text-amber-600 font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><Calendar className="w-3 h-3" />Google (reconectar)</span>
+        : selectedProf
+          ? <span className="text-[10px] bg-violet-50 text-violet-600 font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><Calendar className="w-3 h-3" />Agenda nativa</span>
+          : null;
 
   return (
     <div>
@@ -2349,7 +2351,10 @@ function NewAppointmentModal({ lojaId, profile, filterProfId, prefilledHora, pre
     }
     return null;
   });
-  const [selectedProfId, setSelectedProfId] = useState(prefilledProfId || filterProfId || '');
+  // Auto-assign sole professional so profissionalId is never null when only one exists
+  const _autoProf = !filterProfId && !prefilledProfId && (profile.profissionals || []).length === 1
+    ? profile.profissionals[0].id : null;
+  const [selectedProfId, setSelectedProfId] = useState(prefilledProfId || filterProfId || _autoProf || '');
   const [data, setData] = useState(prefilledDate || new Date().toISOString().split('T')[0]);
   const [hora, setHora] = useState(prefilledHora || '');
   const [slots, setSlots] = useState(null);
