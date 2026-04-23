@@ -1718,6 +1718,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const [preHora, setPreHora] = useState('');
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [reagendarAppt, setReagendarAppt] = useState(null);
+  const [detailAppt, setDetailAppt] = useState(null);
   const colId = lojaId || user.uid;
   const dateISO = toDateISO(selectedDate);
   const todayISO = toDateISO(new Date());
@@ -2014,9 +2015,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                     const prof = profissionals.find(p => p.id === a.profissionalId);
                     return (
                       <div key={a.id}
-                        className="mb-1.5 p-2 rounded-xl text-xs"
-                        style={{ background: prof?.cor ? prof.cor + '22' : '#6C3CE122', borderLeft: `3px solid ${prof?.cor || '#6C3CE1'}` }}>
-                        <div className="font-bold text-slate-800 truncate">{a.hora}</div>
+                        className="mb-1.5 p-2 rounded-xl text-xs cursor-pointer hover:opacity-80 transition-opacity"
+                        style={{ background: prof?.cor ? prof.cor + '22' : '#6C3CE122', borderLeft: `3px solid ${prof?.cor || '#6C3CE1'}` }}
+                        onClick={() => setDetailAppt(a)}>
+                        <div className="font-bold text-slate-800 truncate">{a.hora} · {fmtDuracao(a.duracaoTotal || a.duracao)}</div>
                         <div className="text-slate-600 truncate">{a.clienteNome}</div>
                         <div className="text-slate-400 truncate">{a.servico}</div>
                         {a.extras?.filter(e => e.tipo === 'servico').length > 0 && (
@@ -2024,10 +2026,6 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             + {a.extras.filter(e => e.tipo === 'servico').map(e => e.nome).join(', ')}
                           </div>
                         )}
-                        <div className="flex gap-1 mt-1.5">
-                          <button onClick={() => setReagendarAppt(a)} className="flex-1 text-[9px] font-bold text-violet-600 bg-violet-50 py-0.5 rounded-md hover:bg-violet-100 transition-colors">Reagendar</button>
-                          <button onClick={() => cancelar(a)} className="flex-1 text-[9px] font-bold text-red-500 bg-red-50 py-0.5 rounded-md hover:bg-red-100 transition-colors">Cancelar</button>
-                        </div>
                       </div>
                     );
                   })}
@@ -2153,42 +2151,29 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                     const prof = profissionals.find(p => p.id === a.profissionalId);
                     const cor = prof?.cor || '#7c3aed';
                     return (
-                      <div key={a.id || ai} className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm">
+                      <div key={a.id || ai} className="bg-white rounded-2xl overflow-hidden border border-slate-100 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                        onClick={() => setDetailAppt(a)}>
                         <div className="flex items-stretch">
                           <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-3" style={{ backgroundColor: cor }}>
                             <span className="text-xs font-black text-white leading-tight">{a.hora}</span>
-                            {a.duracao && <span className="text-[9px] text-white/60 mt-0.5">{fmtDuracao(a.duracao)}</span>}
+                            <span className="text-[9px] text-white/60 mt-0.5">{fmtDuracao(a.duracaoTotal || a.duracao)}</span>
                           </div>
                           <div className="flex-1 px-4 py-3 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
-                                <p className="text-xs text-slate-500 truncate">{a.servico}</p>
-                                {a.extras?.length > 0 && a.extras.map((e, ei) => (
-                                  <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
-                                ))}
-                                {a.profissionalNome && (
-                                  <button onClick={() => setSelectedProfId(a.profissionalId)}
-                                    className="text-[10px] font-bold mt-0.5 hover:underline"
-                                    style={{ color: cor }}>
-                                    {a.profissionalNome} →
-                                  </button>
-                                )}
-                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                  {(a.valor || a.extras?.length > 0) && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {(Number(a.valor||0) + (a.extras||[]).reduce((s,e)=>s+Number(e.precoDesconto||e.preco||0),0)).toFixed(2)}</span>}
-                                  {a.clienteWhats && (
-                                    <a href={`https://wa.me/${a.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.clienteNome}! Lembrete: ${a.servico} às ${a.hora}. Até breve!`)}`}
-                                      target="_blank" rel="noopener noreferrer"
-                                      className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold">
-                                      <MessageCircle className="w-3 h-3" />{a.clienteWhats}
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                <button onClick={() => setReagendarAppt(a)} className="text-[10px] font-bold text-violet-500 bg-violet-50 px-2 py-1 rounded-lg hover:bg-violet-100 transition-colors">Reagendar</button>
-                                <button onClick={() => cancelar(a)} className="text-[10px] font-bold text-red-400 bg-red-50 px-2 py-1 rounded-lg hover:bg-red-100 transition-colors">Cancelar</button>
-                              </div>
+                            <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
+                            <p className="text-xs text-slate-500 truncate">{a.servico}</p>
+                            {a.extras?.filter(e => e.tipo === 'servico').map((e, ei) => (
+                              <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}</p>
+                            ))}
+                            {a.profissionalNome && (
+                              <button onClick={ev => { ev.stopPropagation(); setSelectedProfId(a.profissionalId); }}
+                                className="text-[10px] font-bold mt-0.5 hover:underline"
+                                style={{ color: cor }}>
+                                {a.profissionalNome} →
+                              </button>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              {(a.valor || a.extras?.length > 0) && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {(Number(a.valor||0) + (a.extras||[]).reduce((s,e)=>s+Number(e.precoDesconto||e.preco||0),0)).toFixed(2)}</span>}
+                              {a.pagamento && <span className="text-[10px] text-slate-400 capitalize">{a.pagamento}</span>}
                             </div>
                           </div>
                         </div>
@@ -2205,43 +2190,30 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
               const apptProf = profissionals.find(p => p.id === a.profissionalId);
               const apptCor = selectedProf?.cor || apptProf?.cor || '#7c3aed';
               return (
-                <div key={key} className="bg-white rounded-2xl overflow-hidden border border-violet-100 shadow-sm">
+                <div key={key} className="bg-white rounded-2xl overflow-hidden border border-violet-100 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => setDetailAppt(a)}>
                   <div className="flex items-stretch">
                     <div className="w-[60px] flex-shrink-0 flex flex-col items-center justify-center py-3"
                       style={{ backgroundColor: apptCor }}>
                       <span className="text-xs font-black text-white leading-tight">{a.hora}</span>
-                      {a.duracao && <span className="text-[9px] text-white/60 mt-0.5">{fmtDuracao(a.duracao)}</span>}
+                      <span className="text-[9px] text-white/60 mt-0.5">{fmtDuracao(a.duracaoTotal || a.duracao)}</span>
                     </div>
                     <div className="flex-1 px-4 py-3 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
-                          <p className="text-xs text-slate-500 truncate">{a.servico}</p>
-                          {a.extras?.length > 0 && a.extras.map((e, ei) => (
-                            <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}{(e.precoDesconto || e.preco) ? ` (R$ ${Number(e.precoDesconto || e.preco).toFixed(2)})` : ''}</p>
-                          ))}
-                          {a.profissionalNome && (
-                            <button onClick={() => setSelectedProfId(a.profissionalId)}
-                              className="text-[10px] font-bold mt-0.5 hover:underline"
-                              style={{ color: apptCor }}>
-                              {a.profissionalNome} →
-                            </button>
-                          )}
-                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            {(a.valor || a.extras?.length > 0) && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {(Number(a.valor||0) + (a.extras||[]).reduce((s,e)=>s+Number(e.precoDesconto||e.preco||0),0)).toFixed(2)}</span>}
-                            {a.clienteWhats && (
-                              <a href={`https://wa.me/${a.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.clienteNome}! Lembrete: ${a.servico} às ${a.hora}. Até breve!`)}`}
-                                target="_blank" rel="noopener noreferrer"
-                                className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold">
-                                <MessageCircle className="w-3 h-3" />{a.clienteWhats}
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                          <button onClick={() => setReagendarAppt(a)} className="text-[10px] font-bold text-violet-500 bg-violet-50 px-2 py-1 rounded-lg hover:bg-violet-100 transition-colors">Reagendar</button>
-                          <button onClick={() => cancelar(a)} className="text-[10px] font-bold text-red-400 bg-red-50 px-2 py-1 rounded-lg hover:bg-red-100 transition-colors">Cancelar</button>
-                        </div>
+                      <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
+                      <p className="text-xs text-slate-500 truncate">{a.servico}</p>
+                      {a.extras?.filter(e => e.tipo === 'servico').map((e, ei) => (
+                        <p key={ei} className="text-[10px] text-violet-500 truncate">+ {e.nome}</p>
+                      ))}
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        {(a.valor || a.extras?.length > 0) && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">R$ {(Number(a.valor||0) + (a.extras||[]).reduce((s,e)=>s+Number(e.precoDesconto||e.preco||0),0)).toFixed(2)}</span>}
+                        {a.pagamento && <span className="text-[10px] text-slate-400 capitalize">{a.pagamento}</span>}
+                        {a.clienteWhats && (
+                          <a href={`https://wa.me/${a.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.clienteNome}! Lembrete: ${a.servico} às ${a.hora}. Até breve!`)}`}
+                            target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                            className="text-[10px] text-emerald-600 flex items-center gap-1 font-semibold">
+                            <MessageCircle className="w-3 h-3" />{a.clienteWhats}
+                          </a>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2333,6 +2305,224 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           onSaved={() => setReagendarAppt(null)}
         />
       )}
+      {detailAppt && (
+        <AppointmentDetailModal
+          appt={detailAppt}
+          lojaId={colId}
+          profile={profile}
+          profissionals={profissionals}
+          onClose={() => setDetailAppt(null)}
+          onReagendar={a => { setDetailAppt(null); setReagendarAppt(a); }}
+          onCancelar={a => { setDetailAppt(null); cancelar(a); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Appointment Detail Modal ──────────────────────────────
+function AppointmentDetailModal({ appt, lojaId, profile, profissionals, onClose, onReagendar, onCancelar }) {
+  const intervalo = Number(profile.intervaloBase || profile.intervalo) || 60;
+
+  // Editable state
+  const [services, setServices] = useState(() => {
+    const main = { nome: appt.servico, preco: appt.valor || 0, duracao: appt.duracao || intervalo, isMain: true };
+    const extras = (appt.extras || []).filter(e => e.tipo === 'servico').map(e => ({ nome: e.nome, preco: e.precoDesconto || e.preco || 0, duracao: e.duracao || intervalo }));
+    return [main, ...extras];
+  });
+  const [addingSvc, setAddingSvc] = useState(false);
+  const [pagamento, setPagamento] = useState(appt.pagamento || '');
+  const [desconto, setDesconto] = useState(appt.desconto != null ? String(appt.desconto) : '');
+  const [observacao, setObservacao] = useState(appt.observacao || '');
+  const [saving, setSaving] = useState(false);
+
+  const prof = profissionals.find(p => p.id === appt.profissionalId);
+  const cor = prof?.cor || '#7c3aed';
+
+  const totalDuracao = services.reduce((s, sv) => s + (Number(sv.duracao) || intervalo), 0);
+  const totalValor = services.reduce((s, sv) => s + (Number(sv.preco) || 0), 0);
+  const descontoAmt = totalValor * (Number(desconto) / 100) || 0;
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const [main, ...extraServices] = services;
+      const newExtras = [
+        ...extraServices.map(s => ({ tipo: 'servico', nome: s.nome, preco: s.preco || 0, duracao: s.duracao || intervalo })),
+        ...(appt.extras || []).filter(e => e.tipo === 'produto'),
+      ];
+      const entry = { acao: 'Editado', at: new Date().toISOString() };
+      await setDoc(
+        doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, appt.id),
+        {
+          servico: main.nome,
+          valor: main.preco || null,
+          duracao: main.duracao || intervalo,
+          duracaoTotal: totalDuracao,
+          extras: newExtras,
+          pagamento: pagamento || null,
+          desconto: desconto !== '' ? Number(desconto) : null,
+          observacao: observacao || null,
+          historico: [...(appt.historico || []), entry],
+        },
+        { merge: true }
+      );
+      onClose();
+    } catch (e) {
+      alert('Erro ao salvar: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeService = (idx) => {
+    if (idx === 0 && services.length === 1) return; // can't remove only service
+    setServices(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const allServicos = profile.servicos || [];
+  const addableServicos = allServicos.filter(s => !services.some(sv => sv.nome === s.nome));
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center lg:items-center" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl lg:rounded-3xl w-full max-w-[480px] max-h-[92vh] overflow-y-auto shadow-2xl"
+        onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 bg-white rounded-t-3xl border-b border-slate-100 px-5 py-4 z-10">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-white font-black text-sm flex-shrink-0" style={{ backgroundColor: cor }}>
+                {(prof?.nome || appt.profissionalNome || '?')[0].toUpperCase()}
+              </div>
+              <div>
+                <p className="font-black text-slate-900 text-sm leading-tight">{appt.clienteNome}</p>
+                <p className="text-xs text-slate-400">{appt.hora} · {appt.data?.split('-').reverse().join('/')} · {fmtDuracao(totalDuracao)}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          {appt.clienteWhats && (
+            <a href={`https://wa.me/${appt.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${appt.clienteNome}!`)}`}
+              target="_blank" rel="noopener noreferrer"
+              className="text-xs text-emerald-600 flex items-center gap-1 font-semibold mt-1">
+              <MessageCircle className="w-3 h-3" />{appt.clienteWhats}
+            </a>
+          )}
+        </div>
+
+        <div className="p-5 space-y-5 pb-8">
+          {/* Services */}
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Serviços</label>
+            <div className="space-y-2">
+              {services.map((sv, idx) => (
+                <div key={idx} className="flex items-center gap-2 bg-violet-50 rounded-xl px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-violet-900 truncate">{sv.nome}</p>
+                    <p className="text-[10px] text-violet-500">{fmtDuracao(sv.duracao)}{sv.preco > 0 ? ` · R$ ${Number(sv.preco).toFixed(2)}` : ''}</p>
+                  </div>
+                  {(idx > 0 || services.length > 1) && (
+                    <button onClick={() => removeService(idx)} className="p-1 text-red-400 hover:text-red-600 flex-shrink-0 transition-colors">
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {addingSvc ? (
+                <div className="space-y-1">
+                  {addableServicos.map(s => (
+                    <button key={s.nome} onClick={() => { setServices(prev => [...prev, { nome: s.nome, preco: s.preco || 0, duracao: Number(s.duracao) || intervalo }]); setAddingSvc(false); }}
+                      className="w-full text-left px-3 py-2 bg-white rounded-xl border border-slate-200 text-sm hover:border-violet-400 transition-colors">
+                      <span className="font-semibold text-slate-800">{s.nome}</span>
+                      {s.duracao && <span className="text-xs text-slate-400 ml-2">{fmtDuracao(s.duracao)}</span>}
+                    </button>
+                  ))}
+                  <button onClick={() => setAddingSvc(false)} className="w-full text-xs text-slate-400 py-1 hover:text-slate-600">Cancelar</button>
+                </div>
+              ) : addableServicos.length > 0 && (
+                <button onClick={() => setAddingSvc(true)}
+                  className="w-full py-2 border border-dashed border-violet-200 rounded-xl text-xs text-violet-500 font-semibold hover:border-violet-400 hover:bg-violet-50 transition-colors flex items-center justify-center gap-1">
+                  <Plus className="w-3.5 h-3.5" />Adicionar serviço
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Totals */}
+          {(totalValor > 0 || desconto) && (
+            <div className="bg-slate-50 rounded-2xl p-3 space-y-1">
+              {totalValor > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">Subtotal</span><span className="font-bold text-slate-800">R$ {totalValor.toFixed(2)}</span></div>}
+              {descontoAmt > 0 && <div className="flex justify-between text-sm"><span className="text-slate-500">Desconto ({desconto}%)</span><span className="font-bold text-red-500">-R$ {descontoAmt.toFixed(2)}</span></div>}
+              {(totalValor > 0 && descontoAmt > 0) && <div className="flex justify-between text-sm border-t border-slate-200 pt-1"><span className="font-bold text-slate-700">Total</span><span className="font-black text-emerald-700">R$ {(totalValor - descontoAmt).toFixed(2)}</span></div>}
+            </div>
+          )}
+
+          {/* Payment + Discount */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Pagamento</label>
+              <select value={pagamento} onChange={e => setPagamento(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 bg-white">
+                <option value="">Não informado</option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="pix">Pix</option>
+                <option value="débito">Cartão Débito</option>
+                <option value="crédito">Cartão Crédito</option>
+                <option value="outro">Outro</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Desconto %</label>
+              <input type="number" min="0" max="100" value={desconto} onChange={e => setDesconto(e.target.value)}
+                placeholder="0"
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500" />
+            </div>
+          </div>
+
+          {/* Observation */}
+          <div>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Observação</label>
+            <textarea value={observacao} onChange={e => setObservacao(e.target.value)} rows={3}
+              placeholder="Notas do atendimento, preferências do cliente..."
+              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 resize-none" />
+          </div>
+
+          {/* History */}
+          {(appt.historico || []).length > 0 && (
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2">Histórico</label>
+              <div className="space-y-1.5">
+                {[...appt.historico].reverse().map((h, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs text-slate-500">
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-300 flex-shrink-0" />
+                    <span className="flex-1">{h.acao}</span>
+                    <span className="text-slate-300">{new Date(h.at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div className="flex gap-2 pt-2">
+            <button onClick={() => onCancelar(appt)}
+              className="flex-1 py-3 bg-red-50 text-red-500 font-bold rounded-xl text-sm hover:bg-red-100 transition-colors border border-red-100">
+              Cancelar
+            </button>
+            <button onClick={() => onReagendar(appt)}
+              className="flex-1 py-3 bg-violet-50 text-violet-600 font-bold rounded-xl text-sm hover:bg-violet-100 transition-colors border border-violet-100">
+              Reagendar
+            </button>
+          </div>
+          <button onClick={handleSave} disabled={saving}
+            className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+            {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
+            Guardar alterações
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -5679,7 +5869,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   // ── Booking ──────────────────────────────────────────────
   const [bookingMode, setBookingMode] = useState(false);
   const [bookingStep, setBookingStep] = useState('service');
-  const [selectedService, setSelectedService] = useState(null);
+  const [selectedServices, setSelectedServices] = useState([]); // ordered; [0]=primary
+  const selectedService = selectedServices[0] || null;
   const [selectedProfissional, setSelectedProfissional] = useState(null);
   const [selectedDate, setSelectedDate] = useState(() => firstAvailableDate(profile));
   const [selectedHora, setSelectedHora] = useState('');
@@ -6046,7 +6237,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   };
 
   // ── Booking helpers ──────────────────────────────────────
-  const fetchSlots = useCallback(async (date, servico, profId) => {
+  const fetchSlots = useCallback(async (date, duracaoTotal, profId) => {
     setSlotsLoading(true);
     setSlots(null);
     setExtendedSlots([]);
@@ -6054,7 +6245,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       const params = new URLSearchParams({
         lojaId: lojaUid,
         data: toDateISO(date),
-        duracao: servico?.duracao || profile.intervaloBase || profile.intervalo || 60,
+        duracao: duracaoTotal || profile.intervaloBase || profile.intervalo || 60,
         ...(profId ? { profissionalId: profId } : {}),
       });
       const res = await fetch(`${BACKEND_URL}/getSlots?${params}`);
@@ -6084,11 +6275,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       })()
     : profissionals;
 
-  const serviceHasExtras = !!(selectedService?.crossSell?.length || selectedService?.upsell?.length);
+  const selectedNames = new Set(selectedServices.map(s => s.nome));
+  const availableCrossSells = (selectedService?.crossSell || []).filter(cs => !selectedNames.has(cs.servicoNome));
+  const serviceHasExtras = !!(availableCrossSells.length || selectedService?.upsell?.length);
+
+  const _slotFallback = Number(profile.intervaloBase || profile.intervalo) || 60;
+  const totalBookingDuration = selectedServices.reduce((sum, s) => sum + (Number(s.duracao) || _slotFallback), 0) || _slotFallback;
 
   const startBooking = (presetService = null) => {
     const initDate = firstAvailableDate(profile);
-    setSelectedService(presetService);
+    setSelectedServices(presetService ? [presetService] : []);
     setSelectedProfissional(null);
     setSelectedDate(initDate);
     setSelectedHora('');
@@ -6096,18 +6292,27 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     setSelectedExtras([]);
     setConfirmedAppt(null);
     setBookingStep(presetService ? (profissionals.length > 0 ? 'professional' : 'datetime') : 'service');
-    if (presetService && profissionals.length === 0) fetchSlots(initDate, presetService, null);
+    if (presetService && profissionals.length === 0) fetchSlots(initDate, Number(presetService.duracao) || _slotFallback, null);
     setBookingMode(true);
   };
 
-  const handleSelectService = (s) => {
-    setSelectedService(s);
+  const handleToggleService = (s) => {
+    setSelectedServices(prev => {
+      const exists = prev.some(p => p.nome === s.nome);
+      if (exists) return prev.filter(p => p.nome !== s.nome);
+      return [...prev, s];
+    });
+    setSelectedHora('');
+  };
+
+  const handleContinueService = () => {
+    if (selectedServices.length === 0) return;
     setSelectedProfissional(null);
     setSelectedHora('');
     if (profissionals.length > 0) {
       setBookingStep('professional');
     } else {
-      fetchSlots(selectedDate, s, null);
+      fetchSlots(selectedDate, totalBookingDuration, null);
       setBookingStep('datetime');
     }
   };
@@ -6115,7 +6320,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
   const handleSelectProf = (p) => {
     setSelectedProfissional(p);
     setSelectedHora('');
-    fetchSlots(selectedDate, selectedService, p?.id || null);
+    fetchSlots(selectedDate, totalBookingDuration, p?.id || null);
     setBookingStep('datetime');
   };
 
@@ -6124,7 +6329,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
     if (newDate < firstAvailableDate(profile)) return;
     setSelectedDate(newDate);
     setSelectedHora('');
-    fetchSlots(newDate, selectedService, selectedProfissional?.id || null);
+    fetchSlots(newDate, totalBookingDuration, selectedProfissional?.id || null);
   };
 
   const bookingBack = () => {
@@ -6149,10 +6354,18 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
       const accessToken = crypto.randomUUID();
       const intervaloFallback = Number(profile.intervaloBase || profile.intervalo) || 60;
       const mainDuracao = Number(selectedService.duracao) || intervaloFallback;
+      const addSvcDuracao = selectedServices.slice(1).reduce((sum, s) => sum + (Number(s.duracao) || intervaloFallback), 0);
       const extrasDuracao = selectedExtras
         .filter(e => e.tipo === 'servico')
         .reduce((sum, e) => sum + (Number(e.duracao) || intervaloFallback), 0);
-      const duracaoTotal = mainDuracao + extrasDuracao;
+      const duracaoTotal = mainDuracao + addSvcDuracao + extrasDuracao;
+
+      // Additional services picked at booking time become extras (tipo=servico, no discount)
+      const addSvcExtras = selectedServices.slice(1).map(s => ({
+        tipo: 'servico', nome: s.nome, preco: s.preco || 0,
+        duracao: Number(s.duracao) || intervaloFallback,
+      }));
+      const allExtras = [...addSvcExtras, ...selectedExtras];
 
       const apptData = {
         clienteNome: clientNome,
@@ -6169,7 +6382,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         dataHoraInternacional: dtInt.toISOString(),
         createdAt: new Date().toISOString(),
         accessToken,
-        ...(selectedExtras.length > 0 ? { extras: selectedExtras } : {}),
+        ...(allExtras.length > 0 ? { extras: allExtras } : {}),
         ...(clientUser ? { clientUid: clientUser.uid } : {}),
       };
 
@@ -6468,31 +6681,64 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         {bookingStep === 'service' && (
           <div>
             <h2 className="text-xl font-black text-slate-900 mb-1">Qual serviço?</h2>
-            <p className="text-sm text-slate-400 mb-5">Escolha o serviço que deseja</p>
+            <p className="text-sm text-slate-400 mb-5">Escolha um ou mais serviços</p>
             {servicos.length === 0
               ? <p className="text-center text-slate-400 py-12 text-sm">Nenhum serviço disponível.</p>
-              : <div className="space-y-3">
-                  {servicos.map((s, i) => (
-                    <button key={i} onClick={() => handleSelectService(s)}
-                      className="w-full bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 hover:border-violet-300 hover:shadow-md transition-all text-left flex">
-                      {s.foto
-                        ? <img src={s.foto} alt={s.nome} className="w-20 h-20 object-cover flex-shrink-0" />
-                        : <div className="w-20 h-20 bg-gradient-to-br from-violet-100 to-violet-50 flex items-center justify-center flex-shrink-0"><Scissors className="w-7 h-7 text-violet-400" /></div>
-                      }
-                      <div className="flex-1 min-w-0 px-4 py-3">
-                        <p className="font-bold text-slate-900">{s.nome}</p>
-                        <div className="flex items-center gap-3 mt-1 flex-wrap">
-                          {s.duracao && <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}</span>}
-                          {s.sobOrcamento
-                            ? <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Sob Orçamento</span>
-                            : s.preco ? <span className="text-sm font-black text-violet-600">R$ {Number(s.preco).toFixed(2)}</span> : null
+              : <>
+                  <div className="space-y-3 pb-28">
+                    {servicos.map((s, i) => {
+                      const isSelected = selectedServices.some(p => p.nome === s.nome);
+                      return (
+                        <button key={i} onClick={() => handleToggleService(s)}
+                          className={`w-full rounded-2xl overflow-hidden shadow-sm border-2 transition-all text-left flex ${isSelected ? 'border-violet-500 bg-violet-50' : 'border-slate-100 bg-white hover:border-violet-200 hover:shadow-md'}`}>
+                          {s.foto
+                            ? <img src={s.foto} alt={s.nome} className="w-20 h-20 object-cover flex-shrink-0" />
+                            : <div className={`w-20 h-20 flex items-center justify-center flex-shrink-0 transition-colors ${isSelected ? 'bg-violet-600' : 'bg-gradient-to-br from-violet-100 to-violet-50'}`}><Scissors className={`w-7 h-7 ${isSelected ? 'text-white' : 'text-violet-400'}`} /></div>
                           }
+                          <div className="flex-1 min-w-0 px-4 py-3">
+                            <p className={`font-bold ${isSelected ? 'text-violet-900' : 'text-slate-900'}`}>{s.nome}</p>
+                            <div className="flex items-center gap-3 mt-1 flex-wrap">
+                              {s.duracao && <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3" />{fmtDuracao(s.duracao)}</span>}
+                              {s.sobOrcamento
+                                ? <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Sob Orçamento</span>
+                                : s.preco ? <span className={`text-sm font-black ${isSelected ? 'text-violet-600' : 'text-violet-600'}`}>R$ {Number(s.preco).toFixed(2)}</span> : null
+                              }
+                            </div>
+                          </div>
+                          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center mr-4 self-center flex-shrink-0 transition-colors ${isSelected ? 'bg-violet-600 border-violet-600' : 'border-slate-300'}`}>
+                            {isSelected && <CheckCircle className="w-4 h-4 text-white" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedServices.length > 0 && (
+                    <div className="fixed bottom-0 left-0 right-0 max-w-[480px] mx-auto bg-white border-t border-slate-100 p-4 z-10 shadow-xl">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">{selectedServices.length} serviço{selectedServices.length > 1 ? 's' : ''} selecionado{selectedServices.length > 1 ? 's' : ''}</p>
+                          <p className="text-sm font-black text-slate-900">
+                            {selectedServices.map(s => s.nome).join(' + ')}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          {(() => {
+                            const total = selectedServices.reduce((s, sv) => s + (Number(sv.preco) || 0), 0);
+                            const dur = selectedServices.reduce((s, sv) => s + (Number(sv.duracao) || 0), 0);
+                            return <>
+                              {total > 0 && <p className="text-sm font-black text-violet-700">R$ {total.toFixed(2)}</p>}
+                              {dur > 0 && <p className="text-xs text-slate-400">{fmtDuracao(dur)}</p>}
+                            </>;
+                          })()}
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 mr-4 self-center flex-shrink-0" />
-                    </button>
-                  ))}
-                </div>
+                      <button onClick={handleContinueService}
+                        className="w-full bg-violet-600 hover:bg-violet-700 text-white font-bold py-4 rounded-2xl text-sm transition-colors flex items-center justify-center gap-2">
+                        <ChevronRight className="w-4 h-4" />Continuar
+                      </button>
+                    </div>
+                  )}
+                </>
             }
           </div>
         )}
@@ -6566,7 +6812,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
         )}
 
         {bookingStep === 'upsell' && (() => {
-          const allCrossSells = (selectedService?.crossSell || []);
+          const allCrossSells = availableCrossSells; // already filtered — excludes services already selected
 
           return (
             <div>
@@ -6662,9 +6908,14 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
             <h2 className="text-xl font-black text-slate-900 mb-1">Confirmar marcação</h2>
             <p className="text-sm text-slate-400 mb-4">Reveja os detalhes antes de confirmar</p>
             <div className="bg-violet-50 rounded-2xl p-4 mb-4 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Serviço</span>
-                <span className="text-sm font-bold text-violet-900">{selectedService?.nome}</span>
+              <div>
+                <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Serviço{selectedServices.length > 1 ? 's' : ''}</span>
+                {selectedServices.map((s, i) => (
+                  <div key={i} className="flex justify-between items-center mt-1">
+                    <span className="text-sm font-bold text-violet-900">{s.nome}</span>
+                    {s.preco ? <span className="text-xs font-bold text-violet-700">R$ {Number(s.preco).toFixed(2)}</span> : s.sobOrcamento ? <span className="text-xs font-bold text-amber-600">Sob Orçamento</span> : null}
+                  </div>
+                ))}
               </div>
               {selectedProfissional && <div className="flex justify-between items-center">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Profissional</span>
@@ -6678,13 +6929,16 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Hora</span>
                 <span className="text-sm font-bold text-violet-900">{selectedHora}</span>
               </div>
-              {(selectedService?.preco || selectedService?.sobOrcamento) && <div className="flex justify-between items-center pt-1 border-t border-violet-100">
-                <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Preço</span>
-                {selectedService.sobOrcamento
-                  ? <span className="text-sm font-black text-amber-600">Sob Orçamento</span>
-                  : <span className="text-base font-black text-violet-900">R$ {Number(selectedService.preco).toFixed(2)}</span>
-                }
-              </div>}
+              {(() => {
+                const total = selectedServices.reduce((s, sv) => s + (Number(sv.preco) || 0), 0);
+                const dur = selectedServices.reduce((s, sv) => s + (Number(sv.duracao) || 0), 0);
+                return (total > 0 || dur > 0) ? (
+                  <div className="flex justify-between items-center pt-1 border-t border-violet-100">
+                    {dur > 0 && <span className="text-xs text-violet-500">{fmtDuracao(dur)}</span>}
+                    {total > 0 && <span className="text-base font-black text-violet-900">R$ {total.toFixed(2)}</span>}
+                  </div>
+                ) : null;
+              })()}
               {selectedExtras.length > 0 && <div className="pt-1 border-t border-violet-100 space-y-1">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Extras</span>
                 {selectedExtras.map((e, i) => (
@@ -6839,7 +7093,7 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
               <div className="flex gap-3">
                 <button onClick={() => {
                   const svc = (profile.servicos || []).find(s => s.nome === tokenAppt.servico) || { nome: tokenAppt.servico, duracao: profile.intervalo };
-                  setSelectedService(svc);
+                  setSelectedServices([svc]);
                   setSelectedProfissional((profile.profissionals || []).find(p => p.id === tokenAppt.profissionalId) || null);
                   setSelectedDate(firstAvailableDate(profile));
                   setSelectedHora('');
