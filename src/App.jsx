@@ -2268,8 +2268,13 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           const pH = (Math.min(wPausa.fim, dayEnd) - Math.max(wPausa.inicio, dayStart)) * PX;
                           return pH > 0 ? (
                             <div className="absolute left-0 right-0 flex items-center justify-center overflow-hidden"
-                              style={{ top: pTop, height: pH, zIndex: 2, background: 'repeating-linear-gradient(45deg, #fecaca 0px, #fecaca 4px, #fee2e2 4px, #fee2e2 10px)', borderTop: '1px solid #fca5a5', borderBottom: '1px solid #fca5a5' }}>
-                              {pH >= 16 && <p className="text-[8px] font-black text-red-500 leading-none bg-red-100/80 px-1 rounded">Almoço</p>}
+                              style={{ top: pTop, height: pH, zIndex: 2, backgroundColor: '#fffbeb', backgroundImage: 'repeating-linear-gradient(135deg, #fde68a33 0px, #fde68a33 4px, transparent 4px, transparent 10px)', borderTop: '1.5px dashed #fbbf24', borderBottom: '1.5px dashed #fbbf24' }}>
+                              {pH >= 20 && (
+                                <div className="flex flex-col items-center gap-0.5 pointer-events-none select-none">
+                                  <span style={{ fontSize: pH >= 36 ? 16 : 11, lineHeight: 1 }}>🍽️</span>
+                                  {pH >= 32 && <p className="text-[7px] font-black text-amber-500 leading-none tracking-wide uppercase">Almoço</p>}
+                                </div>
+                              )}
                             </div>
                           ) : null;
                         })()}
