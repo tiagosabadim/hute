@@ -2599,7 +2599,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 // ── Livre / Passado ───────────────────────
                 if (seg.tipo === 'free') {
                   const isPast = dateISO < todayISO || (nowMin >= 0 && seg.end <= nowMin);
-                  const h = Math.max(MIN_FREE_H, rawH);
+                  const h = rawH;
                   const isActive = activeSlot === toStr(seg.start);
                   if (isPast) return (
                     <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 1 }}>
@@ -2657,7 +2657,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   );
                 }
 
-                const h = Math.max(44, rawH);
+                const h = rawH;
 
                 // ── Bloqueio ──────────────────────────────
                 if (seg.tipo === 'block') {
