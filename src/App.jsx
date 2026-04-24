@@ -2592,8 +2592,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             {/* Segments */}
             <div className="absolute left-12 right-0 top-0">
               {segs.map((seg, i) => {
-                const top    = (seg.start - dayStart) * PX + 1;
-                const rawH   = (seg.end - seg.start) * PX - 2;
+                const top    = (seg.start - dayStart) * PX + 2;
+                const rawH   = (seg.end - seg.start) * PX - 4;
                 const segDur = seg.end - seg.start;
 
                 // ── Livre / Passado ───────────────────────
