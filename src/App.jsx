@@ -1224,7 +1224,7 @@ function AdminSidebar({ view, setView, profile, unreadCount, notifOpen, setNotif
             <span className="hidden lg:block text-sm font-semibold whitespace-nowrap">Notificações</span>
           </button>
           {notifOpen && (
-            <div className="absolute bottom-full left-full ml-2 mb-1 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+            <div className="fixed left-16 lg:left-48 bottom-12 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-[200] overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
                 <span className="text-sm font-black text-slate-900">Notificações</span>
                 {notifications.length > 0 && (
