@@ -2197,7 +2197,19 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 if (evStart < dayEnd) { segs.push({ ...ev, start: evStart, end: Math.min(evEnd, dayEnd) }); wCur = evEnd; }
               }
               if (wCur < dayEnd) segs.push({ tipo: 'free', start: wCur, end: dayEnd });
-              return { day, dayStr, segs, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado, isDayPast };
+
+              // Split free slots around the lunch pause so the overlay shows cleanly
+              const segsWithPause = !wPausa ? segs : segs.flatMap(seg => {
+                if (seg.tipo !== 'free') return [seg];
+                const overlapsPause = seg.start < wPausa.fim && seg.end > wPausa.inicio;
+                if (!overlapsPause) return [seg];
+                const result = [];
+                if (seg.start < wPausa.inicio) result.push({ ...seg, end: wPausa.inicio });
+                if (seg.end > wPausa.fim)   result.push({ ...seg, start: wPausa.fim });
+                return result;
+              });
+
+              return { day, dayStr, segs: segsWithPause, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado, isDayPast };
             });
 
             return (
@@ -2255,9 +2267,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           const pTop = (Math.max(wPausa.inicio, dayStart) - dayStart) * PX;
                           const pH = (Math.min(wPausa.fim, dayEnd) - Math.max(wPausa.inicio, dayStart)) * PX;
                           return pH > 0 ? (
-                            <div className="absolute left-0 right-0 bg-red-50 border-y border-red-100 flex items-start overflow-hidden"
-                              style={{ top: pTop, height: pH, zIndex: 2 }}>
-                              <p className="text-[8px] font-black text-red-400 pl-0.5 pt-0.5 leading-none truncate">Almoço</p>
+                            <div className="absolute left-0 right-0 flex items-center justify-center overflow-hidden"
+                              style={{ top: pTop, height: pH, zIndex: 2, background: 'repeating-linear-gradient(45deg, #fecaca 0px, #fecaca 4px, #fee2e2 4px, #fee2e2 10px)', borderTop: '1px solid #fca5a5', borderBottom: '1px solid #fca5a5' }}>
+                              {pH >= 16 && <p className="text-[8px] font-black text-red-500 leading-none bg-red-100/80 px-1 rounded">Almoço</p>}
                             </div>
                           ) : null;
                         })()}
