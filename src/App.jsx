@@ -2557,6 +2557,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
         const dayStart = toMin(effStart);
         const dayEnd   = toMin(effEnd);
         const MIN_FREE_H = intervalo * PX; // free gap at least one full slot tall
+        const rawMPausa = selectedProf?.pausa;
+        const mPausa = (rawMPausa?.inicio && rawMPausa?.fim)
+          ? { inicio: toMin(rawMPausa.inicio), fim: toMin(rawMPausa.fim) }
+          : null;
 
         // Build time-ordered segments: free gaps + events
         const segs = [];
@@ -2589,6 +2593,23 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
               );
             })}
 
+            {/* Lunch break overlay */}
+            {mPausa && (() => {
+              const pTop = (Math.max(mPausa.inicio, dayStart) - dayStart) * PX;
+              const pH = (Math.min(mPausa.fim, dayEnd) - Math.max(mPausa.inicio, dayStart)) * PX;
+              return pH > 0 ? (
+                <div className="absolute left-12 right-0 flex items-center justify-center overflow-hidden pointer-events-none"
+                  style={{ top: pTop, height: pH, zIndex: 3, backgroundColor: '#fffbeb', backgroundImage: 'repeating-linear-gradient(135deg, #fde68a33 0px, #fde68a33 4px, transparent 4px, transparent 10px)', borderTop: '1.5px dashed #fbbf24', borderBottom: '1.5px dashed #fbbf24' }}>
+                  {pH >= 20 && (
+                    <div className="flex flex-col items-center gap-0.5 select-none">
+                      <span style={{ fontSize: pH >= 36 ? 16 : 11, lineHeight: 1 }}>🍽️</span>
+                      {pH >= 32 && <p className="text-[7px] font-black text-amber-500 leading-none tracking-wide uppercase">Almoço</p>}
+                    </div>
+                  )}
+                </div>
+              ) : null;
+            })()}
+
             {/* Segments */}
             <div className="absolute left-12 right-0 top-0">
               {segs.map((seg, i) => {
@@ -2598,6 +2619,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
                 // ── Livre / Passado ───────────────────────
                 if (seg.tipo === 'free') {
+                  if (mPausa && seg.start >= mPausa.inicio && seg.start < mPausa.fim) return null;
                   const isPast = dateISO < todayISO || (nowMin >= 0 && seg.end <= nowMin);
                   const h = rawH;
                   const isActive = activeSlot === toStr(seg.start);
