@@ -2552,8 +2552,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
       {/* Proportional Timeline */}
       {!isDayOff && (() => {
-        // 1.3px per minute → 60min slot ≈ 78px, legible and proportional
-        const PX = 1.3;
+        // 2.0px per minute → 30min slot ≈ 56px, 60min ≈ 116px
+        const PX = 2.0;
         const dayStart = toMin(effStart);
         const dayEnd   = toMin(effEnd);
         const MIN_FREE_H = intervalo * PX; // free gap at least one full slot tall
@@ -2702,16 +2702,16 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                         {seg.appts.map((a, ai) => {
                           const prof = profissionals.find(p => p.id === a.profissionalId);
                           const cor = prof?.cor || '#7c3aed';
-                          const apptH = Math.max(44, (Number(a.duracaoTotal || a.duracao) || intervalo) * PX);
+                          const apptH = (Number(a.duracaoTotal || a.duracao) || intervalo) * PX;
                           return (
                             <div key={a.id || ai}
                               className="rounded-xl shadow-sm cursor-pointer hover:shadow-md transition-shadow overflow-hidden flex"
                               style={{ height: apptH, borderLeft: `4px solid ${cor}`, backgroundColor: cor + '15' }}
                               onClick={() => setDetailAppt(a)}>
                               <div className="flex-1 px-3 py-1.5 min-w-0">
-                                <p className="text-[10px] font-black leading-tight" style={{ color: cor }}>{a.hora} · {fmtDuracao(a.duracaoTotal || a.duracao)}</p>
-                                <p className="font-bold text-slate-900 text-xs truncate">{a.clienteNome}</p>
-                                <p className="text-[10px] text-slate-500 truncate">{a.servico}</p>
+                                <p className="text-xs font-black leading-tight" style={{ color: cor }}>{a.hora} · {fmtDuracao(a.duracaoTotal || a.duracao)}</p>
+                                <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
+                                <p className="text-xs text-slate-500 truncate">{a.servico}</p>
                               </div>
                               {a.clienteWhats && (
                                 <a href={`https://wa.me/${a.clienteWhats.replace(/\D/g,'')}?text=${encodeURIComponent(`Olá ${a.clienteNome}!`)}`}
@@ -2742,11 +2742,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                         onClick={() => setDetailAppt(a)}>
                         <div className="flex-1 px-3 py-2 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-[10px] font-black" style={{ color: cor }}>{a.hora}</span>
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{ backgroundColor: cor }}>{fmtDuracao(a.duracaoTotal || a.duracao)}</span>
+                            <span className="text-xs font-black" style={{ color: cor }}>{a.hora}</span>
+                            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{ backgroundColor: cor }}>{fmtDuracao(a.duracaoTotal || a.duracao)}</span>
                           </div>
-                          <p className="font-black text-slate-900 text-sm leading-tight truncate">{a.clienteNome}</p>
-                          <p className="text-xs text-slate-500 truncate">{a.servico}</p>
+                          <p className="font-black text-slate-900 text-base leading-tight truncate">{a.clienteNome}</p>
+                          <p className="text-sm text-slate-500 truncate">{a.servico}</p>
                           {h > 70 && a.extras?.filter(e => e.tipo === 'servico').map((e, ei) => (
                             <p key={ei} className="text-[10px] font-semibold truncate" style={{ color: cor }}>+ {e.nome}</p>
                           ))}
