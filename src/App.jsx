@@ -7526,7 +7526,8 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 const totalServicos = selectedServices.reduce((s, sv) => s + (Number(sv.preco) || 0), 0);
                 const totalExtras = selectedExtras.reduce((s, e) => s + (Number(e.preco) || 0), 0);
                 const total = totalServicos + totalExtras;
-                const dur = selectedServices.reduce((s, sv) => s + (Number(sv.duracao) || 0), 0);
+                const dur = selectedServices.reduce((s, sv) => s + (Number(sv.duracao) || 0), 0)
+                          + selectedExtras.reduce((s, e) => s + (Number(e.duracao) || 0), 0);
                 return (total > 0 || dur > 0) ? (
                   <div className="flex justify-between items-center pt-2 border-t border-violet-200 mt-1">
                     {dur > 0 && <span className="text-xs text-violet-500">{fmtDuracao(dur)}</span>}
