@@ -1898,8 +1898,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [hoveredDay, setHoveredDay] = useState(null); // 'YYYY-MM-DD'
   const [searchQuery, setSearchQuery] = useState('');
-  const [notas, setNotas] = useState(() => { try { return localStorage.getItem(`hute_notas_${colId}`) || ''; } catch { return ''; } });
-  useEffect(() => { try { localStorage.setItem(`hute_notas_${colId}`, notas); } catch {} }, [notas, colId]);
+  const [notas, setNotas] = useState('');
 
   // Occupancy per day: ratio of booked minutes / working minutes
   const occupancyMap = useMemo(() => {
@@ -1940,63 +1939,82 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           ? <span className="text-[10px] bg-violet-50 text-violet-600 font-bold px-2 py-0.5 rounded-full flex items-center gap-1"><Calendar className="w-3 h-3" />Agenda nativa</span>
           : null;
 
+  // Prof toggles JSX — shared between mobile and desktop
+  const profTogglesJSX = !filterProfId && profissionals.length > 1 ? (
+    <div className="flex gap-2 overflow-x-auto pb-1 px-1 scrollbar-hide">
+      <button
+        onClick={() => setSelectedProfId(null)}
+        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-all ${
+          selectedProfId === null ? 'bg-slate-800 text-white border-transparent shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+        }`}>
+        <Users className="w-3 h-3" />
+        Todos
+      </button>
+      {profissionals.map(p => {
+        const active = selectedProfId === p.id;
+        return (
+          <button key={p.id} onClick={() => setSelectedProfId(p.id)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-all ${
+              active ? 'text-white shadow-sm border-transparent' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-200'
+            }`}
+            style={active ? { backgroundColor: p.cor || '#7c3aed' } : {}}>
+            <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: active ? 'rgba(255,255,255,0.6)' : (p.cor || '#7c3aed') }} />
+            {p.nome}
+          </button>
+        );
+      })}
+    </div>
+  ) : null;
+
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex-shrink-0">
-          <h2 className="text-xl font-black text-slate-900">Agenda</h2>
-          <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
-        </div>
-        {/* Search — desktop only */}
-        <div className="hidden lg:flex flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Buscar cliente..."
-            className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 shadow-sm"
-          />
-        </div>
-        <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
-          className="flex-shrink-0 p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
-          <Plus className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Professional selector — hidden for staff (filterProfId set) */}
-      {!filterProfId && profissionals.length > 1 && (
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 px-1 scrollbar-hide">
-          <button
-            onClick={() => setSelectedProfId(null)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-all ${
-              selectedProfId === null ? 'bg-slate-800 text-white border-transparent shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-            }`}>
-            <Users className="w-3 h-3" />
-            Todos
-          </button>
-          {profissionals.map(p => {
-            const active = selectedProfId === p.id;
-            return (
-              <button key={p.id} onClick={() => setSelectedProfId(p.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap flex-shrink-0 border transition-all ${
-                  active ? 'text-white shadow-sm border-transparent' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-200'
-                }`}
-                style={active ? { backgroundColor: p.cor || '#7c3aed' } : {}}>
-                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: active ? 'rgba(255,255,255,0.6)' : (p.cor || '#7c3aed') }} />
-                {p.nome}
-              </button>
-            );
-          })}
+      {/* Mobile-only header + prof toggles */}
+      {!isDesktop && (
+        <div className="mb-4">
+          <div className="flex items-center gap-3 mb-4">
+            <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
+              className="flex-shrink-0 p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+              <Plus className="w-4 h-4" />
+            </button>
+            <div className="flex-1">
+              <h2 className="text-xl font-black text-slate-900">Agenda</h2>
+              <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
+            </div>
+          </div>
+          {profTogglesJSX}
         </div>
       )}
 
       {isDesktop ? (
         /* ── Week view (desktop lg+) + Mini-calendar sidebar ── */
-        <div className="flex gap-4 items-start">
+        <div className="flex gap-4 h-[calc(100vh-3rem)]">
         {/* Agenda (70%) */}
-        <div className="w-[70%] min-w-0 overflow-y-auto max-h-[calc(100vh-12rem)]">
+        <div className="w-[70%] min-w-0 flex flex-col gap-3 min-h-0">
+          {/* Desktop header: [+] title badge | search */}
+          <div className="flex-shrink-0 flex items-center gap-3">
+            <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
+              className="flex-shrink-0 p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+              <Plus className="w-4 h-4" />
+            </button>
+            <div className="flex-shrink-0">
+              <h2 className="text-xl font-black text-slate-900">Agenda</h2>
+              <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
+            </div>
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Buscar cliente..."
+                className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 shadow-sm"
+              />
+            </div>
+          </div>
+          {/* Desktop prof toggles */}
+          {profTogglesJSX && <div className="flex-shrink-0">{profTogglesJSX}</div>}
+          {/* Scrollable week area */}
+          <div className="flex-1 overflow-y-auto min-h-0">
           {/* Week navigation */}
           <div className="flex items-center justify-between mb-4 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
             <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 7); setSelectedDate(d); setActiveSlot(null); }}
@@ -2144,9 +2162,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
               </div>
             );
           })()}
-        </div>{/* end agenda flex-1 */}
+          </div>{/* end scrollable week area */}
+        </div>{/* end agenda 70% */}
 
-        {/* Right sidebar (30%) — fixed height, no scroll */}
+        {/* Right sidebar (30%) — full height flex column, no scroll */}
         {(() => {
           const y = calMonth.getFullYear();
           const m = calMonth.getMonth();
@@ -2194,29 +2213,65 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
           const frase = FRASES[dayOfYear % FRASES.length];
 
-          // Monthly stats
-          const now = new Date();
-          const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-          const apptsMes = appointments.filter(a => (a.data || '').startsWith(mesAtual));
-          const totalMes = apptsMes.length;
-          const receitaMes = apptsMes.reduce((s, a) => s + (Number(a.valor) || 0), 0);
-          const canceladosMes = apptsMes.filter(a => a.cancelado).length;
+          // Brazilian public holidays for calendar month (fixed + variable via Easter)
+          const calcEaster = (yr) => {
+            const a = yr % 19, b = Math.floor(yr / 100), c = yr % 100;
+            const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+            const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+            const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7;
+            const mth2 = Math.floor((a + 11 * h + 22 * l) / 451);
+            const mo = Math.floor((h + l - 7 * mth2 + 114) / 31);
+            const dy = ((h + l - 7 * mth2 + 114) % 31) + 1;
+            return new Date(yr, mo - 1, dy);
+          };
+          const addDaysToDate = (dt, n) => { const r = new Date(dt); r.setDate(r.getDate() + n); return r; };
+          const fmtHoliday = (dt) => `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`;
+          const easter = calcEaster(y);
+          const allHolidays = [
+            // Fixed
+            { month: 0,  day: 1,  nome: 'Confraternização Universal' },
+            { month: 3,  day: 21, nome: 'Tiradentes' },
+            { month: 4,  day: 1,  nome: 'Dia do Trabalho' },
+            { month: 8,  day: 7,  nome: 'Independência do Brasil' },
+            { month: 9,  day: 12, nome: 'N. Sra. Aparecida' },
+            { month: 10, day: 2,  nome: 'Finados' },
+            { month: 10, day: 15, nome: 'Proclamação da República' },
+            { month: 10, day: 20, nome: 'Consciência Negra' },
+            { month: 11, day: 25, nome: 'Natal' },
+            // Variable
+            { date: addDaysToDate(easter, -48), nome: 'Carnaval' },
+            { date: addDaysToDate(easter, -47), nome: 'Carnaval (terça)' },
+            { date: addDaysToDate(easter, -2),  nome: 'Sexta-Feira Santa' },
+            { date: easter,                      nome: 'Páscoa' },
+            { date: addDaysToDate(easter, 60),   nome: 'Corpus Christi' },
+          ];
+          const feriados = allHolidays
+            .filter(h => {
+              if (h.date) return h.date.getFullYear() === y && h.date.getMonth() === m;
+              return h.month === m;
+            })
+            .map(h => ({
+              nome: h.nome,
+              dia: h.date ? h.date.getDate() : h.day,
+              dt: h.date || new Date(y, h.month, h.day),
+            }))
+            .sort((a, b) => a.dia - b.dia);
 
           return (
-            <div className="w-[30%] flex-shrink-0 sticky top-6 h-[calc(100vh-3rem)] overflow-hidden flex flex-col gap-3">
+            <div className="w-[30%] flex-shrink-0 flex flex-col gap-3 min-h-0">
 
-              {/* Motivational phrase */}
-              <div className="flex-shrink-0 rounded-2xl p-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
+              {/* Motivational phrase — spans header+prof-toggle height */}
+              <div className="flex-shrink-0 rounded-2xl p-5 flex items-center" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
                 <div className="flex items-start gap-2.5">
                   <Sparkles className="w-4 h-4 text-violet-300 flex-shrink-0 mt-0.5" />
                   <p className="text-sm text-white font-medium leading-snug">{frase}</p>
                 </div>
               </div>
 
-              {/* Mini calendar */}
-              <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+              {/* Mini calendar — flex-1 so it grows with available space */}
+              <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col min-h-0">
                 {/* Month nav */}
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 flex-shrink-0">
                   <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
                     className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
                     <ChevronLeft className="w-4 h-4" />
@@ -2231,13 +2286,13 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   </button>
                 </div>
                 {/* Weekday headers */}
-                <div className="grid grid-cols-7 mb-1">
+                <div className="grid grid-cols-7 mb-1 flex-shrink-0">
                   {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map((d, i) => (
-                    <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-0.5">{d}</div>
+                    <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>
                   ))}
                 </div>
-                {/* Day cells */}
-                <div className="grid grid-cols-7 gap-y-0.5">
+                {/* Day cells — flex-1 to fill calendar card */}
+                <div className="grid grid-cols-7 flex-1 content-start gap-y-1">
                   {cells.map((day, ci) => {
                     if (!day) return <div key={ci} />;
                     const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -2246,15 +2301,17 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                     const occ = occupancyMap[ds] || 0;
                     const pct = Math.round(occ * 100);
                     const dotColor = occ === 0 ? null : occ < 0.5 ? '#22c55e' : occ < 0.85 ? '#f59e0b' : '#ef4444';
+                    const isFeriado = feriados.some(f => f.dia === day);
                     return (
                       <div key={ci} className="relative flex flex-col items-center">
                         <button
                           onClick={() => setSelectedDate(new Date(y, m, day))}
                           onMouseEnter={() => setHoveredDay(ds)}
                           onMouseLeave={() => setHoveredDay(null)}
-                          className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold transition-all relative ${
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold transition-all relative ${
                             isSel ? 'bg-violet-600 text-white shadow-sm' :
                             isToday ? 'bg-violet-100 text-violet-700' :
+                            isFeriado ? 'bg-red-50 text-red-600' :
                             'text-slate-700 hover:bg-slate-100'
                           }`}>
                           {day}
@@ -2262,10 +2319,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ backgroundColor: dotColor }} />
                           )}
                         </button>
-                        {hoveredDay === ds && pct > 0 && (
+                        {hoveredDay === ds && (pct > 0 || isFeriado) && (
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 pointer-events-none">
                             <div className="bg-slate-900 text-white text-[11px] font-bold px-2 py-1 rounded-lg whitespace-nowrap shadow-xl">
-                              {pct}% agendado
+                              {isFeriado ? feriados.find(f => f.dia === day)?.nome : `${pct}% agendado`}
                               <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
                             </div>
                           </div>
@@ -2275,7 +2332,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   })}
                 </div>
                 {/* Legend */}
-                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-center gap-3">
+                <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-center gap-3 flex-shrink-0">
                   {[['#22c55e','< 50%'],['#f59e0b','50–85%'],['#ef4444','> 85%']].map(([c, l]) => (
                     <div key={l} className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
@@ -2285,34 +2342,32 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 </div>
               </div>
 
-              {/* Atendimentos do mês */}
+              {/* Feriados do mês — updates when calendar month changes */}
               <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
-                <h4 className="font-black text-slate-700 text-sm mb-3">Mês em resumo</h4>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-violet-50 rounded-xl p-3 text-center">
-                    <p className="text-2xl font-black text-violet-700 leading-none">{totalMes}</p>
-                    <p className="text-[10px] text-violet-500 font-semibold mt-1">atendimentos</p>
+                <h4 className="font-black text-slate-700 text-sm mb-2">Feriados de {calMonth.toLocaleDateString('pt-BR', { month: 'long' })}</h4>
+                {feriados.length === 0 ? (
+                  <p className="text-xs text-slate-400">Sem feriados nacionais este mês.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {feriados.map((f, fi) => (
+                      <div key={fi} className="flex items-center gap-2">
+                        <span className="text-[11px] font-black text-red-500 w-8 flex-shrink-0">{String(f.dia).padStart(2,'0')}/{String(m+1).padStart(2,'0')}</span>
+                        <span className="text-xs text-slate-700 font-medium">{f.nome}</span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="bg-emerald-50 rounded-xl p-3 text-center">
-                    <p className="text-lg font-black text-emerald-700 leading-none">
-                      {receitaMes > 0 ? `R$${receitaMes.toFixed(0)}` : '–'}
-                    </p>
-                    <p className="text-[10px] text-emerald-500 font-semibold mt-1">faturamento</p>
-                  </div>
-                </div>
-                {canceladosMes > 0 && (
-                  <p className="text-[10px] text-slate-400 mt-2 text-center">{canceladosMes} cancelado{canceladosMes > 1 ? 's' : ''} este mês</p>
                 )}
               </div>
 
-              {/* Anotações — fills remaining space */}
-              <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col min-h-0">
-                <h4 className="font-black text-slate-700 text-sm mb-2 flex-shrink-0">Anotações</h4>
+              {/* Lembretes — morre com a sessão (sem localStorage) */}
+              <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col" style={{ minHeight: '8rem' }}>
+                <h4 className="font-black text-slate-700 text-sm mb-2 flex-shrink-0">Lembretes</h4>
                 <textarea
                   value={notas}
                   onChange={e => setNotas(e.target.value)}
-                  placeholder="Escreva notas, lembretes do dia..."
+                  placeholder="Anotações rápidas do dia..."
                   className="flex-1 resize-none text-sm text-slate-700 outline-none placeholder-slate-300 leading-relaxed w-full"
+                  style={{ minHeight: '5rem' }}
                 />
               </div>
 
