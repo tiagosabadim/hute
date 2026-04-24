@@ -2153,9 +2153,32 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             const ticks = [];
             for (let t = dayStart; t <= dayEnd; t += intervalo) ticks.push(t);
 
-            // Pre-compute day segments
+            // Pre-compute day segments + per-day status
             const weekSegs = weekDays.map(day => {
               const dayStr = day.toISOString().split('T')[0];
+              const dayOfWeek = day.getDay();
+
+              // Establishment open that day?
+              const wDiaConf = (profile?.diasFuncionamento || []).find(d => d.dia === dayOfWeek);
+              const wEstabFechado = (profile?.diasFuncionamento?.length > 0) && !wDiaConf;
+
+              // day_off block for this day (establishment or prof-specific)
+              const dayOffBlock = blocks.find(b =>
+                b.date === dayStr && b.type === 'day_off' &&
+                (!b.profissionalId || b.profissionalId === selectedProfId)
+              ) || null;
+              const isDayOff = !!dayOffBlock || wEstabFechado;
+
+              // Does selected professional work this day?
+              const profNotWorking = !!(selectedProf?.diasTrabalho?.length > 0 &&
+                !selectedProf.diasTrabalho.includes(dayOfWeek));
+
+              // Professional's pause (lunch break)
+              const rawPausa = selectedProf?.pausa;
+              const wPausa = (rawPausa?.inicio && rawPausa?.fim)
+                ? { inicio: toMin(rawPausa.inicio), fim: toMin(rawPausa.fim) }
+                : null;
+
               const wdayAppts = appointments.filter(a =>
                 a.data === dayStr && (!selectedProfId || a.profissionalId === selectedProfId) &&
                 (!searchQuery || (a.clienteNome || '').toLowerCase().includes(searchQuery.toLowerCase()))
@@ -2173,7 +2196,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 if (evStart < dayEnd) { segs.push({ ...ev, start: evStart, end: Math.min(evEnd, dayEnd) }); wCur = evEnd; }
               }
               if (wCur < dayEnd) segs.push({ tipo: 'free', start: wCur, end: dayEnd });
-              return { day, dayStr, segs };
+              return { day, dayStr, segs, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado };
             });
 
             return (
@@ -2182,13 +2205,18 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 <div className="flex gap-0 mb-1">
                   <div className="w-10 flex-shrink-0" />
                   <div className="flex-1 grid grid-cols-7 gap-1">
-                    {weekDays.map(day => {
-                      const dayStr = day.toISOString().split('T')[0];
+                    {weekSegs.map(({ day, dayStr, isDayOff, profNotWorking }) => {
                       const isToday = dayStr === todayISO;
                       const isSelected = dayStr === selectedDate.toISOString().split('T')[0];
+                      const isOff = isDayOff || profNotWorking;
                       return (
                         <div key={dayStr}
-                          className={`text-center py-1.5 rounded-xl cursor-pointer transition-colors ${isToday ? 'bg-violet-600 text-white' : isSelected ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          className={`text-center py-1.5 rounded-xl cursor-pointer transition-colors ${
+                            isToday ? 'bg-violet-600 text-white' :
+                            isSelected ? 'bg-violet-100 text-violet-700' :
+                            isOff ? 'bg-red-100 text-red-500' :
+                            'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
                           onClick={() => setSelectedDate(day)}>
                           <div className="text-[9px] font-bold uppercase tracking-wider leading-tight">
                             {day.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}
@@ -2213,12 +2241,43 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
                   {/* Day columns */}
                   <div className="flex-1 grid grid-cols-7 gap-1">
-                    {weekSegs.map(({ day, dayStr, segs: wSegs }) => (
+                    {weekSegs.map(({ day, dayStr, segs: wSegs, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado }) => (
                       <div key={dayStr} className="relative border-l border-slate-100" style={{ height: containerH }}>
                         {/* Tick lines */}
                         {ticks.map(t => (
                           <div key={t} className="absolute left-0 right-0 border-t border-slate-100 pointer-events-none" style={{ top: (t - dayStart) * PX }} />
                         ))}
+
+                        {/* Lunch break overlay */}
+                        {wPausa && !isDayOff && !profNotWorking && (() => {
+                          const pTop = (Math.max(wPausa.inicio, dayStart) - dayStart) * PX;
+                          const pH = (Math.min(wPausa.fim, dayEnd) - Math.max(wPausa.inicio, dayStart)) * PX;
+                          return pH > 0 ? (
+                            <div className="absolute left-0 right-0 bg-red-50 border-y border-red-100 flex items-start overflow-hidden"
+                              style={{ top: pTop, height: pH, zIndex: 2 }}>
+                              <p className="text-[8px] font-black text-red-400 pl-0.5 pt-0.5 leading-none truncate">Almoço</p>
+                            </div>
+                          ) : null;
+                        })()}
+
+                        {/* Closed / day-off overlay — blocks free slots, shows label + deblock */}
+                        {(isDayOff || profNotWorking) && (
+                          <>
+                            <div className="absolute inset-0 bg-red-50/80" style={{ zIndex: 3 }} />
+                            <div className="absolute top-2 left-0 right-0 flex flex-col items-center gap-1" style={{ zIndex: 4 }}>
+                              <p className="text-[9px] font-black text-red-500 leading-none">
+                                {wEstabFechado ? 'Fechado' : profNotWorking ? 'Folga' : 'Folga'}
+                              </p>
+                              {dayOffBlock && (
+                                <button
+                                  onClick={() => removeBlock(dayOffBlock.id)}
+                                  className="text-[9px] text-red-400 hover:text-red-600 font-bold underline underline-offset-1 transition-colors">
+                                  Desbloquear
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
 
                         {/* Segments */}
                         {wSegs.map((seg, si) => {
@@ -2226,6 +2285,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           const rawH = (seg.end - seg.start) * PX;
 
                           if (seg.tipo === 'free') {
+                            // Don't render free slots during pause or on closed days
+                            if (isDayOff || profNotWorking) return null;
+                            if (wPausa && seg.start >= wPausa.inicio && seg.start < wPausa.fim) return null;
                             const isPast = nowMin >= 0 && seg.end <= nowMin;
                             return (
                               <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: Math.max(12, rawH) }}>
@@ -2243,7 +2305,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           const cor = selectedProf?.cor || prof?.cor || '#7c3aed';
                           const h = Math.max(28, rawH);
                           return (
-                            <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h, zIndex: 2 }}>
+                            <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h, zIndex: 5 }}>
                               <div
                                 className="h-full rounded cursor-pointer hover:brightness-95 transition-all overflow-hidden"
                                 style={{ backgroundColor: cor + '25', borderLeft: `3px solid ${cor}` }}
