@@ -2225,7 +2225,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             </div>
           );
         })()}
-        </div>{/* end desktop flex wrapper */}
+        </div>
       ) : (
         /* ── Day view (mobile / tablet) ── */
         <div>
