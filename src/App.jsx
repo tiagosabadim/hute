@@ -2740,13 +2740,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                       <div className="h-full rounded-xl shadow-sm cursor-pointer hover:shadow-md transition-shadow overflow-hidden flex"
                         style={{ borderLeft: `4px solid ${cor}`, backgroundColor: cor + '12' }}
                         onClick={() => setDetailAppt(a)}>
-                        <div className="flex-1 px-3 py-2 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-xs font-black" style={{ color: cor }}>{a.hora}</span>
-                            <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full text-white flex-shrink-0" style={{ backgroundColor: cor }}>{fmtDuracao(a.duracaoTotal || a.duracao)}</span>
-                          </div>
-                          <p className="font-black text-slate-900 text-base leading-tight truncate">{a.clienteNome}</p>
-                          <p className="text-sm text-slate-500 truncate">{a.servico}</p>
+                        <div className="flex-1 px-3 py-1.5 min-w-0">
+                          <p className="text-xs font-black leading-tight" style={{ color: cor }}>{a.hora} · {fmtDuracao(a.duracaoTotal || a.duracao)}</p>
+                          <p className="font-bold text-slate-900 text-sm truncate">{a.clienteNome}</p>
+                          <p className="text-xs text-slate-500 truncate">{a.servico}</p>
                           {h > 70 && a.extras?.filter(e => e.tipo === 'servico').map((e, ei) => (
                             <p key={ei} className="text-[10px] font-semibold truncate" style={{ color: cor }}>+ {e.nome}</p>
                           ))}
