@@ -2192,7 +2192,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
               for (const ev of wRaw) {
                 const evStart = toMin(ev.hora);
                 const evEnd = evStart + ev.duracao;
-                if (evStart <= wCur) { wCur = Math.max(wCur, evEnd); continue; }
+                if (evStart < wCur) { wCur = Math.max(wCur, evEnd); continue; }
                 if (evStart > wCur) segs.push({ tipo: 'free', start: wCur, end: Math.min(evStart, dayEnd) });
                 if (evStart < dayEnd) { segs.push({ ...ev, start: evStart, end: Math.min(evEnd, dayEnd) }); wCur = evEnd; }
               }
@@ -2563,7 +2563,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
         for (const ev of rawEvents) {
           const evStart = toMin(ev.hora);
           const evEnd   = evStart + Math.round(Number(ev.duracao) || intervalo);
-          if (evStart <= cur) { cur = Math.max(cur, evEnd); continue; }
+          if (evStart < cur) { cur = Math.max(cur, evEnd); continue; }
           if (evStart > cur && cur < dayEnd) segs.push({ tipo: 'free', start: cur, end: Math.min(evStart, dayEnd) });
           if (evStart < dayEnd) { segs.push({ ...ev, start: evStart, end: Math.min(evEnd, dayEnd) }); cur = evEnd; }
         }
