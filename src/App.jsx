@@ -1894,6 +1894,24 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
     return () => window.removeEventListener('resize', handler);
   }, []);
 
+  // ── Mini-calendar state ───────────────────────────────────
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
+  const [hoveredDay, setHoveredDay] = useState(null); // 'YYYY-MM-DD'
+
+  // Occupancy per day: ratio of booked minutes / working minutes
+  const occupancyMap = useMemo(() => {
+    const map = {};
+    const dayMins = toMin(effEnd) - toMin(effStart);
+    if (dayMins <= 0) return map;
+    appointments.forEach(a => {
+      if (!a.data) return;
+      if (!map[a.data]) map[a.data] = 0;
+      map[a.data] += Number(a.duracaoTotal || a.duracao) || intervalo;
+    });
+    Object.keys(map).forEach(d => { map[d] = Math.min(1, map[d] / dayMins); });
+    return map;
+  }, [appointments, effStart, effEnd, intervalo]);
+
   const weekStart = useMemo(() => {
     const d = new Date(selectedDate);
     d.setHours(0, 0, 0, 0);
@@ -1961,8 +1979,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
       )}
 
       {isDesktop ? (
-        /* ── Week view (desktop lg+) ── */
-        <div>
+        /* ── Week view (desktop lg+) + Mini-calendar sidebar ── */
+        <div className="flex gap-4 items-start">
+        {/* Agenda (70%) */}
+        <div className="flex-1 min-w-0">
           {/* Week navigation */}
           <div className="flex items-center justify-between mb-4 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
             <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 7); setSelectedDate(d); setActiveSlot(null); }}
@@ -2101,7 +2121,111 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
               </div>
             );
           })()}
-        </div>
+        </div>{/* end agenda flex-1 */}
+
+        {/* Mini-calendar sidebar (30%) */}
+        {(() => {
+          const y = calMonth.getFullYear();
+          const m = calMonth.getMonth();
+          const firstDay = new Date(y, m, 1).getDay(); // 0=Sun
+          const daysInMonth = new Date(y, m + 1, 0).getDate();
+          // Monday-first grid: pad = (firstDay + 6) % 7
+          const pad = (firstDay + 6) % 7;
+          const cells = [];
+          for (let i = 0; i < pad; i++) cells.push(null);
+          for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+          const monthLabel = calMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+          return (
+            <div className="w-[220px] flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sticky top-4">
+              {/* Month nav */}
+              <div className="flex items-center justify-between mb-3">
+                <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => { const n = new Date(); n.setDate(1); setCalMonth(n); }}
+                  className="text-[11px] font-black text-slate-700 capitalize hover:text-violet-600 transition-colors">
+                  {monthLabel}
+                </button>
+                <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n; })}
+                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Weekday headers */}
+              <div className="grid grid-cols-7 mb-1">
+                {['S','T','Q','Q','S','S','D'].map((d, i) => (
+                  <div key={i} className="text-center text-[9px] font-bold text-slate-400 py-0.5">{d}</div>
+                ))}
+              </div>
+
+              {/* Day cells */}
+              <div className="grid grid-cols-7 gap-y-0.5">
+                {cells.map((day, ci) => {
+                  if (!day) return <div key={ci} />;
+                  const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const isToday = ds === todayISO;
+                  const isSel = ds === dateISO;
+                  const occ = occupancyMap[ds] || 0;
+                  const pct = Math.round(occ * 100);
+
+                  // Occupancy color: green→amber→red
+                  const dotColor = occ === 0 ? null : occ < 0.5 ? '#22c55e' : occ < 0.85 ? '#f59e0b' : '#ef4444';
+
+                  return (
+                    <div key={ci} className="relative flex flex-col items-center">
+                      <button
+                        onClick={() => {
+                          const d = new Date(y, m, day);
+                          setSelectedDate(d);
+                          // Set week to contain this day
+                          const diff = d.getDay() === 0 ? -6 : 1 - d.getDay();
+                          const weekMon = new Date(d); weekMon.setDate(d.getDate() + diff);
+                          setSelectedDate(d);
+                        }}
+                        onMouseEnter={() => setHoveredDay(ds)}
+                        onMouseLeave={() => setHoveredDay(null)}
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all relative ${
+                          isSel ? 'bg-violet-600 text-white shadow-sm' :
+                          isToday ? 'bg-violet-100 text-violet-700' :
+                          'text-slate-700 hover:bg-slate-100'
+                        }`}>
+                        {day}
+                        {dotColor && !isSel && (
+                          <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ backgroundColor: dotColor }} />
+                        )}
+                      </button>
+
+                      {/* Tooltip */}
+                      {hoveredDay === ds && pct > 0 && (
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 pointer-events-none">
+                          <div className="bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap shadow-xl">
+                            {pct}% agendado
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Legend */}
+              <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-center gap-3">
+                {[['#22c55e','< 50%'],['#f59e0b','50–85%'],['#ef4444','> 85%']].map(([c, l]) => (
+                  <div key={l} className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+                    <span className="text-[9px] text-slate-400">{l}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+        </div>{/* end desktop flex wrapper */}
       ) : (
         /* ── Day view (mobile / tablet) ── */
         <div>
