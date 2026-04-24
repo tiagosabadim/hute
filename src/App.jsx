@@ -2268,10 +2268,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             {/* Right sidebar: calendar + feriados + lembretes */}
             <div className="w-[30%] flex-shrink-0 flex flex-col gap-3 min-h-0">
 
-              {/* Mini calendar — flex-1 fills available space */}
-              <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 p-3 flex flex-col min-h-0">
+              {/* Mini calendar — fixed height, compact */}
+              <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-3 flex flex-col">
                 {/* Month nav */}
-                <div className="flex items-center justify-between mb-2 flex-shrink-0">
+                <div className="flex items-center justify-between mb-1 flex-shrink-0">
                   <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
                     className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
                     <ChevronLeft className="w-4 h-4" />
@@ -2292,7 +2292,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   ))}
                 </div>
                 {/* Day cells */}
-                <div className="grid grid-cols-7 flex-1 content-start gap-y-0.5 mt-0.5">
+                <div className="grid grid-cols-7 content-start gap-y-0 mt-0.5">
                   {cells.map((day, ci) => {
                     if (!day) return <div key={ci} />;
                     const ds = `${cy}-${String(cm + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -2308,7 +2308,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           onClick={() => setSelectedDate(new Date(cy, cm, day))}
                           onMouseEnter={() => setHoveredDay(ds)}
                           onMouseLeave={() => setHoveredDay(null)}
-                          className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold transition-all relative ${
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all relative ${
                             isSel ? 'bg-violet-600 text-white shadow-sm' :
                             isToday ? 'bg-violet-100 text-violet-700' :
                             isFeriado ? 'bg-red-50 text-red-500' :
@@ -2360,7 +2360,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
               </div>
 
               {/* Lembretes — checklist + notas livres, morre com a sessão */}
-              <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-3 flex flex-col" style={{ minHeight: '13rem' }}>
+              <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 p-3 flex flex-col" style={{ minHeight: '16rem' }}>
                 <h4 className="font-black text-slate-700 text-xs mb-2 flex-shrink-0">Lembretes</h4>
                 {/* Add new checklist item */}
                 <div className="flex gap-1.5 mb-2 flex-shrink-0">
