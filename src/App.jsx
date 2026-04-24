@@ -2309,16 +2309,16 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           const rawH = (seg.end - seg.start) * PX;
 
                           if (seg.tipo === 'free') {
-                            // Don't render free slots on closed, off, or past days
-                            if (isDayOff || profNotWorking || isDayPast) return null;
+                            // Don't render free slots on closed or off days
+                            if (isDayOff || profNotWorking) return null;
                             if (wPausa && seg.start >= wPausa.inicio && seg.start < wPausa.fim) return null;
                             const isPast = nowMin >= 0 && seg.end <= nowMin;
+                            const isGray = isDayPast || isPast;
                             return (
-                              <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: Math.max(12, rawH) }}>
+                              <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: Math.max(12, rawH), zIndex: isDayPast ? 4 : undefined }}>
                                 <button
                                   onClick={() => { setSelectedDate(day); setPreHora(toStr(seg.start)); setShowNewAppt(true); }}
-                                  className={`w-full h-full rounded border border-dashed transition-all ${isPast ? 'border-slate-100 opacity-30 cursor-default' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
-                                  disabled={isPast}
+                                  className={`w-full h-full rounded border border-dashed transition-all ${isGray ? 'border-slate-200 hover:border-slate-300 hover:bg-slate-100/40' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
                                 />
                               </div>
                             );
@@ -2601,10 +2601,30 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   const h = Math.max(MIN_FREE_H, rawH);
                   const isActive = activeSlot === toStr(seg.start);
                   if (isPast) return (
-                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h }}>
-                      <div className="h-full rounded-xl border border-dashed border-slate-100 bg-slate-50/40 flex items-center px-3">
-                        <span className="text-[10px] text-slate-300 font-medium">Passado</span>
-                      </div>
+                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 1 }}>
+                      <button
+                        onClick={() => setActiveSlot(isActive ? null : toStr(seg.start))}
+                        className={`w-full h-full rounded-xl border-2 border-dashed transition-all flex flex-col justify-center px-3 gap-1 ${isActive ? 'border-slate-400 bg-slate-100' : 'border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50'}`}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-slate-300 flex-shrink-0" />
+                          <span className="text-xs font-bold text-slate-400">
+                            {toStr(seg.start)}–{toStr(seg.end)}
+                            {segDur >= 60 && <span className="font-normal text-slate-300 ml-1">({fmtDuracao(segDur)})</span>}
+                          </span>
+                        </div>
+                        {isActive && (
+                          <div className="flex gap-2 mt-1">
+                            <button onClick={e => { e.stopPropagation(); openNewAppt(toStr(seg.start)); setActiveSlot(null); }}
+                              className="flex-1 py-1.5 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-[10px] flex items-center justify-center gap-1 transition-colors">
+                              <Plus className="w-3 h-3" />Agendar
+                            </button>
+                            <button onClick={e => { e.stopPropagation(); openBlock(toStr(seg.start)); setActiveSlot(null); }}
+                              className="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold rounded-lg text-[10px] flex items-center justify-center gap-1 border border-slate-200 transition-colors">
+                              <Clock className="w-3 h-3" />Bloquear
+                            </button>
+                          </div>
+                        )}
+                      </button>
                     </div>
                   );
                   return (
