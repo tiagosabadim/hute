@@ -1791,7 +1791,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const intervalo = profile?.intervaloBase || profile?.intervalo || 60;
 
   const dayAppts = appointments.filter(a =>
-    a.data === dateISO && (!selectedProfId || a.profissionalId === selectedProfId)
+    a.data === dateISO && (!selectedProfId || !a.profissionalId || a.profissionalId === selectedProfId)
   );
 
   // ── Sequential timeline ──────────────────────────────────
@@ -2181,7 +2181,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 : null;
 
               const wdayAppts = appointments.filter(a =>
-                a.data === dayStr && (!selectedProfId || a.profissionalId === selectedProfId) &&
+                a.data === dayStr && (!selectedProfId || !a.profissionalId || a.profissionalId === selectedProfId) &&
                 (!searchQuery || (a.clienteNome || '').toLowerCase().includes(searchQuery.toLowerCase()))
               );
               const wRaw = wdayAppts
