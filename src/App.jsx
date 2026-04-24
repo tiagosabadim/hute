@@ -2228,7 +2228,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             isToday ? 'bg-violet-600 text-white' :
                             isSelected ? 'bg-violet-100 text-violet-700' :
                             isOff ? 'bg-red-100 text-red-500' :
-                            isDayPast ? 'bg-slate-50 text-slate-400' :
+                            isDayPast ? 'bg-slate-100 text-slate-400' :
                             'bg-slate-100 text-slate-600 hover:bg-slate-200'
                           }`}
                           onClick={() => setSelectedDate(day)}>
@@ -2509,10 +2509,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="text-center">
-            <p className="font-black text-slate-900 capitalize">
+            <p className={`font-black capitalize ${dateISO < todayISO ? 'text-slate-400' : 'text-slate-900'}`}>
               {selectedDate.toLocaleDateString('pt-BR', { weekday: 'long' })}
             </p>
-            <p className="text-sm text-slate-500">
+            <p className={`text-sm ${dateISO < todayISO ? 'text-slate-300' : 'text-slate-500'}`}>
               {selectedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
           </div>
@@ -2597,7 +2597,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
                 // ── Livre / Passado ───────────────────────
                 if (seg.tipo === 'free') {
-                  const isPast = nowMin >= 0 && seg.end <= nowMin;
+                  const isPast = dateISO < todayISO || (nowMin >= 0 && seg.end <= nowMin);
                   const h = Math.max(MIN_FREE_H, rawH);
                   const isActive = activeSlot === toStr(seg.start);
                   if (isPast) return (
