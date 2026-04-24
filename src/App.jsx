@@ -2228,7 +2228,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             isToday ? 'bg-violet-600 text-white' :
                             isSelected ? 'bg-violet-100 text-violet-700' :
                             isOff ? 'bg-red-100 text-red-500' :
-                            isDayPast ? 'bg-slate-100 text-slate-400' :
+                            isDayPast ? 'bg-slate-200 text-slate-400' :
                             'bg-slate-100 text-slate-600 hover:bg-slate-200'
                           }`}
                           onClick={() => setSelectedDate(day)}>
@@ -2318,7 +2318,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                               <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: Math.max(12, rawH), zIndex: isDayPast ? 4 : undefined }}>
                                 <button
                                   onClick={() => { setSelectedDate(day); setPreHora(toStr(seg.start)); setShowNewAppt(true); }}
-                                  className={`w-full h-full rounded border border-dashed transition-all ${isGray ? 'border-slate-200 hover:border-slate-300 hover:bg-slate-100/40' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
+                                  className={`w-full h-full rounded border border-dashed transition-all ${isGray ? 'border-slate-300 bg-slate-100/60 hover:bg-slate-200/60' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
                                 />
                               </div>
                             );
@@ -2604,7 +2604,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                     <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 1 }}>
                       <button
                         onClick={() => setActiveSlot(isActive ? null : toStr(seg.start))}
-                        className={`w-full h-full rounded-xl border-2 border-dashed transition-all flex flex-col justify-center px-3 gap-1 ${isActive ? 'border-slate-400 bg-slate-100' : 'border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50'}`}>
+                        className={`w-full h-full rounded-xl border-2 border-dashed transition-all flex flex-col justify-center px-3 gap-1 ${isActive ? 'border-slate-400 bg-slate-200' : 'border-slate-300 bg-slate-100 hover:border-slate-400 hover:bg-slate-150'}`}>
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full bg-slate-300 flex-shrink-0" />
                           <span className="text-xs font-bold text-slate-400">
