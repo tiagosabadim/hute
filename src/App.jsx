@@ -1897,6 +1897,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   // ── Mini-calendar state ───────────────────────────────────
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [hoveredDay, setHoveredDay] = useState(null); // 'YYYY-MM-DD'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notas, setNotas] = useState(() => { try { return localStorage.getItem(`hute_notas_${colId}`) || ''; } catch { return ''; } });
+  useEffect(() => { try { localStorage.setItem(`hute_notas_${colId}`, notas); } catch {} }, [notas, colId]);
 
   // Occupancy per day: ratio of booked minutes / working minutes
   const occupancyMap = useMemo(() => {
@@ -1940,13 +1943,24 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   return (
     <div>
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="flex-shrink-0">
           <h2 className="text-xl font-black text-slate-900">Agenda</h2>
           <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
         </div>
+        {/* Search — desktop only */}
+        <div className="hidden lg:flex flex-1 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Buscar cliente..."
+            className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-500 shadow-sm"
+          />
+        </div>
         <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
-          className="p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+          className="flex-shrink-0 p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
           <Plus className="w-4 h-4" />
         </button>
       </div>
@@ -1982,7 +1996,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
         /* ── Week view (desktop lg+) + Mini-calendar sidebar ── */
         <div className="flex gap-4 items-start">
         {/* Agenda (70%) */}
-        <div className="w-[70%] min-w-0 overflow-y-auto max-h-[calc(100vh-6rem)]">
+        <div className="w-[70%] min-w-0 overflow-y-auto max-h-[calc(100vh-12rem)]">
           {/* Week navigation */}
           <div className="flex items-center justify-between mb-4 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
             <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 7); setSelectedDate(d); setActiveSlot(null); }}
@@ -2023,7 +2037,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             const weekSegs = weekDays.map(day => {
               const dayStr = day.toISOString().split('T')[0];
               const wdayAppts = appointments.filter(a =>
-                a.data === dayStr && (!selectedProfId || a.profissionalId === selectedProfId)
+                a.data === dayStr && (!selectedProfId || a.profissionalId === selectedProfId) &&
+                (!searchQuery || (a.clienteNome || '').toLowerCase().includes(searchQuery.toLowerCase()))
               );
               const wRaw = wdayAppts
                 .map(a => ({ tipo: 'appt', hora: a.hora, duracao: Number(a.duracaoTotal || a.duracao) || intervalo, appt: a }))
@@ -2131,97 +2146,176 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           })()}
         </div>{/* end agenda flex-1 */}
 
-        {/* Mini-calendar sidebar (30%) */}
+        {/* Right sidebar (30%) — fixed height, no scroll */}
         {(() => {
           const y = calMonth.getFullYear();
           const m = calMonth.getMonth();
-          const firstDay = new Date(y, m, 1).getDay(); // 0=Sun
+          const firstDay = new Date(y, m, 1).getDay();
           const daysInMonth = new Date(y, m + 1, 0).getDate();
-          // Monday-first grid: pad = (firstDay + 6) % 7
           const pad = (firstDay + 6) % 7;
           const cells = [];
           for (let i = 0; i < pad; i++) cells.push(null);
           for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-
           const monthLabel = calMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
+          // Daily motivational phrase — rotates each day
+          const FRASES = [
+            'Cada cliente atendido com cuidado é uma história de confiança construída.',
+            'Excelência não é um ato, é um hábito. Construa o seu hoje.',
+            'O sucesso do seu negócio começa no primeiro sorriso do dia.',
+            'Agenda cheia é resultado de um trabalho feito com carinho.',
+            'Cada atendimento é uma oportunidade de encantar.',
+            'Clientes satisfeitos são a melhor propaganda que existe.',
+            'Dedique-se ao que faz e os resultados virão naturalmente.',
+            'Um dia de cada vez — e cada dia bem feito.',
+            'Qualidade no atendimento gera fidelidade duradoura.',
+            'Seu talento transforma a rotina das pessoas. Valorize isso.',
+            'Comprometimento diário constrói reputações extraordinárias.',
+            'Pequenos gestos de atenção fazem grandes diferenças.',
+            'A consistência é o segredo dos melhores profissionais.',
+            'Quem cuida bem das pessoas nunca fica sem clientes.',
+            'Cada novo agendamento é um voto de confiança em você.',
+            'O melhor momento para crescer é agora.',
+            'Profissionalismo é a diferença entre bom e inesquecível.',
+            'Atendimento de qualidade é o seu maior diferencial.',
+            'Inspire seus clientes a voltarem sempre.',
+            'O segredo é simples: faça bem-feito, com alegria.',
+            'Pessoas que amam o que fazem raramente param de evoluir.',
+            'Cuide da sua agenda como cuida dos seus clientes — com atenção.',
+            'Cada dia é uma nova chance de superar as próprias expectativas.',
+            'Sua dedicação hoje é o seu portfólio de amanhã.',
+            'Resultados consistentes nascem de rotinas consistentes.',
+            'Seja o profissional que os clientes recomendam sem hesitar.',
+            'O cuidado com os detalhes é o que separa o comum do especial.',
+            'Sucesso não é sorte — é preparo encontrando oportunidade.',
+            'Agenda organizada, mente tranquila, negócio próspero.',
+            'Clientes felizes são o melhor indicador de sucesso.',
+          ];
+          const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+          const frase = FRASES[dayOfYear % FRASES.length];
+
+          // Monthly stats
+          const now = new Date();
+          const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+          const apptsMes = appointments.filter(a => (a.data || '').startsWith(mesAtual));
+          const totalMes = apptsMes.length;
+          const receitaMes = apptsMes.reduce((s, a) => s + (Number(a.valor) || 0), 0);
+          const canceladosMes = apptsMes.filter(a => a.cancelado).length;
+
           return (
-            <div className="w-[30%] flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sticky top-4 max-h-[calc(100vh-5rem)] overflow-y-auto">
-              {/* Month nav */}
-              <div className="flex items-center justify-between mb-4">
-                <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button onClick={() => { const n = new Date(); n.setDate(1); setCalMonth(n); }}
-                  className="text-sm font-black text-slate-700 capitalize hover:text-violet-600 transition-colors">
-                  {monthLabel}
-                </button>
-                <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n; })}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+            <div className="w-[30%] flex-shrink-0 sticky top-6 h-[calc(100vh-3rem)] overflow-hidden flex flex-col gap-3">
+
+              {/* Motivational phrase */}
+              <div className="flex-shrink-0 rounded-2xl p-4" style={{ background: 'linear-gradient(135deg, #6C3CE1 0%, #4F21A8 100%)' }}>
+                <div className="flex items-start gap-2.5">
+                  <Sparkles className="w-4 h-4 text-violet-300 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-white font-medium leading-snug">{frase}</p>
+                </div>
               </div>
 
-              {/* Weekday headers */}
-              <div className="grid grid-cols-7 mb-2">
-                {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map((d, i) => (
-                  <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>
-                ))}
-              </div>
-
-              {/* Day cells */}
-              <div className="grid grid-cols-7 gap-y-1">
-                {cells.map((day, ci) => {
-                  if (!day) return <div key={ci} />;
-                  const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                  const isToday = ds === todayISO;
-                  const isSel = ds === dateISO;
-                  const occ = occupancyMap[ds] || 0;
-                  const pct = Math.round(occ * 100);
-
-                  const dotColor = occ === 0 ? null : occ < 0.5 ? '#22c55e' : occ < 0.85 ? '#f59e0b' : '#ef4444';
-
-                  return (
-                    <div key={ci} className="relative flex flex-col items-center">
-                      <button
-                        onClick={() => setSelectedDate(new Date(y, m, day))}
-                        onMouseEnter={() => setHoveredDay(ds)}
-                        onMouseLeave={() => setHoveredDay(null)}
-                        className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold transition-all relative ${
-                          isSel ? 'bg-violet-600 text-white shadow-sm' :
-                          isToday ? 'bg-violet-100 text-violet-700' :
-                          'text-slate-700 hover:bg-slate-100'
-                        }`}>
-                        {day}
-                        {dotColor && !isSel && (
-                          <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dotColor }} />
-                        )}
-                      </button>
-
-                      {/* Tooltip */}
-                      {hoveredDay === ds && pct > 0 && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
-                          <div className="bg-slate-900 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-xl">
-                            {pct}% agendado
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+              {/* Mini calendar */}
+              <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+                {/* Month nav */}
+                <div className="flex items-center justify-between mb-3">
+                  <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
+                    className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => { const n = new Date(); n.setDate(1); setCalMonth(n); }}
+                    className="text-sm font-black text-slate-700 capitalize hover:text-violet-600 transition-colors">
+                    {monthLabel}
+                  </button>
+                  <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n; })}
+                    className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+                {/* Weekday headers */}
+                <div className="grid grid-cols-7 mb-1">
+                  {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map((d, i) => (
+                    <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-0.5">{d}</div>
+                  ))}
+                </div>
+                {/* Day cells */}
+                <div className="grid grid-cols-7 gap-y-0.5">
+                  {cells.map((day, ci) => {
+                    if (!day) return <div key={ci} />;
+                    const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const isToday = ds === todayISO;
+                    const isSel = ds === dateISO;
+                    const occ = occupancyMap[ds] || 0;
+                    const pct = Math.round(occ * 100);
+                    const dotColor = occ === 0 ? null : occ < 0.5 ? '#22c55e' : occ < 0.85 ? '#f59e0b' : '#ef4444';
+                    return (
+                      <div key={ci} className="relative flex flex-col items-center">
+                        <button
+                          onClick={() => setSelectedDate(new Date(y, m, day))}
+                          onMouseEnter={() => setHoveredDay(ds)}
+                          onMouseLeave={() => setHoveredDay(null)}
+                          className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold transition-all relative ${
+                            isSel ? 'bg-violet-600 text-white shadow-sm' :
+                            isToday ? 'bg-violet-100 text-violet-700' :
+                            'text-slate-700 hover:bg-slate-100'
+                          }`}>
+                          {day}
+                          {dotColor && !isSel && (
+                            <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ backgroundColor: dotColor }} />
+                          )}
+                        </button>
+                        {hoveredDay === ds && pct > 0 && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 pointer-events-none">
+                            <div className="bg-slate-900 text-white text-[11px] font-bold px-2 py-1 rounded-lg whitespace-nowrap shadow-xl">
+                              {pct}% agendado
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Legend */}
+                <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-center gap-3">
+                  {[['#22c55e','< 50%'],['#f59e0b','50–85%'],['#ef4444','> 85%']].map(([c, l]) => (
+                    <div key={l} className="flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+                      <span className="text-[10px] text-slate-500 font-medium">{l}</span>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
 
-              {/* Legend */}
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-center gap-4">
-                {[['#22c55e','< 50%'],['#f59e0b','50–85%'],['#ef4444','> 85%']].map(([c, l]) => (
-                  <div key={l} className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
-                    <span className="text-[10px] text-slate-500 font-medium">{l}</span>
+              {/* Atendimentos do mês */}
+              <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+                <h4 className="font-black text-slate-700 text-sm mb-3">Mês em resumo</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-violet-50 rounded-xl p-3 text-center">
+                    <p className="text-2xl font-black text-violet-700 leading-none">{totalMes}</p>
+                    <p className="text-[10px] text-violet-500 font-semibold mt-1">atendimentos</p>
                   </div>
-                ))}
+                  <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                    <p className="text-lg font-black text-emerald-700 leading-none">
+                      {receitaMes > 0 ? `R$${receitaMes.toFixed(0)}` : '–'}
+                    </p>
+                    <p className="text-[10px] text-emerald-500 font-semibold mt-1">faturamento</p>
+                  </div>
+                </div>
+                {canceladosMes > 0 && (
+                  <p className="text-[10px] text-slate-400 mt-2 text-center">{canceladosMes} cancelado{canceladosMes > 1 ? 's' : ''} este mês</p>
+                )}
               </div>
+
+              {/* Anotações — fills remaining space */}
+              <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col min-h-0">
+                <h4 className="font-black text-slate-700 text-sm mb-2 flex-shrink-0">Anotações</h4>
+                <textarea
+                  value={notas}
+                  onChange={e => setNotas(e.target.value)}
+                  placeholder="Escreva notas, lembretes do dia..."
+                  className="flex-1 resize-none text-sm text-slate-700 outline-none placeholder-slate-300 leading-relaxed w-full"
+                />
+              </div>
+
             </div>
           );
         })()}
