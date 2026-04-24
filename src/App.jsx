@@ -2328,8 +2328,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           const prof = profissionals.find(p => p.id === a.profissionalId);
                           const cor = selectedProf?.cor || prof?.cor || '#7c3aed';
                           const h = Math.max(28, rawH);
+                          const isApptPast = isDayPast || (nowMin >= 0 && seg.end <= nowMin);
                           return (
-                            <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h, zIndex: 5 }}>
+                            <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h, zIndex: 5, filter: isApptPast ? 'grayscale(1)' : undefined, opacity: isApptPast ? 0.6 : 1 }}>
                               <div
                                 className="h-full rounded cursor-pointer hover:brightness-95 transition-all overflow-hidden"
                                 style={{ backgroundColor: cor + '25', borderLeft: `3px solid ${cor}` }}
@@ -2694,8 +2695,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
                 // ── Grupo (modo Todos) ────────────────────
                 if (seg.tipo === 'group') {
+                  const isGroupPast = dateISO < todayISO || (nowMin >= 0 && seg.end <= nowMin);
                   return (
-                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 2 }}>
+                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 2, filter: isGroupPast ? 'grayscale(1)' : undefined, opacity: isGroupPast ? 0.6 : 1 }}>
                       <div className="h-full flex flex-col gap-0.5">
                         {seg.appts.map((a, ai) => {
                           const prof = profissionals.find(p => p.id === a.profissionalId);
@@ -2732,8 +2734,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   const apptProf = profissionals.find(p => p.id === a.profissionalId);
                   const cor = selectedProf?.cor || apptProf?.cor || '#7c3aed';
                   const totalVal = (Number(a.valor||0) + (a.extras||[]).reduce((s,e)=>s+Number(e.precoDesconto||e.preco||0),0));
+                  const isApptPast = dateISO < todayISO || (nowMin >= 0 && seg.end <= nowMin);
                   return (
-                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 2 }}>
+                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 2, filter: isApptPast ? 'grayscale(1)' : undefined, opacity: isApptPast ? 0.6 : 1 }}>
                       <div className="h-full rounded-xl shadow-sm cursor-pointer hover:shadow-md transition-shadow overflow-hidden flex"
                         style={{ borderLeft: `4px solid ${cor}`, backgroundColor: cor + '12' }}
                         onClick={() => setDetailAppt(a)}>
