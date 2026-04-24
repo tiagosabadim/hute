@@ -1982,7 +1982,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
         /* ── Week view (desktop lg+) + Mini-calendar sidebar ── */
         <div className="flex gap-4 items-start">
         {/* Agenda (70%) */}
-        <div className="flex-1 min-w-0">
+        <div className="w-[70%] min-w-0">
           {/* Week navigation */}
           <div className="flex items-center justify-between mb-4 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
             <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 7); setSelectedDate(d); setActiveSlot(null); }}
@@ -2019,104 +2019,112 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             const ticks = [];
             for (let t = dayStart; t <= dayEnd; t += intervalo) ticks.push(t);
 
+            // Pre-compute day segments
+            const weekSegs = weekDays.map(day => {
+              const dayStr = day.toISOString().split('T')[0];
+              const wdayAppts = appointments.filter(a =>
+                a.data === dayStr && (!selectedProfId || a.profissionalId === selectedProfId)
+              );
+              const wRaw = wdayAppts
+                .map(a => ({ tipo: 'appt', hora: a.hora, duracao: Number(a.duracaoTotal || a.duracao) || intervalo, appt: a }))
+                .sort((a, b) => a.hora.localeCompare(b.hora));
+              const segs = [];
+              let wCur = dayStart;
+              for (const ev of wRaw) {
+                const evStart = toMin(ev.hora);
+                const evEnd = evStart + ev.duracao;
+                if (evStart <= wCur) { wCur = Math.max(wCur, evEnd); continue; }
+                if (evStart > wCur) segs.push({ tipo: 'free', start: wCur, end: Math.min(evStart, dayEnd) });
+                if (evStart < dayEnd) { segs.push({ ...ev, start: evStart, end: Math.min(evEnd, dayEnd) }); wCur = evEnd; }
+              }
+              if (wCur < dayEnd) segs.push({ tipo: 'free', start: wCur, end: dayEnd });
+              return { day, dayStr, segs };
+            });
+
             return (
-              <div className="flex gap-0">
-                {/* Time ruler */}
-                <div className="w-10 flex-shrink-0 relative" style={{ height: containerH }}>
-                  {ticks.map(t => (
-                    <div key={t} className="absolute right-0 flex items-center" style={{ top: (t - dayStart) * PX }}>
-                      <span className="text-[9px] font-bold text-slate-400 pr-1 leading-none">{toStr(t)}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Day columns */}
-                <div className="flex-1 grid grid-cols-7 gap-1">
-                  {weekDays.map(day => {
-                    const dayStr = day.toISOString().split('T')[0];
-                    const isToday = dayStr === todayISO;
-                    const isSelected = dayStr === selectedDate.toISOString().split('T')[0];
-
-                    // Appointments for this day
-                    const wdayAppts = appointments.filter(a =>
-                      a.data === dayStr && (!selectedProfId || a.profissionalId === selectedProfId)
-                    );
-
-                    // Build segments: free gaps + appts
-                    const wRaw = wdayAppts
-                      .map(a => ({ tipo: 'appt', hora: a.hora, duracao: Number(a.duracaoTotal || a.duracao) || intervalo, appt: a }))
-                      .sort((a, b) => a.hora.localeCompare(b.hora));
-                    const wSegs = [];
-                    let wCur = dayStart;
-                    for (const ev of wRaw) {
-                      const evStart = toMin(ev.hora);
-                      const evEnd = evStart + ev.duracao;
-                      if (evStart <= wCur) { wCur = Math.max(wCur, evEnd); continue; }
-                      if (evStart > wCur) wSegs.push({ tipo: 'free', start: wCur, end: Math.min(evStart, dayEnd) });
-                      if (evStart < dayEnd) { wSegs.push({ ...ev, start: evStart, end: Math.min(evEnd, dayEnd) }); wCur = evEnd; }
-                    }
-                    if (wCur < dayEnd) wSegs.push({ tipo: 'free', start: wCur, end: dayEnd });
-
-                    return (
-                      <div key={dayStr} className="flex flex-col">
-                        {/* Day header */}
-                        <div
-                          className={`text-center py-1.5 rounded-xl mb-1 cursor-pointer transition-colors flex-shrink-0 ${isToday ? 'bg-violet-600 text-white' : isSelected ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              <div>
+                {/* Row 1: ruler placeholder + day headers — fixed, no scroll offset */}
+                <div className="flex gap-0 mb-1">
+                  <div className="w-10 flex-shrink-0" />
+                  <div className="flex-1 grid grid-cols-7 gap-1">
+                    {weekDays.map(day => {
+                      const dayStr = day.toISOString().split('T')[0];
+                      const isToday = dayStr === todayISO;
+                      const isSelected = dayStr === selectedDate.toISOString().split('T')[0];
+                      return (
+                        <div key={dayStr}
+                          className={`text-center py-1.5 rounded-xl cursor-pointer transition-colors ${isToday ? 'bg-violet-600 text-white' : isSelected ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                           onClick={() => setSelectedDate(day)}>
                           <div className="text-[9px] font-bold uppercase tracking-wider leading-tight">
                             {day.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}
                           </div>
                           <div className="text-base font-black leading-tight">{day.getDate()}</div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                        {/* Timeline column */}
-                        <div className="relative flex-1 border-l border-slate-100" style={{ height: containerH }}>
-                          {/* Tick lines */}
-                          {ticks.map(t => (
-                            <div key={t} className="absolute left-0 right-0 border-t border-slate-100 pointer-events-none" style={{ top: (t - dayStart) * PX }} />
-                          ))}
+                {/* Row 2: time ruler + day timeline columns — ruler aligns with columns */}
+                <div className="flex gap-0">
+                  {/* Time ruler */}
+                  <div className="w-10 flex-shrink-0 relative" style={{ height: containerH }}>
+                    {ticks.map(t => (
+                      <div key={t} className="absolute right-0 flex items-center" style={{ top: (t - dayStart) * PX - 6 }}>
+                        <span className="text-[9px] font-bold text-slate-400 pr-1 leading-none">{toStr(t)}</span>
+                      </div>
+                    ))}
+                  </div>
 
-                          {/* Segments */}
-                          {wSegs.map((seg, si) => {
-                            const top = (seg.start - dayStart) * PX;
-                            const rawH = (seg.end - seg.start) * PX;
-                            const h = Math.max(seg.tipo === 'free' ? 12 : 28, rawH);
+                  {/* Day columns */}
+                  <div className="flex-1 grid grid-cols-7 gap-1">
+                    {weekSegs.map(({ day, dayStr, segs: wSegs }) => (
+                      <div key={dayStr} className="relative border-l border-slate-100" style={{ height: containerH }}>
+                        {/* Tick lines */}
+                        {ticks.map(t => (
+                          <div key={t} className="absolute left-0 right-0 border-t border-slate-100 pointer-events-none" style={{ top: (t - dayStart) * PX }} />
+                        ))}
 
-                            if (seg.tipo === 'free') {
-                              const isPast = nowMin >= 0 && seg.end <= nowMin;
-                              return (
-                                <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h }}>
-                                  <button
-                                    onClick={() => { setSelectedDate(day); setPreHora(toStr(seg.start)); setShowNewAppt(true); }}
-                                    className={`w-full h-full rounded border border-dashed transition-all ${isPast ? 'border-slate-100 opacity-30 cursor-default' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
-                                    disabled={isPast}
-                                  />
-                                </div>
-                              );
-                            }
+                        {/* Segments */}
+                        {wSegs.map((seg, si) => {
+                          const top = (seg.start - dayStart) * PX;
+                          const rawH = (seg.end - seg.start) * PX;
 
-                            const a = seg.appt;
-                            const prof = profissionals.find(p => p.id === a.profissionalId);
-                            const cor = selectedProf?.cor || prof?.cor || '#7c3aed';
+                          if (seg.tipo === 'free') {
+                            const isPast = nowMin >= 0 && seg.end <= nowMin;
                             return (
-                              <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: Math.max(28, rawH), zIndex: 2 }}>
-                                <div
-                                  className="h-full rounded cursor-pointer hover:brightness-95 transition-all overflow-hidden"
-                                  style={{ backgroundColor: cor + '25', borderLeft: `3px solid ${cor}` }}
-                                  onClick={() => setDetailAppt(a)}>
-                                  <div className="px-1 py-0.5">
-                                    <p className="text-[9px] font-black leading-tight truncate" style={{ color: cor }}>{a.hora}</p>
-                                    <p className="text-[9px] font-bold text-slate-800 leading-tight truncate">{a.clienteNome}</p>
-                                    {rawH > 40 && <p className="text-[8px] text-slate-500 leading-tight truncate">{a.servico}</p>}
-                                  </div>
-                                </div>
+                              <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: Math.max(12, rawH) }}>
+                                <button
+                                  onClick={() => { setSelectedDate(day); setPreHora(toStr(seg.start)); setShowNewAppt(true); }}
+                                  className={`w-full h-full rounded border border-dashed transition-all ${isPast ? 'border-slate-100 opacity-30 cursor-default' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
+                                  disabled={isPast}
+                                />
                               </div>
                             );
-                          })}
-                        </div>
+                          }
+
+                          const a = seg.appt;
+                          const prof = profissionals.find(p => p.id === a.profissionalId);
+                          const cor = selectedProf?.cor || prof?.cor || '#7c3aed';
+                          const h = Math.max(28, rawH);
+                          return (
+                            <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h, zIndex: 2 }}>
+                              <div
+                                className="h-full rounded cursor-pointer hover:brightness-95 transition-all overflow-hidden"
+                                style={{ backgroundColor: cor + '25', borderLeft: `3px solid ${cor}` }}
+                                onClick={() => setDetailAppt(a)}>
+                                <div className="px-1 py-0.5">
+                                  <p className="text-[9px] font-black leading-tight truncate" style={{ color: cor }}>{a.hora}</p>
+                                  <p className="text-[9px] font-bold text-slate-800 leading-tight truncate">{a.clienteNome}</p>
+                                  {rawH > 40 && <p className="text-[8px] text-slate-500 leading-tight truncate">{a.servico}</p>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
               </div>
             );
@@ -2138,32 +2146,32 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           const monthLabel = calMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
           return (
-            <div className="w-[220px] flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-3 sticky top-4">
+            <div className="w-[30%] flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sticky top-4">
               {/* Month nav */}
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-4">
                 <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
-                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button onClick={() => { const n = new Date(); n.setDate(1); setCalMonth(n); }}
-                  className="text-[11px] font-black text-slate-700 capitalize hover:text-violet-600 transition-colors">
+                  className="text-sm font-black text-slate-700 capitalize hover:text-violet-600 transition-colors">
                   {monthLabel}
                 </button>
                 <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n; })}
-                  className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Weekday headers */}
-              <div className="grid grid-cols-7 mb-1">
-                {['S','T','Q','Q','S','S','D'].map((d, i) => (
-                  <div key={i} className="text-center text-[9px] font-bold text-slate-400 py-0.5">{d}</div>
+              <div className="grid grid-cols-7 mb-2">
+                {['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].map((d, i) => (
+                  <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>
                 ))}
               </div>
 
               {/* Day cells */}
-              <div className="grid grid-cols-7 gap-y-0.5">
+              <div className="grid grid-cols-7 gap-y-1">
                 {cells.map((day, ci) => {
                   if (!day) return <div key={ci} />;
                   const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -2172,37 +2180,29 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   const occ = occupancyMap[ds] || 0;
                   const pct = Math.round(occ * 100);
 
-                  // Occupancy color: green→amber→red
                   const dotColor = occ === 0 ? null : occ < 0.5 ? '#22c55e' : occ < 0.85 ? '#f59e0b' : '#ef4444';
 
                   return (
                     <div key={ci} className="relative flex flex-col items-center">
                       <button
-                        onClick={() => {
-                          const d = new Date(y, m, day);
-                          setSelectedDate(d);
-                          // Set week to contain this day
-                          const diff = d.getDay() === 0 ? -6 : 1 - d.getDay();
-                          const weekMon = new Date(d); weekMon.setDate(d.getDate() + diff);
-                          setSelectedDate(d);
-                        }}
+                        onClick={() => setSelectedDate(new Date(y, m, day))}
                         onMouseEnter={() => setHoveredDay(ds)}
                         onMouseLeave={() => setHoveredDay(null)}
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all relative ${
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold transition-all relative ${
                           isSel ? 'bg-violet-600 text-white shadow-sm' :
                           isToday ? 'bg-violet-100 text-violet-700' :
                           'text-slate-700 hover:bg-slate-100'
                         }`}>
                         {day}
                         {dotColor && !isSel && (
-                          <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ backgroundColor: dotColor }} />
+                          <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dotColor }} />
                         )}
                       </button>
 
                       {/* Tooltip */}
                       {hoveredDay === ds && pct > 0 && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 pointer-events-none">
-                          <div className="bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap shadow-xl">
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                          <div className="bg-slate-900 text-white text-[11px] font-bold px-2.5 py-1.5 rounded-lg whitespace-nowrap shadow-xl">
                             {pct}% agendado
                             <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
                           </div>
@@ -2214,11 +2214,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
               </div>
 
               {/* Legend */}
-              <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-center gap-3">
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-center gap-4">
                 {[['#22c55e','< 50%'],['#f59e0b','50–85%'],['#ef4444','> 85%']].map(([c, l]) => (
-                  <div key={l} className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
-                    <span className="text-[9px] text-slate-400">{l}</span>
+                  <div key={l} className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
+                    <span className="text-[10px] text-slate-500 font-medium">{l}</span>
                   </div>
                 ))}
               </div>
