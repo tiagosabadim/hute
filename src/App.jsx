@@ -2168,6 +2168,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 (!b.profissionalId || b.profissionalId === selectedProfId)
               ) || null;
               const isDayOff = !!dayOffBlock || wEstabFechado;
+              const isDayPast = dayStr < todayISO;
 
               // Does selected professional work this day?
               const profNotWorking = !!(selectedProf?.diasTrabalho?.length > 0 &&
@@ -2196,7 +2197,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 if (evStart < dayEnd) { segs.push({ ...ev, start: evStart, end: Math.min(evEnd, dayEnd) }); wCur = evEnd; }
               }
               if (wCur < dayEnd) segs.push({ tipo: 'free', start: wCur, end: dayEnd });
-              return { day, dayStr, segs, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado };
+              return { day, dayStr, segs, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado, isDayPast };
             });
 
             return (
@@ -2205,7 +2206,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 <div className="flex gap-0 mb-1">
                   <div className="w-10 flex-shrink-0" />
                   <div className="flex-1 grid grid-cols-7 gap-1">
-                    {weekSegs.map(({ day, dayStr, isDayOff, profNotWorking }) => {
+                    {weekSegs.map(({ day, dayStr, isDayOff, profNotWorking, isDayPast }) => {
                       const isToday = dayStr === todayISO;
                       const isSelected = dayStr === selectedDate.toISOString().split('T')[0];
                       const isOff = isDayOff || profNotWorking;
@@ -2215,6 +2216,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             isToday ? 'bg-violet-600 text-white' :
                             isSelected ? 'bg-violet-100 text-violet-700' :
                             isOff ? 'bg-red-100 text-red-500' :
+                            isDayPast ? 'bg-slate-50 text-slate-400' :
                             'bg-slate-100 text-slate-600 hover:bg-slate-200'
                           }`}
                           onClick={() => setSelectedDate(day)}>
@@ -2241,7 +2243,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
                   {/* Day columns */}
                   <div className="flex-1 grid grid-cols-7 gap-1">
-                    {weekSegs.map(({ day, dayStr, segs: wSegs, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado }) => (
+                    {weekSegs.map(({ day, dayStr, segs: wSegs, isDayOff, dayOffBlock, profNotWorking, wPausa, wEstabFechado, isDayPast }) => (
                       <div key={dayStr} className="relative border-l border-slate-100" style={{ height: containerH }}>
                         {/* Tick lines */}
                         {ticks.map(t => (
@@ -2259,6 +2261,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             </div>
                           ) : null;
                         })()}
+
+                        {/* Past day overlay — dims column, appointments still clickable */}
+                        {isDayPast && !isDayOff && !profNotWorking && (
+                          <div className="absolute inset-0 bg-slate-100/60 pointer-events-none" style={{ zIndex: 3 }} />
+                        )}
 
                         {/* Closed / day-off overlay — blocks free slots, shows label + deblock */}
                         {(isDayOff || profNotWorking) && (
@@ -2285,8 +2292,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           const rawH = (seg.end - seg.start) * PX;
 
                           if (seg.tipo === 'free') {
-                            // Don't render free slots during pause or on closed days
-                            if (isDayOff || profNotWorking) return null;
+                            // Don't render free slots on closed, off, or past days
+                            if (isDayOff || profNotWorking || isDayPast) return null;
                             if (wPausa && seg.start >= wPausa.inicio && seg.start < wPausa.fim) return null;
                             const isPast = nowMin >= 0 && seg.end <= nowMin;
                             return (
