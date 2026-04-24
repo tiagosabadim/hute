@@ -1982,7 +1982,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
         /* ── Week view (desktop lg+) + Mini-calendar sidebar ── */
         <div className="flex gap-4 items-start">
         {/* Agenda (70%) */}
-        <div className="w-[70%] min-w-0">
+        <div className="w-[70%] min-w-0 overflow-y-auto max-h-[calc(100vh-6rem)]">
           {/* Week navigation */}
           <div className="flex items-center justify-between mb-4 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
             <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 7); setSelectedDate(d); setActiveSlot(null); }}
@@ -2114,9 +2114,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                                 style={{ backgroundColor: cor + '25', borderLeft: `3px solid ${cor}` }}
                                 onClick={() => setDetailAppt(a)}>
                                 <div className="px-1 py-0.5">
-                                  <p className="text-[9px] font-black leading-tight truncate" style={{ color: cor }}>{a.hora}</p>
-                                  <p className="text-[9px] font-bold text-slate-800 leading-tight truncate">{a.clienteNome}</p>
-                                  {rawH > 40 && <p className="text-[8px] text-slate-500 leading-tight truncate">{a.servico}</p>}
+                                  <p className="text-[11px] font-black leading-tight truncate" style={{ color: cor }}>{a.hora}</p>
+                                  <p className="text-[11px] font-bold text-slate-800 leading-tight truncate">{a.clienteNome}</p>
+                                  {rawH > 40 && <p className="text-[10px] text-slate-500 leading-tight truncate">{a.servico}</p>}
                                 </div>
                               </div>
                             </div>
@@ -2146,7 +2146,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           const monthLabel = calMonth.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
           return (
-            <div className="w-[30%] flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sticky top-4">
+            <div className="w-[30%] flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 sticky top-4 max-h-[calc(100vh-5rem)] overflow-y-auto">
               {/* Month nav */}
               <div className="flex items-center justify-between mb-4">
                 <button onClick={() => setCalMonth(d => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
@@ -3398,6 +3398,7 @@ function ClientDetail({ user, lojaId, clientData, onBack }) {
   const [nascimento, setNascimento] = useState(clientData.nascimento || '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [selectedVisit, setSelectedVisit] = useState(null);
 
   const handleSave = async () => {
     setSaving(true);
@@ -3477,19 +3478,99 @@ function ClientDetail({ user, lojaId, clientData, onBack }) {
       {recentVisitas.length > 0 && (
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
           <h3 className="font-bold text-slate-900 mb-4 text-sm">Últimas visitas</h3>
-          <div className="space-y-3">
-            {recentVisitas.map((v, i) => (
-              <div key={i} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">{v.servico || 'Marcação'}</p>
-                  {v.profissionalNome && <p className="text-xs text-violet-500">com {v.profissionalNome}</p>}
+          <div className="space-y-1">
+            {recentVisitas.map((v, i) => {
+              const isOpen = selectedVisit === i;
+              const extraSvcs = (v.extras || []).filter(e => e.tipo === 'servico');
+              const totalValor = (Number(v.valor) || 0) + extraSvcs.reduce((s, e) => s + (Number(e.preco) || 0), 0);
+              const descontoAmt = totalValor * ((Number(v.desconto) || 0) / 100);
+              return (
+                <div key={i} className="border-b border-slate-50 last:border-0">
+                  <button
+                    onClick={() => setSelectedVisit(isOpen ? null : i)}
+                    className="w-full flex items-center justify-between py-2.5 text-left hover:bg-slate-50 rounded-xl px-2 transition-colors">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{v.servico || 'Marcação'}</p>
+                      {v.profissionalNome && <p className="text-xs text-violet-500">com {v.profissionalNome}</p>}
+                    </div>
+                    <div className="text-right flex items-center gap-2">
+                      <div>
+                        <p className="text-xs text-slate-500">{fmtData(v.data)} · {v.hora}</p>
+                        {v.valor && <p className="text-xs font-bold text-emerald-600">R$ {Number(v.valor).toFixed(2)}</p>}
+                      </div>
+                      <ChevronRight className={`w-4 h-4 text-slate-300 flex-shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div className="mx-2 mb-3 p-4 bg-slate-50 rounded-2xl space-y-3">
+                      {/* Extra services */}
+                      {extraSvcs.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Serviços</p>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-slate-700">
+                              <span>{v.servico}</span>
+                              {v.valor > 0 && <span className="font-semibold">R$ {Number(v.valor).toFixed(2)}</span>}
+                            </div>
+                            {extraSvcs.map((e, ei) => (
+                              <div key={ei} className="flex justify-between text-xs text-slate-700">
+                                <span>{e.nome}</span>
+                                {e.preco > 0 && <span className="font-semibold">R$ {Number(e.preco).toFixed(2)}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Totals */}
+                      {(totalValor > 0 || v.desconto) && (
+                        <div className="bg-white rounded-xl p-2.5 space-y-1">
+                          {totalValor > 0 && <div className="flex justify-between text-xs"><span className="text-slate-500">Subtotal</span><span className="font-bold">R$ {totalValor.toFixed(2)}</span></div>}
+                          {descontoAmt > 0 && <div className="flex justify-between text-xs"><span className="text-slate-500">Desconto ({v.desconto}%)</span><span className="font-bold text-red-500">-R$ {descontoAmt.toFixed(2)}</span></div>}
+                          {descontoAmt > 0 && totalValor > 0 && <div className="flex justify-between text-xs border-t border-slate-100 pt-1"><span className="font-bold text-slate-700">Total</span><span className="font-black text-emerald-700">R$ {(totalValor - descontoAmt).toFixed(2)}</span></div>}
+                        </div>
+                      )}
+                      {/* Payment + Discount */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        {v.pagamento && (
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Pagamento</p>
+                            <p className="font-semibold text-slate-700 capitalize">{v.pagamento}</p>
+                          </div>
+                        )}
+                        {v.desconto != null && v.desconto !== '' && (
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Desconto</p>
+                            <p className="font-semibold text-slate-700">{v.desconto}%</p>
+                          </div>
+                        )}
+                      </div>
+                      {/* Observation */}
+                      {v.observacao && (
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Observação</p>
+                          <p className="text-xs text-slate-700 whitespace-pre-wrap">{v.observacao}</p>
+                        </div>
+                      )}
+                      {/* History */}
+                      {(v.historico || []).length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Histórico</p>
+                          <div className="space-y-1">
+                            {[...v.historico].reverse().map((h, hi) => (
+                              <div key={hi} className="flex items-center gap-2 text-[10px] text-slate-500">
+                                <div className="w-1.5 h-1.5 rounded-full bg-slate-300 flex-shrink-0" />
+                                <span className="flex-1">{h.acao}</span>
+                                <span className="text-slate-300">{new Date(h.at).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-500">{fmtData(v.data)} · {v.hora}</p>
-                  {v.valor && <p className="text-xs font-bold text-emerald-600">R$ {Number(v.valor).toFixed(2)}</p>}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
