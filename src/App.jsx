@@ -7513,16 +7513,6 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Hora</span>
                 <span className="text-sm font-bold text-violet-900">{selectedHora}</span>
               </div>
-              {(() => {
-                const total = selectedServices.reduce((s, sv) => s + (Number(sv.preco) || 0), 0);
-                const dur = selectedServices.reduce((s, sv) => s + (Number(sv.duracao) || 0), 0);
-                return (total > 0 || dur > 0) ? (
-                  <div className="flex justify-between items-center pt-1 border-t border-violet-100">
-                    {dur > 0 && <span className="text-xs text-violet-500">{fmtDuracao(dur)}</span>}
-                    {total > 0 && <span className="text-base font-black text-violet-900">R$ {total.toFixed(2)}</span>}
-                  </div>
-                ) : null;
-              })()}
               {selectedExtras.length > 0 && <div className="pt-1 border-t border-violet-100 space-y-1">
                 <span className="text-xs text-violet-500 font-semibold uppercase tracking-wider">Extras</span>
                 {selectedExtras.map((e, i) => (
@@ -7532,6 +7522,23 @@ function ClientPortal({ lojaUid, profile, deepLinkApptId, deepLinkToken }) {
                   </div>
                 ))}
               </div>}
+              {(() => {
+                const totalServicos = selectedServices.reduce((s, sv) => s + (Number(sv.preco) || 0), 0);
+                const totalExtras = selectedExtras.reduce((s, e) => s + (Number(e.preco) || 0), 0);
+                const total = totalServicos + totalExtras;
+                const dur = selectedServices.reduce((s, sv) => s + (Number(sv.duracao) || 0), 0);
+                return (total > 0 || dur > 0) ? (
+                  <div className="flex justify-between items-center pt-2 border-t border-violet-200 mt-1">
+                    {dur > 0 && <span className="text-xs text-violet-500">{fmtDuracao(dur)}</span>}
+                    {total > 0 && (
+                      <div className="flex items-baseline gap-1 ml-auto">
+                        <span className="text-xs font-semibold text-violet-500 uppercase tracking-wider">Total</span>
+                        <span className="text-lg font-black text-violet-900">R$ {total.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : null;
+              })()}
             </div>
             {/* Client info — logged in shows account, remarcar shows editable fields */}
             {clientUser && !isRemarcar ? (
