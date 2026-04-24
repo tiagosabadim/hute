@@ -2305,8 +2305,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
                         {/* Segments */}
                         {wSegs.map((seg, si) => {
-                          const top = (seg.start - dayStart) * PX;
-                          const rawH = (seg.end - seg.start) * PX;
+                          const top = (seg.start - dayStart) * PX + 1;
+                          const rawH = (seg.end - seg.start) * PX - 2;
 
                           if (seg.tipo === 'free') {
                             // Don't render free slots on closed or off days
@@ -2592,8 +2592,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
             {/* Segments */}
             <div className="absolute left-12 right-0 top-0">
               {segs.map((seg, i) => {
-                const top    = (seg.start - dayStart) * PX;
-                const rawH   = (seg.end - seg.start) * PX;
+                const top    = (seg.start - dayStart) * PX + 1;
+                const rawH   = (seg.end - seg.start) * PX - 2;
                 const segDur = seg.end - seg.start;
 
                 // ── Livre / Passado ───────────────────────
