@@ -1974,14 +1974,14 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
       {!isDesktop && (
         <div className="mb-4">
           <div className="flex items-center gap-3 mb-4">
-            <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
-              className="flex-shrink-0 p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
-              <Plus className="w-4 h-4" />
-            </button>
             <div className="flex-1">
               <h2 className="text-xl font-black text-slate-900">Agenda</h2>
               <div className="flex items-center gap-2 mt-0.5">{syncBadge}</div>
             </div>
+            <button onClick={() => { setPreHora(''); setShowNewAppt(true); }} title="Nova marcação"
+              className="flex-shrink-0 p-2.5 bg-violet-600 rounded-xl text-white hover:bg-violet-700 transition-colors">
+              <Plus className="w-4 h-4" />
+            </button>
           </div>
           {profTogglesJSX}
         </div>
