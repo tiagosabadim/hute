@@ -781,13 +781,39 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'JSON inválido' }) }; }
 
-  const { message = '', origemAviso = null } = body;
+  const { message = '', origemAviso = null, messageType = '' } = body;
   let { phone = '', connectedPhone = '' } = body;
 
   phone = phone.replace(/\D/g, '');
   if (phone && !phone.startsWith('55')) phone = `55${phone}`;
   const connectedNormalized = connectedPhone.replace(/\D/g, '');
   const msg = message.trim();
+
+  // ── Non-text media — respond gracefully without resetting session ──
+  const isAudio = messageType === 'audioMessage' || messageType === 'pttMessage';
+  const isImage = messageType === 'imageMessage';
+  const isDocument = messageType === 'documentMessage';
+  const isSticker = messageType === 'stickerMessage';
+  const isUnknownMedia = !msg && messageType && messageType !== 'conversation' && messageType !== 'extendedTextMessage';
+
+  if (isAudio || isImage || isDocument || isSticker || isUnknownMedia) {
+    const mediaReplies = {
+      audio: 'Oi! 😊 No momento não consigo ouvir áudios. Pode me escrever o que precisa? Estou aqui!',
+      image: 'Não consigo ver imagens por aqui, mas pode me descrever o que precisa! 😊',
+      document: 'Não consigo abrir arquivos, mas pode me escrever o que você precisa! 😊',
+    };
+    const replyText = isAudio ? mediaReplies.audio : isImage ? mediaReplies.image : isDocument ? mediaReplies.document : null;
+    if (!replyText) {
+      // sticker or unknown — ignore silently (return 200 with empty body)
+      return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: null }) };
+    }
+    return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: replyText }) };
+  }
+
+  // Also guard against truly empty messages with no type (safety net)
+  if (!msg) {
+    return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: null }) };
+  }
 
   try {
     const db = getDb();
