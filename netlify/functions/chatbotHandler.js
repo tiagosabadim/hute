@@ -1,3 +1,4 @@
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { initializeApp, getApps } = require('firebase/app');
 const {
   getFirestore, doc, getDoc, setDoc, deleteDoc,
@@ -13,6 +14,20 @@ const firebaseConfig = {
 function getDb() {
   if (!getApps().length) initializeApp(firebaseConfig);
   return getFirestore();
+}
+
+async function transcreverAudio(audioUrl) {
+  const response = await fetch(audioUrl);
+  if (!response.ok) throw new Error(`Falha ao baixar áudio: ${response.status}`);
+  const audioBuffer = await response.arrayBuffer();
+  const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const result = await model.generateContent([
+    { inlineData: { mimeType: 'audio/ogg', data: audioBase64 } },
+    { text: 'Transcreva exatamente o que foi dito neste áudio em português. Retorne apenas o texto transcrito, sem comentários.' },
+  ]);
+  return result.response.text().trim();
 }
 
 const APP_ID = 'hutex-saas';
@@ -781,38 +796,50 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body); }
   catch { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'JSON inválido' }) }; }
 
-  const { message = '', origemAviso = null, messageType = '' } = body;
+  const { message = '', origemAviso = null, messageType = '', audioUrl = '' } = body;
   let { phone = '', connectedPhone = '' } = body;
 
   phone = phone.replace(/\D/g, '');
   if (phone && !phone.startsWith('55')) phone = `55${phone}`;
   const connectedNormalized = connectedPhone.replace(/\D/g, '');
-  const msg = message.trim();
 
-  // ── Non-text media — respond gracefully without resetting session ──
+  // ── Non-text media ─────────────────────────────────────────────────
   const isAudio = messageType === 'audioMessage' || messageType === 'pttMessage';
   const isImage = messageType === 'imageMessage';
   const isDocument = messageType === 'documentMessage';
   const isSticker = messageType === 'stickerMessage';
-  const isUnknownMedia = !msg && messageType && messageType !== 'conversation' && messageType !== 'extendedTextMessage';
+  const isUnknownMedia = !message.trim() && messageType && messageType !== 'conversation' && messageType !== 'extendedTextMessage';
 
-  if (isAudio || isImage || isDocument || isSticker || isUnknownMedia) {
-    const mediaReplies = {
-      audio: 'Oi! 😊 No momento não consigo ouvir áudios. Pode me escrever o que precisa? Estou aqui!',
-      image: 'Não consigo ver imagens por aqui, mas pode me descrever o que precisa! 😊',
-      document: 'Não consigo abrir arquivos, mas pode me escrever o que você precisa! 😊',
-    };
-    const replyText = isAudio ? mediaReplies.audio : isImage ? mediaReplies.image : isDocument ? mediaReplies.document : null;
-    if (!replyText) {
-      // sticker or unknown — ignore silently (return 200 with empty body)
-      return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: null }) };
-    }
-    return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: replyText }) };
+  // Sticker / unknown — ignore silently
+  if (isSticker || (isUnknownMedia && !isAudio && !isImage && !isDocument)) {
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ message: null }) };
   }
 
-  // Also guard against truly empty messages with no type (safety net)
+  // Image / document — friendly reply, preserve session
+  if (isImage) return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ message: 'Não consigo ver imagens por aqui, mas pode me descrever o que precisa! 😊' }) };
+  if (isDocument) return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ message: 'Não consigo abrir arquivos, mas pode me escrever o que você precisa! 😊' }) };
+
+  // Audio — transcribe with Gemini, then continue as normal text message
+  let msg;
+  if (isAudio) {
+    if (!process.env.GEMINI_API_KEY || !audioUrl) {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ message: 'Oi! 😊 No momento não consigo ouvir áudios. Pode me escrever o que precisa? Estou aqui!' }) };
+    }
+    try {
+      const transcrito = await transcreverAudio(audioUrl);
+      if (!transcrito) return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ message: 'Não consegui entender o áudio 😅 Pode me escrever o que precisa?' }) };
+      msg = transcrito;
+    } catch (err) {
+      console.error('Erro na transcrição Gemini:', err.message);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ message: 'Não consegui entender o áudio 😅 Pode me escrever o que precisa?' }) };
+    }
+  } else {
+    msg = message.trim();
+  }
+
+  // Guard against empty text
   if (!msg) {
-    return { statusCode: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: null }) };
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ message: null }) };
   }
 
   try {
