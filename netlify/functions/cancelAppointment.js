@@ -1,48 +1,37 @@
 const { initializeApp, getApps } = require('firebase/app');
 const { getFirestore, doc, getDoc, deleteDoc, collection, addDoc } = require('firebase/firestore/lite');
-
 const firebaseConfig = {
   apiKey: "AIzaSyDOeYP0MbVXKWjWhzcHJ7O0voHgk3spnNI",
   projectId: "hutex-2026",
 };
-
 function getDb() {
   if (!getApps().length) initializeApp(firebaseConfig);
   return getFirestore();
 }
-
 const APP_ID = 'hutex-saas';
-
 exports.handler = async (event) => {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json',
   };
-
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders };
   }
-
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: corsHeaders, body: 'Método não permitido' };
   }
-
   try {
     const body = JSON.parse(event.body);
-    const { lojaId, appointmentId, clienteWhats, nomeCliente, servico, data, hora, profissionalNome } = body;
-
+    const { lojaId, appointmentId, clienteWhats, nomeCliente, servico, data, hora, profissionalNome, source } = body;
     if (!lojaId || !appointmentId) {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'lojaId e appointmentId são obrigatórios' }) };
     }
-
     const db = getDb();
-
     // Get slug from profile
     const profileDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'profiles', lojaId));
     const profileData = profileDoc.exists() ? profileDoc.data() : {};
     const slug = profileData.slug || lojaId;
     const connectedPhone = profileData.whatsappNumber || '';
-
     // Record cancellation before deleting
     await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', `cancellations_${lojaId}`), {
       appointmentId,
@@ -54,7 +43,6 @@ exports.handler = async (event) => {
       profissionalNome: profissionalNome || '',
       cancelledAt: new Date().toISOString(),
     });
-
     // Delete appointment from Firestore
     await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, appointmentId));
 
@@ -69,29 +57,31 @@ exports.handler = async (event) => {
       );
     }
 
-    // ── n8n cancel webhook ─────────────────────────────────
+    // ── Normaliza telefone ─────────────────────────────────
     const telefoneNormalizado = (() => {
       const digits = (clienteWhats || '').replace(/\D/g, '');
       return digits.startsWith('55') ? digits : `55${digits}`;
     })();
 
-    if (process.env.N8N_CANCEL_WEBHOOK_URL) {
-      await fetch(process.env.N8N_CANCEL_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telefoneCliente: telefoneNormalizado,
-          nomeCliente: nomeCliente || '',
-          servico: servico || '',
-          data: data || '',
-          hora: hora || '',
-          profissionalNome: profissionalNome || '',
-          slug,
-          lojaId,
-          connectedPhone,
-          linkAgendamento: `https://hute.netlify.app/#${slug}`,
-        }),
-      }).catch(err => console.error('n8n cancel webhook error:', err.message));
+    const linkAgendamento = `https://hute.netlify.app/#${slug}`;
+
+    // ── Envio WhatsApp direto (sem n8n) ────────────────────
+    // Só envia se não veio da IA (a IA já enviou a confirmação)
+    if (source !== 'ai' && telefoneNormalizado && connectedPhone) {
+      try {
+        const baseUrl = process.env.URL || 'https://hute.netlify.app';
+        await fetch(`${baseUrl}/.netlify/functions/sendWhatsApp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            connectedPhone,
+            phone: telefoneNormalizado,
+            message: `❌ Agendamento cancelado.\n\n${servico || ''}\nData: ${data ? data.split('-').reverse().join('/') : ''}\nHora: ${hora || ''}\n\nSe quiser reagendar:\n${linkAgendamento}`,
+          }),
+        }).catch(err => console.error('Erro sendWhatsApp:', err));
+      } catch (err) {
+        console.error('Erro envio WhatsApp cancelamento:', err.message);
+      }
     }
 
     return {
@@ -99,7 +89,6 @@ exports.handler = async (event) => {
       headers: corsHeaders,
       body: JSON.stringify({ success: true }),
     };
-
   } catch (error) {
     console.error('Erro cancelAppointment:', error.message);
     return {

@@ -45,6 +45,7 @@ exports.handler = async (event) => {
       dataHoraInternacional,
       appointmentId,
       accessToken,
+      source,
     } = body;
 
     if (!lojaId || !dataHoraInternacional) {
@@ -119,31 +120,33 @@ exports.handler = async (event) => {
       }
     }
 
-    // ── n8n webhook (fire-and-forget) ──────────────────────
+    // ── Normaliza telefone ─────────────────────────────────
     const telefoneNormalizado = (() => {
       const digits = (clienteWhats || '').replace(/\D/g, '');
       return digits.startsWith('55') ? digits : `55${digits}`;
     })();
 
-    if (process.env.N8N_WEBHOOK_URL) {
-      console.log('N8N_WEBHOOK_URL:', process.env.N8N_WEBHOOK_URL);
-      console.log('appointmentId recebido:', appointmentId);
-      await fetch(process.env.N8N_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telefoneCliente: telefoneNormalizado,
-          nomeCliente: clienteNome || '',
-          servico: servico || '',
-          data: data || '',
-          hora: hora || '',
-          profissionalNome: profissionalNome || '',
-          slug,
-          lojaId,
-          connectedPhone,
-          linkAgendamento: appointmentId ? `https://hute.netlify.app/#${slug}/agendamento/${appointmentId}${accessToken ? `?token=${accessToken}` : ''}` : '',
-        }),
-      }).catch(err => console.error('Erro webhook n8n:', err));
+    const linkAgendamento = appointmentId
+      ? `https://hute.netlify.app/#${slug}/agendamento/${appointmentId}${accessToken ? `?token=${accessToken}` : ''}`
+      : '';
+
+    // ── Envio WhatsApp direto (sem n8n) ────────────────────
+    // Só envia se não veio da IA (a IA já enviou a confirmação)
+    if (source !== 'ai' && telefoneNormalizado && connectedPhone) {
+      try {
+        const baseUrl = process.env.URL || 'https://hute.netlify.app';
+        await fetch(`${baseUrl}/.netlify/functions/sendWhatsApp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            connectedPhone,
+            phone: telefoneNormalizado,
+            message: `✅ Agendamento confirmado!\n\n${servico || ''}\nData: ${data ? data.split('-').reverse().join('/') : ''}\nHora: ${hora || ''}\nProfissional: ${profissionalNome || ''}\n\nVer ou alterar:\n${linkAgendamento}`,
+          }),
+        }).catch(err => console.error('Erro sendWhatsApp:', err));
+      } catch (err) {
+        console.error('Erro envio WhatsApp:', err.message);
+      }
     }
 
     // ── FCM push notification ───────────────────────────────
