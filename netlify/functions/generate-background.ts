@@ -1,0 +1,634 @@
+// ============================================================
+//  aiin · Netlify Background Function v3
+//  - Post estático sempre 1080x1350
+//  - Título do briefing vai pro prompt
+//  - Todos os dados do onboarding no prompt
+//  - Responses API com contexto visual da marca
+// ============================================================
+
+import { createClient } from '@supabase/supabase-js'
+import { trackUsage } from './usage-tracker'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+)
+
+const OPENAI_KEY = process.env.OPENAI_API_KEY!
+const OPENAI_BASE = 'https://api.openai.com/v1'
+
+interface Slide {
+  headline: string
+  body: string
+  cta?: string
+  visual_prompt: string
+  public_url?: string
+  image_response_id?: string | null
+}
+
+interface GeneratedContent {
+  caption: string
+  hashtags: string[]
+  slides: Slide[]
+  ai_score: number
+}
+
+// ---- Tamanho fixo por tipo ----
+function getImageSize(jobType: string): string {
+  // Todas as dimensões divisíveis por 16 (requisito da API)
+  if (jobType === 'story' || jobType === 'story_sequencia' || jobType === 'capa_reels') {
+    return '864x1536' // 9:16 vertical — stories e reels
+  }
+  // Feed e carrossel: proporção 4:5 (maior alcance no Instagram)
+  return '1024x1280' // 4:5 retrato — feed e carrossel
+}
+
+// ============================================================
+//  Handler principal
+// ============================================================
+export const handler = async (event: any) => {
+  let job_id: string | undefined
+
+  try {
+    const body = JSON.parse(event.body ?? '{}')
+    job_id = body.job_id
+    const {
+      workspace_id, brand_id, job_type, quantity,
+      extra_context, hashtags,
+      // Dados completos do briefing/onboarding
+      title, objective, tone_of_voice, target_audience,
+      products, design_rules, forbidden_words, slogans, text_alignment,
+      color_palette, instagram_handle,
+      // Campos avulsos
+      slide_count, reference_urls,
+      // Revisão de texto antes da imagem (2 etapas)
+      text_only, edited_content,
+    } = body
+
+    await supabase.from('content_jobs').update({ status: 'processing' }).eq('id', job_id)
+
+    // Busca brand completo
+    const { data: brand } = await supabase
+      .from('brand_profiles')
+      .select('*, brand_assets(*), brand_learnings(*)')
+      .eq('id', brand_id)
+      .single()
+
+    if (!brand) throw new Error('Marca não encontrada')
+
+    // Mescla dados do briefing com dados da marca
+    // (briefing tem prioridade — cliente pode querer tom diferente)
+    const mergedBrand = {
+      ...brand,
+      tone_of_voice: tone_of_voice || brand.tone_of_voice,
+      target_audience: target_audience || brand.target_audience,
+      products: products || brand.products,
+      design_rules: design_rules || brand.design_rules,
+      forbidden_words: forbidden_words || brand.forbidden_words,
+      color_palette: color_palette || brand.color_palette,
+      slogans: slogans || brand.slogans,
+      text_alignment: text_alignment || brand.text_alignment,
+    }
+
+    const slideCount = slide_count
+      ?? (job_type === 'carrossel_5' ? 5
+      : job_type === 'carrossel_7' ? 7
+      : job_type === 'story_sequencia' ? 3
+      : 1)
+
+    // Adicionar referências do usuário no contexto
+    const extraContextFinal = [
+      extra_context,
+      reference_urls?.length ? `Imagens de referência fornecidas pelo usuário: ${reference_urls.join(', ')}` : null,
+    ].filter(Boolean).join('\n') || extra_context
+
+    // Garante contexto visual da marca (logo + referências)
+    // Contexto visual (logo/refs) só importa para IMAGEM. No texto, pula (lento).
+    console.log(`[generate] job=${job_id} text_only=${text_only} edited=${!!edited_content}`)
+    const brandContextId = text_only ? null : await ensureBrandContext(mergedBrand)
+
+    // Processa cada post da quantidade solicitada
+    for (let i = 0; i < (quantity ?? 1); i++) {
+      try {
+        // 1. Texto: usa o editado (se veio da revisão) ou gera com GPT-4o
+        let content: any
+        if (edited_content) {
+          content = edited_content   // usuário já revisou; não gera texto de novo
+          console.log(`[edited] slides=${content?.slides?.length} keys=${Object.keys(content || {}).join(',')}`)
+          // Blindagem: se o conteúdo editado não tem slides válidos, erro claro
+          if (!content || !Array.isArray(content.slides) || content.slides.length === 0) {
+            await supabase.from('content_jobs')
+              .update({ status: 'error', error_message: 'Conteúdo revisado sem slides válidos.' })
+              .eq('id', job_id)
+            return { statusCode: 400, body: JSON.stringify({ error: 'edited_content sem slides' }) }
+          }
+        } else {
+          content = await generateContent(
+            mergedBrand, job_type, slideCount,
+            title, objective, extraContextFinal, hashtags
+          )
+          await trackUsage({ workspace_id, brand_id, operation: 'content', model: 'gpt-4o', input_tokens: content._usage?.prompt_tokens ?? 0, output_tokens: content._usage?.completion_tokens ?? 0 })
+        }
+
+        // ETAPA TEXTO: se for só texto, salva o rascunho e PARA (sem gerar imagem)
+        if (text_only) {
+          const { error: draftErr } = await supabase.from('content_jobs')
+            .update({ status: 'draft', draft_content: content })
+            .eq('id', job_id)
+          if (draftErr) {
+            // Falha ao salvar o rascunho (ex: coluna draft_content não existe).
+            // Marca o job como erro para não ficar preso e o frontend saber.
+            console.error('ERRO ao salvar rascunho:', draftErr.message)
+            await supabase.from('content_jobs')
+              .update({ status: 'error', error_message: `Falha ao salvar rascunho: ${draftErr.message}` })
+              .eq('id', job_id)
+            return { statusCode: 500, body: JSON.stringify({ error: draftErr.message }) }
+          }
+          console.log('Texto gerado (rascunho). Aguardando revisão do usuário.')
+          return { statusCode: 200, body: JSON.stringify({ ok: true, draft: content }) }
+        }
+
+        // 2. Gera todas as imagens EM PARALELO para caber no timeout
+        console.log(`Gerando ${content.slides.length} slides em paralelo...`)
+        await Promise.all(content.slides.map(async (slide, s) => {
+          try {
+            const imageResult = await generateImageWithBrandContext(
+              slide, mergedBrand, job_type, brandContextId
+            )
+            content.slides[s].image_response_id = imageResult.responseId
+            await trackUsage({ workspace_id, brand_id, operation: 'image', model: 'gpt-image-1', units: 1, image_quality: 'high' })
+            const fileName = `${workspace_id}/generated/${job_id}_post${i+1}_slide${s+1}.png`
+            const buffer = Buffer.from(imageResult.b64, 'base64')
+
+            const { error: uploadErr } = await supabase.storage
+              .from('posts')
+              .upload(fileName, buffer, { contentType: 'image/png', upsert: true })
+
+            if (!uploadErr) {
+              const { data: urlData } = supabase.storage.from('posts').getPublicUrl(fileName)
+              content.slides[s].public_url = urlData.publicUrl
+              console.log(`Slide ${s+1} gerado e salvo`)
+            } else {
+              console.error(`Upload slide ${s+1}:`, uploadErr.message)
+            }
+          } catch (slideErr: any) {
+            console.error(`Erro slide ${s+1}:`, slideErr.message)
+            content.slides[s]._error = slideErr.message?.slice(0, 300)
+          }
+        }))
+
+        // Se NENHUM slide gerou imagem, marca o job como erro (não cria output fantasma com placeholder)
+        const anyImage = content.slides.some((sl: any) => sl.public_url)
+        if (!anyImage) {
+          const firstErr = content.slides.find((sl: any) => sl._error)?._error ?? 'Falha ao gerar imagem'
+          await supabase.from('content_jobs')
+            .update({ status: 'error', error_message: `Imagem: ${firstErr}` })
+            .eq('id', job_id)
+          return { statusCode: 500, body: JSON.stringify({ error: firstErr }) }
+        }
+
+        // 3. Salva creative_output
+        const firstSlide = content.slides[0]
+        const { data: output, error: outErr } = await supabase.from('creative_outputs').insert({
+          workspace_id,
+          job_id,
+          brand_id,
+          format: job_type,
+          variation_number: i + 1,
+          public_url: firstSlide?.public_url ?? null,
+          storage_path: `${workspace_id}/generated/${job_id}_post${i+1}_slide1.png`,
+          caption: content.caption,
+          hashtags: content.hashtags,
+          image_prompt: firstSlide?.visual_prompt ?? null,
+          image_response_id: firstSlide?.image_response_id ?? null,
+          status: 'pending',
+          ai_score: content.ai_score,
+        }).select().single()
+
+        if (outErr) console.error('Erro ao salvar output:', outErr.message)
+
+        // 4. Salva slides do carrossel
+        if (output && slideCount > 1) {
+          const slidesToProcess = content.slides.slice(0, slideCount)
+          for (let s = 0; s < slidesToProcess.length; s++) {
+            const slide = slidesToProcess[s]
+            await supabase.from('carousel_pages').insert({
+              creative_output_id: output.id,
+              page_number: s + 1,
+              headline: slide.headline,
+              body: slide.body,
+              visual_prompt: slide.visual_prompt,
+              public_url: slide.public_url ?? null,
+              storage_path: `${workspace_id}/generated/${job_id}_post${i+1}_slide${s+1}.png`,
+            })
+          }
+        }
+
+      } catch (postErr: any) {
+        console.error(`Erro no post ${i+1}:`, postErr.message)
+        await supabase.from('content_jobs')
+          .update({ status: 'error', error_message: postErr.message?.slice(0, 500) ?? 'erro ao gerar' })
+          .eq('id', job_id)
+        return { statusCode: 500, body: JSON.stringify({ error: postErr.message }) }
+      }
+    }
+
+    await supabase.from('content_jobs').update({ status: 'waiting_approval' }).eq('id', job_id)
+    await supabase.from('content_briefs').update({ status: 'done' }).eq('id', body.brief_id)
+
+    return { statusCode: 200, body: JSON.stringify({ ok: true }) }
+
+  } catch (err: any) {
+    console.error('Erro geral:', err.message)
+    if (job_id) {
+      await supabase.from('content_jobs')
+        .update({ status: 'error', error_message: err.message })
+        .eq('id', job_id)
+      const body = JSON.parse(event.body ?? '{}')
+      if (body.workspace_id) {
+        await supabase.rpc('refund_credits', {
+          p_workspace_id: body.workspace_id,
+          p_job_id: job_id,
+          p_amount: body.required_credits ?? 1,
+          p_description: 'Reembolso: erro na geração',
+        })
+      }
+    }
+    return { statusCode: 500, body: JSON.stringify({ error: err.message }) }
+  }
+}
+
+// ============================================================
+//  Garante contexto visual da marca (logo + referências)
+// ============================================================
+async function ensureBrandContext(brand: any): Promise<string | null> {
+  if (brand.openai_thread_id) {
+    console.log('Usando contexto existente:', brand.openai_thread_id)
+    return brand.openai_thread_id
+  }
+
+  const logoAsset = brand.brand_assets?.find((a: any) => a.asset_type === 'logo')
+  const refAssets = brand.brand_assets?.filter((a: any) => a.asset_type !== 'logo').slice(0, 3) ?? []
+
+  if (!logoAsset && refAssets.length === 0) {
+    console.log('Sem assets — gerando sem contexto visual')
+    return null
+  }
+
+  try {
+    const content: any[] = [{
+      type: 'input_text',
+      text: `Esta é a identidade visual completa da marca "${brand.name}".
+Memorize todos estes elementos para aplicar em TODAS as imagens geradas:
+
+IDENTIDADE VISUAL:
+- Nome da marca: ${brand.name}
+- Segmento: ${brand.segment}
+- Cores oficiais: ${brand.color_palette?.map((c: any) => `${c.name} ${c.hex}`).join(', ')}
+- Slogan ativo: ${brand.slogans?.find((s: any) => s.active)?.text ?? ''}
+- Estilo de design: ${brand.design_rules ?? 'profissional, clean, moderno'}
+- Tom de comunicação: ${brand.tone_of_voice}
+- Público-alvo: ${brand.target_audience}
+
+A logo enviada deve aparecer em TODAS as imagens geradas.
+As referências visuais mostram o estilo visual que a marca usa.
+Mantenha consistência total com esta identidade em todas as gerações.`,
+    }]
+
+    // Adiciona logo
+    if (logoAsset?.public_url) {
+      content.push({ type: 'input_image', image_url: logoAsset.public_url })
+      console.log('Logo adicionada ao contexto')
+    }
+
+    // Adiciona referências visuais
+    for (const asset of refAssets) {
+      if (asset.public_url) {
+        content.push({ type: 'input_image', image_url: asset.public_url })
+      }
+    }
+
+    const res = await fetch(`${OPENAI_BASE}/responses`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${OPENAI_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        input: [{ role: 'user', content }],
+      }),
+    })
+
+    const data = await res.json()
+    if (data.error) throw new Error(data.error.message)
+
+    const responseId = data.id
+    console.log('Contexto da marca criado:', responseId)
+
+    if (responseId) {
+      await supabase.from('brand_profiles')
+        .update({ openai_thread_id: responseId })
+        .eq('id', brand.id)
+    }
+
+    return responseId ?? null
+
+  } catch (err: any) {
+    console.error('Erro ao criar contexto:', err.message)
+    return null
+  }
+}
+
+// ============================================================
+//  gpt-image-2 via Responses API com contexto da marca
+// ============================================================
+async function generateImageWithBrandContext(
+  slide: Slide, brand: any, jobType: string, previousResponseId: string | null
+): Promise<{ b64: string; responseId: string | null }> {
+
+  const brandColors = brand.color_palette?.map((c: any) => `${c.name}: ${c.hex}`).join(', ') ?? ''
+  const activeSlogans = brand.slogans?.filter((s: any) => s.active).map((s: any) => s.text).join(', ') ?? ''
+  const size = getImageSize(jobType)
+
+  // Alinhamento de texto (default do Brand DNA, traduzido para instrução clara)
+  const hMap: any = { left: 'à esquerda (left-aligned)', center: 'centralizado (center-aligned)', right: 'à direita (right-aligned)' }
+  const vMap: any = { top: 'na parte superior (top)', middle: 'no centro vertical (middle)', bottom: 'na parte inferior/rodapé (bottom)' }
+  const ta = brand.text_alignment ?? {}
+  const hAlign = hMap[ta.horizontal ?? 'center']
+  const vAlign = vMap[ta.vertical ?? 'middle']
+  const alignInstruction = `\nALINHAMENTO DO TEXTO (importante): posicione os textos ${hAlign}, ${vAlign} da imagem. Respeite esse alinhamento de forma consistente.`
+
+  const prompt = `Crie uma imagem para Instagram que PARA O SCROLL — criativa, com hierarquia visual forte, fiel à identidade da marca, e NUNCA com cara de template de IA genérico.
+
+DESCRIÇÃO VISUAL (direção de arte):
+${slide.visual_prompt}
+
+TEXTO NA IMAGEM (em português) — com hierarquia clara:
+${slide.headline ? `• Título principal (DOMINANTE, grande, legível na miniatura): "${slide.headline}"` : ''}
+${slide.body ? `• Texto secundário (menor, de apoio): "${slide.body}"` : ''}
+${slide.cta ? `• Call-to-action (destacado): "${slide.cta}"` : ''}
+${alignInstruction}
+
+IDENTIDADE DA MARCA (obrigatória — o ESTILO vem daqui):
+• Cores da marca como PROTAGONISTAS: ${brandColors}
+• Slogan: ${activeSlogans}
+• Estilo da marca: ${brand.design_rules ?? 'siga o tom e as cores da marca'}
+• Segmento: ${brand.segment}
+• Logo: posicionar conforme referência visual enviada anteriormente
+O visual deve traduzir a identidade ACIMA — não impor um estilo externo. Marca minimalista = visual minimalista; marca vibrante = visual vibrante.
+
+PRINCÍPIOS DE QUALIDADE (universais, independente do estilo da marca):
+• 1 ponto focal forte e hierarquia visual clara (o texto principal é o maior elemento)
+• Composição criativa e intencional — fuja do óbvio e do genérico
+• Respiro: área limpa onde o texto entra, sem poluir atrás dele
+• Texto legível no celular, com contraste suficiente sobre o fundo (qualquer que seja a paleta)
+• Se usar foto, que tenha sujeito forte e ângulo interessante — nada de stock sem alma
+• Evite: layout centralizado por preguiça, stock genérico, "ar de template de IA"
+
+REQUISITOS TÉCNICOS:
+• Formato: ${size === '1080x1350' ? '4:5 retrato (1080x1350px)' : '9:16 vertical (1080x1920px)'}
+• Alta resolução, máxima qualidade, sem bordas desnecessárias
+• Todo texto em português, sem erros de ortografia`
+
+  const requestBody: any = {
+    model: 'gpt-4o',
+    input: [{
+      role: 'user',
+      content: [{ type: 'input_text', text: prompt }]
+    }],
+    tools: [{
+      type: 'image_generation',
+      size,
+      quality: 'high',
+      output_format: 'png',
+    }],
+  }
+
+  if (previousResponseId) {
+    requestBody.previous_response_id = previousResponseId
+  }
+
+  const res = await fetch(`${OPENAI_BASE}/responses`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${OPENAI_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  })
+
+  const data = await res.json()
+  if (data.error) throw new Error(`Responses API: ${data.error.message}`)
+
+  const imageOutput = data.output?.find((o: any) => o.type === 'image_generation_call')
+  if (!imageOutput?.result) {
+    console.error('Response completo:', JSON.stringify(data).slice(0, 500))
+    throw new Error('Imagem não retornada pela Responses API')
+  }
+
+  return { b64: imageOutput.result, responseId: data.id ?? null }
+}
+
+// ============================================================
+//  GPT-4o — gera estrutura completa com TODOS os dados
+// ============================================================
+async function generateContent(
+  brand: any, jobType: string, slideCount: number,
+  title: string, objective: string,
+  extraContext: string, hashtags: string[]
+): Promise<GeneratedContent> {
+
+  const isCarousel = slideCount > 1
+  const brandColors = brand.color_palette?.map((c: any) => `${c.name}: ${c.hex}`).join(', ') ?? ''
+  const activeSlogans = brand.slogans?.filter((s: any) => s.active).map((s: any) => s.text).join(', ') ?? ''
+  const learnings = brand.brand_learnings?.map((l: any) => l.content).join('\n') ?? ''
+  const imageSize = getImageSize(jobType)
+
+  const prompt = `Você é um ESTRATEGISTA DE CONTEÚDO VIRAL para Instagram, no nível dos maiores criadores do Brasil. Você estudou milhares de posts que viralizaram e entende profundamente como o algoritmo do Instagram distribui conteúdo em 2026. Seu trabalho não é "preencher um template" — é criar conteúdo que PARA O SCROLL, gera SALVAMENTOS e COMPARTILHAMENTOS, e traz resultado real para a marca.
+Crie SEMPRE em português brasileiro, seguindo rigorosamente a identidade da marca.
+
+════════════════════════════════════
+COMO O ALGORITMO DO INSTAGRAM FUNCIONA (2026) — OTIMIZE PARA ISSO
+════════════════════════════════════
+Os sinais que MAIS importam para distribuição, em ordem:
+1. SENDS (compartilhamento por DM) — o sinal #1, vale 3-5x mais que likes para alcançar gente nova. Crie conteúdo que a pessoa pensa "preciso mandar isso pra alguém". Momentos de "marca um amigo que precisa ver isso", dados surpreendentes, takes relacionáveis.
+2. SAVES (salvamentos) — sinal de intenção futura. Conteúdo SALVÁVEL é o que vira referência: checklists, frameworks, guias, passo-a-passo, "como fazer". Empacote a informação como um RECURSO que a pessoa vai querer voltar a consultar.
+3. RETENÇÃO / TEMPO DE PERMANÊNCIA — em carrossel, cada swipe conta como engajamento. Por isso a CAPA precisa fazer a pessoa querer deslizar, e cada slide precisa puxar pro próximo. Carrosséis de 7-10 slides performam melhor que 3-4 pelo tempo de permanência maior.
+4. PROFILE VISIT RATE — quando um post faz a pessoa tocar no perfil, o algoritmo entende como voto de confiança e mostra pra mais gente.
+5. LIKES e comentários ainda contam, mas são sinais mais fracos hoje.
+
+Regras de ouro:
+- Conteúdo ORIGINAL é premiado; conteúdo genérico/repetido é enterrado.
+- LEGENDA com SEO importa MAIS que hashtags hoje: use palavras-chave naturais que o público buscaria. Hashtags: poucas e específicas do nicho (3-6), não 30 genéricas.
+- A primeira linha da legenda é como a manchete de uma revista: a frase MAIS FORTE vem primeiro (o resto fica cortado atrás do "...mais").
+
+════════════════════════════════════
+A LEGENDA (caption) — TRABALHE COM PROFUNDIDADE
+════════════════════════════════════
+A legenda NÃO é um resumo pobre do que está na arte. A arte é a vitrine; a legenda é onde quem se interessou aprofunda. O algoritmo LÊ a legenda como um buscador lê uma página — então ela faz SEO E entrega valor.
+
+${isCarousel ? `CARROSSEL — legenda APROFUNDADA (o post merece):
+- PRIMEIROS 125 caracteres: o gancho mais forte (é o que aparece antes do "...mais"). Tem que fazer expandir.
+- CORPO: aprofunde o assunto dos slides. Os slides são o resumo escaneável; aqui você EXPLICA melhor, dá o contexto, o porquê, o exemplo, o detalhe que não coube na arte. Quem leu os slides e quis se aprofundar encontra a explicação completa aqui.
+- Escreva de forma escaneável (quebras de linha, parágrafos curtos), não um bloco maciço.
+- SEO NATURAL: inclua as palavras que o público realmente buscaria sobre o tema, de forma natural no texto (não force).
+- Tamanho: substancial o suficiente para aprofundar (tipicamente 600-1200 caracteres), mas sem encher linguiça — cada linha agrega. Se não agrega, corta.
+- Termine com o CTA (salvar/compartilhar/comentar).` : `POST/STORY — legenda mais enxuta:
+- Gancho forte na primeira linha, valor no corpo (algumas linhas), CTA no fim.
+- SEO natural com as palavras que o público buscaria.
+- Não precisa ser longa; precisa ser densa de valor.`}
+
+════════════════════════════════════
+FRAMEWORKS DE COPY QUE VOCÊ DOMINA
+════════════════════════════════════
+HOOK (capa / primeira linha) — escolha o ângulo mais forte para o tema:
+- Curiosity gap: promete uma resposta que só se descobre vendo ("O erro que 90% das [público] cometem sem perceber")
+- Contraste/contrarian: quebra uma crença comum ("Parar de [coisa óbvia] foi o que mais aumentou meus [resultado]")
+- Promessa específica com número ("3 mudanças que dobraram o [resultado] em 30 dias")
+- Identificação imediata ("Se você [situação do público], esse post é pra você")
+- Dado chocante ou pergunta provocativa
+NUNCA use hook genérico tipo "Dicas para...", "A importância de...", "Você sabia que...". São fracos e ignorados.
+
+ESTRUTURA DE VALOR (slides do meio / corpo):
+- Um ponto por slide, escaneável em 2 segundos.
+- Específico e acionável, não óbvio. Evite platitudes ("seja consistente", "tenha foco"). Traga o "como" concreto.
+- Mantenha tensão: cada slide deve criar uma micro-vontade de ver o próximo.
+
+CTA (último slide / fim da legenda):
+- Direcione para a ação que o algoritmo premia: SALVAR ("Salva esse post pra não esquecer"), COMPARTILHAR ("Marca aquele amigo que precisa ver"), ou VISITAR O PERFIL.
+- Seja específico. "Comente X que eu te mando Y" gera comentário + DM (ótimos sinais).
+
+════════════════════════════════════
+BRAND DNA COMPLETO
+════════════════════════════════════
+${brand.ai_brand_dna ?? '(Brand DNA não gerado ainda)'}
+
+════════════════════════════════════
+IDENTIDADE DA MARCA
+════════════════════════════════════
+Nome: ${brand.name}
+Segmento: ${brand.segment ?? 'não informado'}
+Cidade/Região: ${brand.city ?? 'não informada'}
+Público-alvo: ${brand.target_audience ?? 'não informado'}
+Objetivo principal da marca: ${brand.main_objective ?? 'não informado'}
+Produtos/Serviços: ${brand.products ?? 'não informado'}
+Tom de voz: ${brand.tone_of_voice ?? 'não informado'}
+Slogan(s) ativo(s): ${activeSlogans || 'não definido'}
+Cores da marca: ${brandColors || 'não definidas'}
+Tipografia: ${brand.typography?.title ?? 'não definida'}
+Regras de design: ${brand.design_rules ?? 'nenhuma regra específica'}
+Palavras/abordagens proibidas: ${brand.forbidden_words?.join(', ') ?? 'nenhuma'}
+Instagram: ${brand.instagram_handle ?? 'não informado'}
+${learnings ? `
+════════════════════════════════════
+⚡ INTELIGÊNCIA DESTA MARCA (aprendido com a performance REAL dos posts)
+════════════════════════════════════
+Estes aprendizados vêm dos dados reais de performance da conta. DÊ PRIORIDADE a eles — eles dizem o que funciona ESPECIFICAMENTE para este público. Se contradisser uma regra geral, o dado real desta marca vence.
+${learnings}
+` : ''}
+
+════════════════════════════════════
+BRIEFING DO PEDIDO
+════════════════════════════════════
+${title ? `Tema/Título da postagem: ${title}` : ''}
+Objetivo do post: ${objective ?? 'não informado'}
+Tipo de conteúdo: ${jobType}
+${isCarousel ? `Formato: Carrossel com ${slideCount} slides` : 'Formato: Post único'}
+Contexto extra / instruções adicionais: ${extraContext ?? 'nenhum'}
+Hashtags base sugeridas: ${hashtags?.join(' ') ?? 'usar hashtags relevantes da marca'}
+Dimensão da imagem: ${imageSize}
+
+════════════════════════════════════
+INSTRUÇÕES DE CRIAÇÃO
+════════════════════════════════════
+${isCarousel ? `
+OBRIGATÓRIO: crie EXATAMENTE ${slideCount} slide${slideCount > 1 ? 's' : ''} — não mais, não menos.
+Aplique os frameworks acima:
+• Slide 1 (CAPA): use um dos HOOKS fortes (curiosity gap, contraste, promessa específica, identificação). Tem que PARAR O SCROLL e fazer deslizar. Headline curta e ousada.
+• Slides 2 a ${slideCount - 1}: um ponto de VALOR ESPECÍFICO e acionável por slide (o "como", não o óbvio). Escaneável. Cada slide cria vontade de ver o próximo.
+• Slide ${slideCount} (CTA): direcione para SALVAR, COMPARTILHAR ou marcar alguém — as ações que o algoritmo mais premia.
+O conteúdo todo deve ser SALVÁVEL (vira referência) e COMPARTILHÁVEL (a pessoa quer mandar pra um amigo).
+` : `
+Post único:
+• Imagem que para o scroll, coerente com a identidade visual da marca
+• Legenda com a frase MAIS FORTE na primeira linha (manchete), valor real no corpo, e CTA que gera salvamento/compartilhamento
+• Palavras-chave naturais (SEO) que o público buscaria
+`}
+
+════════════════════════════════════
+DIREÇÃO DE ARTE — PRINCÍPIOS UNIVERSAIS (valem para QUALQUER marca)
+════════════════════════════════════
+Estes princípios são INEGOCIÁVEIS, independente do estilo da marca. São o que separa um post amador de um profissional:
+
+- CRIATIVIDADE NA CONSTRUÇÃO: cada post precisa de um CONCEITO visual, não um layout óbvio. Fuja do previsível. Imagem genérica de banco/IA é IGNORADA no feed.
+- HIERARQUIA VISUAL: 1 ponto focal dominante. O olho sabe pra onde ir em 1 segundo. O texto principal é o maior elemento, legível até na miniatura.
+- RESPIRO / USO DO ESPAÇO: reserve área limpa onde o texto entra — nunca poluir atrás do headline. Espaço negativo é ferramenta, não desperdício.
+- FOTO/IMAGEM QUE PRENDE: se houver foto, ela precisa ter um sujeito forte, ângulo interessante, profundidade — algo que segura o olhar. Nada de stock sem alma.
+- LEGIBILIDADE MOBILE: texto lido numa tela pequena. Contraste suficiente entre texto e fundo (seja qual for a paleta).
+- COMPOSIÇÃO INTENCIONAL: enquadramento, equilíbrio, alinhamento — tudo proposital. Nada centralizado por preguiça.
+
+════════════════════════════════════
+ESTILO VISUAL — VEM DO BRAND DNA (NÃO invente um estilo próprio)
+════════════════════════════════════
+O ESTILO (minimalista, editorial, colorido, sóbrio, divertido, luxuoso, etc.) deve sair da identidade da marca acima — NÃO de uma preferência sua. Releia o Brand DNA, as regras de design (${brand.design_rules ?? 'não especificadas'}), o tom de voz e as cores, e traduza ISSO em visual.
+- Cores da marca (${brandColors}) são a paleta. Use-as com intenção.
+- Se a marca é minimalista, o visual é minimalista (e ainda assim com hierarquia e criatividade). Se é vibrante, é vibrante. Respeite.
+- Mantenha o MESMO estilo coerente entre todos os slides do carrossel.
+
+Para o visual_prompt (em INGLÊS, detalhado para o gerador de imagem), descreva:
+- O conceito visual criativo do slide e o ponto focal dominante
+- Composição e layout (onde cada elemento fica, onde o texto respira)
+- O estilo traduzido do Brand DNA (consistente entre slides)
+- Paleta da marca aplicada com intenção, iluminação e mood coerentes com a marca
+- Textos que aparecem NA imagem (em português), com hierarquia (qual é dominante)
+- Como a composição prende a atenção sem trair a identidade da marca
+
+════════════════════════════════════
+FORMATO DE RESPOSTA
+════════════════════════════════════
+Retorne SOMENTE este JSON válido, sem markdown, sem explicações.
+O array "slides" deve ter EXATAMENTE ${slideCount} objeto${slideCount !== 1 ? 's' : ''}.
+
+${JSON.stringify({
+  caption: "legenda completa em português com emojis e quebras de linha\n\n#hashtag1 #hashtag2",
+  hashtags: ["#hashtag1", "#hashtag2", "#hashtag3"],
+  ai_score: 8.5,
+  score_rationale: "avaliacao honesta do potencial viral: forca do hook, potencial de save, potencial de share, clareza do CTA. Seja critico, nao infle a nota.",
+  slides: Array.from({ length: slideCount }, (_, i) => ({
+    headline: `Título do slide ${i + 1} em português`,
+    body: "texto do corpo em português (2-3 linhas no máximo)",
+    cta: i === slideCount - 1 ? "chamada para ação no último slide" : "",
+    visual_prompt: "Detailed English prompt for this slide: composition, lighting, style, brand colors, text overlays in Portuguese, photography style, mood, quality"
+  }))
+}, null, 2)}`
+
+  const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${OPENAI_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: 'Você é um estrategista de conteúdo viral para Instagram no Brasil, nível dos maiores criadores. Otimize para sends, saves e retenção. Conteúdo original, específico e acionável — nunca genérico. Português brasileiro. Sempre retorne JSON válido sem markdown. Respeite EXATAMENTE o número de slides solicitado. O ai_score deve ser uma avaliação honesta e crítica do potencial viral (0-10), não um número inflado.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.75,
+      max_tokens: Math.min(1800 + slideCount * 600, 5000),
+      response_format: { type: 'json_object' },
+    }),
+  })
+
+  const data = await res.json()
+  if (data.error) throw new Error(`GPT-4o: ${data.error.message}`)
+
+  const result = JSON.parse(data.choices[0].message.content)
+  result._usage = data.usage  // tokens para tracking de custo
+
+  // Garante que slides é array e tem pelo menos 1 item
+  if (!result.slides || result.slides.length === 0) {
+    result.slides = [{
+      headline: title || brand.name,
+      body: extraContext || '',
+      visual_prompt: `Creative Instagram post for ${brand.name} (${brand.segment}), brand colors as protagonists: ${brandColors}, strong focal point, clear visual hierarchy, large legible headline, style faithful to the brand identity, scroll-stopping — never a generic AI template`,
+    }]
+  }
+
+  return result
+}
