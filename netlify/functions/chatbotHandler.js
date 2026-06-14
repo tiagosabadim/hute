@@ -272,24 +272,9 @@ async function executeTool(toolName, toolInput, ctx) {
 
     const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}?token=${accessToken}`;
 
-    if (process.env.N8N_WEBHOOK_URL) {
-      fetch(process.env.N8N_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telefoneCliente: phone,
-          nomeCliente: clienteNome,
-          servico: servico.nome,
-          data,
-          hora,
-          profissionalNome: prof?.nome || '',
-          slug: slugFinal,
-          lojaId,
-          connectedPhone: profile.whatsappNumber || '',
-          linkAgendamento,
-          source: 'ai',
-        }),
-      }).catch(() => {});
+    if (profile.whatsappNumber) {
+      const baseUrl = process.env.URL || 'https://hute.netlify.app';
+      fetch(baseUrl + '/.netlify/functions/sendWhatsApp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ connectedPhone: profile.whatsappNumber, phone, message: 'Agendamento confirmado! ' + servico.nome + ' - ' + data + ' as ' + hora + ' Ver: ' + linkAgendamento }) }).catch(() => {});
     }
 
     if (profile.fcmToken) {
@@ -322,22 +307,9 @@ async function executeTool(toolName, toolInput, ctx) {
 
     await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', `appointments_${lojaId}`, appointmentId));
 
-    if (process.env.N8N_CANCEL_WEBHOOK_URL) {
-      fetch(process.env.N8N_CANCEL_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          telefoneCliente: phone,
-          nomeCliente: appt.clienteNome || '',
-          servico: appt.servico || '',
-          data: appt.data || '',
-          hora: appt.hora || '',
-          profissionalNome: appt.profissionalNome || '',
-          slug: slugFinal,
-          lojaId,
-          connectedPhone: profile.whatsappNumber || '',
-        }),
-      }).catch(() => {});
+    if (profile.whatsappNumber) {
+      const baseUrl = process.env.URL || 'https://hute.netlify.app';
+      fetch(baseUrl + '/.netlify/functions/sendWhatsApp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ connectedPhone: profile.whatsappNumber, phone, message: 'Cancelado: ' + (appt.servico||'') + ' - ' + (appt.data||'') + ' as ' + (appt.hora||'') + ' Reagende: https://hute.netlify.app/#' + slugFinal }) }).catch(() => {});
     }
 
     if (profile.fcmToken) {
@@ -725,7 +697,7 @@ async function handleMenu(msg, phone, session, profile, db, lojaId, slugFinal, o
     const accessToken = crypto.randomUUID();
     const apptRef = await addDoc(collection(db,'artifacts',APP_ID,'public','data',`appointments_${lojaId}`),{...pendingAppt,accessToken});
     const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}?token=${accessToken}`;
-    if (process.env.N8N_WEBHOOK_URL) { fetch(process.env.N8N_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telefoneCliente:phone,nomeCliente:clienteNome,servico:servico.nome,data,hora,profissionalNome:profissional?.nome||'',slug:slugFinal,lojaId,connectedPhone:profile.whatsappNumber||'',linkAgendamento})}).catch(()=>{}); }
+    if (profile.whatsappNumber) { const baseUrl=process.env.URL||'https://hute.netlify.app'; fetch(baseUrl+'/.netlify/functions/sendWhatsApp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connectedPhone:profile.whatsappNumber,phone,message:'✅ Agendamento confirmado!\n\n'+servico.nome+'\nData: '+data.split('-').reverse().join('/')+'\nHora: '+hora+'\nProfissional: '+(profissional&&profissional.nome?profissional.nome:'A combinar')+'\n\nVer ou alterar:\n'+linkAgendamento})}).catch(()=>{}); }
     if (profile.fcmToken) { const {sendFCMPush}=require('./fcmHelper'); sendFCMPush(profile.fcmToken,'Novo agendamento! 🗓️',`${clienteNome} — ${servico.nome} às ${hora}`,{type:'new',lojaId}).catch(()=>{}); }
     await clearSession(db,phone,lojaId);
     const profText = profissional?` com ${profissional.nome}`:'';
@@ -746,7 +718,7 @@ async function handleMenu(msg, phone, session, profile, db, lojaId, slugFinal, o
     const apptData = { ...pendingAppt, duracaoTotal, ...(extras.length>0?{extras}:{}), accessToken };
     const apptRef = await addDoc(collection(db,'artifacts',APP_ID,'public','data',`appointments_${lojaId}`),apptData);
     const linkAgendamento = `https://hute.netlify.app/#${slugFinal}/agendamento/${apptRef.id}?token=${accessToken}`;
-    if (process.env.N8N_WEBHOOK_URL) { fetch(process.env.N8N_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telefoneCliente:phone,nomeCliente:pendingAppt.clienteNome,servico:pendingAppt.servico,data:pendingAppt.data,hora:pendingAppt.hora,profissionalNome:pendingAppt.profissionalNome||'',slug:slugFinal,lojaId,connectedPhone:profile.whatsappNumber||'',linkAgendamento})}).catch(()=>{}); }
+    if (profile.whatsappNumber) { const baseUrl=process.env.URL||'https://hute.netlify.app'; fetch(baseUrl+'/.netlify/functions/sendWhatsApp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connectedPhone:profile.whatsappNumber,phone,message:'✅ Agendamento confirmado!\n\n'+pendingAppt.servico+'\nData: '+pendingAppt.data.split('-').reverse().join('/')+'\nHora: '+pendingAppt.hora+'\nProfissional: '+(pendingAppt.profissionalNome||'A combinar')+'\n\nVer ou alterar:\n'+linkAgendamento})}).catch(()=>{}); }
     if (profile.fcmToken) { const {sendFCMPush}=require('./fcmHelper'); sendFCMPush(profile.fcmToken,'Novo agendamento! 🗓️',`${pendingAppt.clienteNome} — ${pendingAppt.servico} às ${pendingAppt.hora}`,{type:'new',lojaId}).catch(()=>{}); }
     await clearSession(db,phone,lojaId);
     const profText = pendingAppt.profissionalNome?` com ${pendingAppt.profissionalNome}`:'';
@@ -768,7 +740,7 @@ async function handleMenu(msg, phone, session, profile, db, lojaId, slugFinal, o
       const appt = session.apptSelecionado;
       await addDoc(collection(db,'artifacts',APP_ID,'public','data',`cancellations_${lojaId}`),{ appointmentId:appt.id, nomeCliente:appt.clienteNome||'', clienteWhats:appt.clienteWhats||'', servico:appt.servico||'', data:appt.data||'', hora:appt.hora||'', profissionalNome:appt.profissionalNome||'', cancelledAt:new Date().toISOString() });
       await deleteDoc(doc(db,'artifacts',APP_ID,'public','data',`appointments_${lojaId}`,appt.id));
-      if (process.env.N8N_CANCEL_WEBHOOK_URL) { fetch(process.env.N8N_CANCEL_WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telefoneCliente:phone,nomeCliente:appt.clienteNome||'',servico:appt.servico||'',data:appt.data||'',hora:appt.hora||'',profissionalNome:appt.profissionalNome||'',slug:slugFinal,lojaId})}).catch(()=>{}); }
+      if (profile.whatsappNumber) { const baseUrl=process.env.URL||'https://hute.netlify.app'; fetch(baseUrl+'/.netlify/functions/sendWhatsApp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({connectedPhone:profile.whatsappNumber,phone,message:'❌ Agendamento cancelado.\n\n'+(appt.servico||'')+'\nData: '+(appt.data||'').split('-').reverse().join('/')+'\nHora: '+(appt.hora||')+'\n\nSe quiser reagendar:\nhttps://hute.netlify.app/#'+slugFinal})}).catch(()=>{}); }
       if (profile.fcmToken) { const {sendFCMPush}=require('./fcmHelper'); sendFCMPush(profile.fcmToken,'Agendamento cancelado',`${appt.clienteNome||'Cliente'} cancelou ${appt.servico||''} em ${appt.data||''}`,{type:'cancel',lojaId}).catch(()=>{}); }
       await clearSession(db,phone,lojaId);
       return reply(`✅ Agendamento cancelado com sucesso.\n\n*${appt.servico}* — ${fmtData(appt.data)} às ${appt.hora}\n\nDigite qualquer coisa para voltar ao menu.`);
