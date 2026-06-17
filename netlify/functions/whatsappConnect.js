@@ -12,7 +12,7 @@ function getDb() {
 }
 
 const APP_ID   = 'hutex-saas';
-const EVO_BASE = 'https://evolution-api-production-2290.up.railway.app';
+const EVO_BASE = process.env.EVOLUTION_API_URL || 'http://204.216.165.193:8080';
 
 function evoHeaders() {
   return {
