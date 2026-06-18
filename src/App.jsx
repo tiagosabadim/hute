@@ -1713,6 +1713,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const [googleFreeSlots, setGoogleFreeSlots] = useState(null); // null = not google
   const [googleEvents, setGoogleEvents] = useState([]); // actual GCal events for display
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [weekGCalEvents, setWeekGCalEvents] = useState({}); // { 'YYYY-MM-DD': [events] } for desktop week view
   const [activeSlot, setActiveSlot] = useState(null); // hora string of the tapped free slot
   const [showNewAppt, setShowNewAppt] = useState(false);
   const [preHora, setPreHora] = useState('');
@@ -1775,6 +1776,30 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
       .catch(() => { setGoogleFreeSlots(null); setGoogleEvents([]); })
       .finally(() => setGoogleLoading(false));
   }, [selectedProfId, dateISO, colId, profile?.intervalo, selectedProf?.agendaTipo]);
+
+  // Fetch Google Calendar events for all 7 days of the current week (desktop week view)
+  useEffect(() => {
+    if (!selectedProfId) { setWeekGCalEvents({}); return; }
+    const weekStartISO = weekStart.toISOString().split('T')[0];
+    const dates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return d.toISOString().split('T')[0];
+    });
+    Promise.all(
+      dates.map(date => {
+        const params = new URLSearchParams({ lojaId: colId, data: date, profissionalId: selectedProfId });
+        return fetch(`${BACKEND_URL}/getCalendarEvents?${params}`)
+          .then(r => r.json())
+          .then(data => ({ date, events: data.events || [] }))
+          .catch(() => ({ date, events: [] }));
+      })
+    ).then(results => {
+      const map = {};
+      results.forEach(({ date, events }) => { map[date] = events; });
+      setWeekGCalEvents(map);
+    });
+  }, [selectedProfId, weekStart, colId, selectedProf?.agendaTipo]);
 
   // Build timeline
   const dayBlocks = blocks.filter(b =>
@@ -2184,9 +2209,14 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                 a.data === dayStr && (!selectedProfId || !a.profissionalId || a.profissionalId === selectedProfId) &&
                 (!searchQuery || (a.clienteNome || '').toLowerCase().includes(searchQuery.toLowerCase()))
               );
-              const wRaw = wdayAppts
-                .map(a => ({ tipo: 'appt', hora: a.hora, duracao: Number(a.duracaoTotal || a.duracao) || intervalo, appt: a }))
-                .sort((a, b) => a.hora.localeCompare(b.hora));
+              const dayGCalEvts = (weekGCalEvents[dayStr] || []).filter(e => !e.allDay);
+              const wRaw = [
+                ...wdayAppts.map(a => ({ tipo: 'appt', hora: a.hora, duracao: Number(a.duracaoTotal || a.duracao) || intervalo, appt: a })),
+                ...dayGCalEvts.map(e => {
+                  const s = new Date(e.start); const en = new Date(e.end);
+                  return { tipo: 'google', hora: `${String(s.getHours()).padStart(2,'0')}:${String(s.getMinutes()).padStart(2,'0')}`, duracao: (en - s) / 60000, googleEvent: e };
+                }),
+              ].sort((a, b) => a.hora.localeCompare(b.hora));
               const segs = [];
               let wCur = dayStart;
               for (const ev of wRaw) {
@@ -2320,6 +2350,18 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                                   onClick={() => { setSelectedDate(day); setPreHora(toStr(seg.start)); setShowNewAppt(true); }}
                                   className={`w-full h-full rounded border border-dashed transition-all ${isGray ? 'border-slate-300 bg-slate-100/60 hover:bg-slate-200/60' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
                                 />
+                              </div>
+                            );
+                          }
+
+                          if (seg.tipo === 'google') {
+                            const ev = seg.googleEvent;
+                            const h = Math.max(20, rawH);
+                            return (
+                              <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h, zIndex: 5 }}>
+                                <div className="h-full rounded overflow-hidden" style={{ backgroundColor: '#eff6ff', borderLeft: '3px solid #3b82f6', border: '1px solid #bfdbfe', borderLeftWidth: '3px' }}>
+                                  {h >= 14 && <p className="text-[9px] font-bold text-blue-800 px-1 leading-tight truncate">{ev?.summary}</p>}
+                                </div>
                               </div>
                             );
                           }
