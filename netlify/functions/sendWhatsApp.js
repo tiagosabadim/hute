@@ -12,7 +12,7 @@ function getDb() {
 }
 
 const APP_ID   = 'hutex-saas';
-const EVO_BASE = process.env.EVOLUTION_API_URL || 'http://204.216.165.193:8080';
+const EVO_BASE = process.env.EVOLUTION_API_URL;
 
 exports.handler = async (event) => {
   const corsHeaders = {
