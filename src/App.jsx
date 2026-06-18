@@ -1777,30 +1777,6 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
       .finally(() => setGoogleLoading(false));
   }, [selectedProfId, dateISO, colId, profile?.intervalo, selectedProf?.agendaTipo]);
 
-  // Fetch Google Calendar events for all 7 days of the current week (desktop week view)
-  useEffect(() => {
-    if (!selectedProfId) { setWeekGCalEvents({}); return; }
-    const weekStartISO = weekStart.toISOString().split('T')[0];
-    const dates = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      return d.toISOString().split('T')[0];
-    });
-    Promise.all(
-      dates.map(date => {
-        const params = new URLSearchParams({ lojaId: colId, data: date, profissionalId: selectedProfId });
-        return fetch(`${BACKEND_URL}/getCalendarEvents?${params}`)
-          .then(r => r.json())
-          .then(data => ({ date, events: data.events || [] }))
-          .catch(() => ({ date, events: [] }));
-      })
-    ).then(results => {
-      const map = {};
-      results.forEach(({ date, events }) => { map[date] = events; });
-      setWeekGCalEvents(map);
-    });
-  }, [selectedProfId, weekStart, colId, selectedProf?.agendaTipo]);
-
   // Build timeline
   const dayBlocks = blocks.filter(b =>
     b.date === dateISO && (!b.profissionalId || b.profissionalId === selectedProfId)
@@ -1955,6 +1931,29 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
     d.setDate(d.getDate() + i);
     return d;
   }), [weekStart]);
+
+  // Fetch Google Calendar events for all 7 days of the current week (desktop week view)
+  useEffect(() => {
+    if (!selectedProfId) { setWeekGCalEvents({}); return; }
+    const dates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return d.toISOString().split('T')[0];
+    });
+    Promise.all(
+      dates.map(date => {
+        const params = new URLSearchParams({ lojaId: colId, data: date, profissionalId: selectedProfId });
+        return fetch(`${BACKEND_URL}/getCalendarEvents?${params}`)
+          .then(r => r.json())
+          .then(data => ({ date, events: data.events || [] }))
+          .catch(() => ({ date, events: [] }));
+      })
+    ).then(results => {
+      const map = {};
+      results.forEach(({ date, events }) => { map[date] = events; });
+      setWeekGCalEvents(map);
+    });
+  }, [selectedProfId, weekStart, colId, selectedProf?.agendaTipo]);
 
   const syncBadge = googleLoading
     ? <span className="text-[10px] text-slate-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />Sincronizando...</span>
