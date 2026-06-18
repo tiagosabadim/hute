@@ -1720,6 +1720,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [reagendarAppt, setReagendarAppt] = useState(null);
   const [detailAppt, setDetailAppt] = useState(null);
+  const [detailGCalEvent, setDetailGCalEvent] = useState(null); // { event, profissionalId }
   const colId = lojaId || user.uid;
   const dateISO = toDateISO(selectedDate);
   const todayISO = toDateISO(new Date());
@@ -2358,7 +2359,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             const h = Math.max(20, rawH);
                             return (
                               <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: h, zIndex: 5 }}>
-                                <div className="h-full rounded overflow-hidden" style={{ backgroundColor: '#eff6ff', borderLeft: '3px solid #3b82f6', border: '1px solid #bfdbfe', borderLeftWidth: '3px' }}>
+                                <div className="h-full rounded overflow-hidden cursor-pointer hover:brightness-95 transition-all"
+                                  style={{ backgroundColor: '#eff6ff', borderLeft: '3px solid #3b82f6', border: '1px solid #bfdbfe', borderLeftWidth: '3px' }}
+                                  onClick={() => setDetailGCalEvent({ event: ev, profissionalId: selectedProfId })}>
                                   {h >= 14 && <p className="text-[9px] font-bold text-blue-800 px-1 leading-tight truncate">{ev?.summary}</p>}
                                 </div>
                               </div>
@@ -2745,7 +2748,8 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   const ev = seg.googleEvent;
                   return (
                     <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 2 }}>
-                      <div className="h-full rounded-xl bg-blue-50 border border-blue-200 border-l-4 border-l-blue-500 flex items-center px-3 gap-2">
+                      <div className="h-full rounded-xl bg-blue-50 border border-blue-200 border-l-4 border-l-blue-500 flex items-center px-3 gap-2 cursor-pointer active:brightness-95 transition-all"
+                        onClick={() => setDetailGCalEvent({ event: ev, profissionalId: selectedProfId })}>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-blue-800 truncate">{ev?.summary || 'Evento'}</p>
                           <p className="text-[10px] text-blue-500">{toStr(seg.start)}–{toStr(seg.end)} · Google</p>
@@ -2882,6 +2886,161 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           onCancelar={a => { setDetailAppt(null); cancelar(a); }}
         />
       )}
+      {detailGCalEvent && (
+        <GCalEventModal
+          event={detailGCalEvent.event}
+          profissionalId={detailGCalEvent.profissionalId}
+          lojaId={colId}
+          onClose={() => setDetailGCalEvent(null)}
+          onDeleted={() => {
+            setDetailGCalEvent(null);
+            // refresh week and day google events
+            setWeekGCalEvents({});
+            setGoogleEvents([]);
+          }}
+          onUpdated={() => {
+            setDetailGCalEvent(null);
+            setWeekGCalEvents({});
+            setGoogleEvents([]);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Google Calendar Event Modal ───────────────────────────
+const BACKEND_URL_GCAL = '/.netlify/functions';
+function GCalEventModal({ event, profissionalId, lojaId, onClose, onDeleted, onUpdated }) {
+  const [mode, setMode] = React.useState('view'); // 'view' | 'reschedule'
+  const [loading, setLoading] = React.useState(false);
+  const [newDate, setNewDate] = React.useState('');
+  const [newStart, setNewStart] = React.useState('');
+  const [newEnd, setNewEnd] = React.useState('');
+
+  // Pre-fill reschedule fields from current event
+  React.useEffect(() => {
+    if (!event) return;
+    const s = new Date(event.start);
+    const e = new Date(event.end);
+    const pad = n => String(n).padStart(2, '0');
+    setNewDate(`${s.getFullYear()}-${pad(s.getMonth()+1)}-${pad(s.getDate())}`);
+    setNewStart(`${pad(s.getHours())}:${pad(s.getMinutes())}`);
+    setNewEnd(`${pad(e.getHours())}:${pad(e.getMinutes())}`);
+  }, [event]);
+
+  const fmtTime = iso => {
+    const d = new Date(iso);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  };
+  const fmtDate = iso => {
+    const d = new Date(iso);
+    return d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Excluir este evento do Google Agenda?')) return;
+    setLoading(true);
+    try {
+      await fetch(`${BACKEND_URL_GCAL}/manageGCalEvent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId, profissionalId, eventId: event.id, action: 'delete' }),
+      });
+      onDeleted();
+    } catch { alert('Erro ao excluir evento.'); }
+    finally { setLoading(false); }
+  };
+
+  const handleReschedule = async () => {
+    if (!newDate || !newStart || !newEnd) { alert('Preencha data, início e fim.'); return; }
+    setLoading(true);
+    try {
+      const startISO = new Date(`${newDate}T${newStart}:00`).toISOString();
+      const endISO   = new Date(`${newDate}T${newEnd}:00`).toISOString();
+      const res = await fetch(`${BACKEND_URL_GCAL}/manageGCalEvent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lojaId, profissionalId, eventId: event.id, action: 'update', start: startISO, end: endISO }),
+      });
+      if (!res.ok) throw new Error();
+      onUpdated();
+    } catch { alert('Erro ao reagendar evento.'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            </div>
+            <div>
+              <p className="font-black text-slate-900 text-sm leading-tight">{event.summary || 'Evento'}</p>
+              <p className="text-[11px] text-blue-500 font-semibold">Google Agenda</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        {/* Date/time */}
+        <div className="bg-slate-50 rounded-xl px-4 py-3 flex items-center gap-3">
+          <div>
+            <p className="text-xs font-bold text-slate-700">{fmtDate(event.start)}</p>
+            <p className="text-xs text-slate-500">{fmtTime(event.start)} – {fmtTime(event.end)}</p>
+          </div>
+        </div>
+
+        {mode === 'view' && (
+          <div className="flex flex-col gap-2">
+            <button onClick={() => setMode('reschedule')}
+              className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 transition-colors">
+              Reagendar
+            </button>
+            <button onClick={handleDelete} disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-red-50 text-red-600 text-sm font-bold hover:bg-red-100 transition-colors disabled:opacity-50">
+              {loading ? 'Excluindo...' : 'Excluir do Google Agenda'}
+            </button>
+          </div>
+        )}
+
+        {mode === 'reschedule' && (
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="text-xs font-bold text-slate-600 block mb-1">Data</label>
+              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-600 block mb-1">Início</label>
+                <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-bold text-slate-600 block mb-1">Fim</label>
+                <input type="time" value={newEnd} onChange={e => setNewEnd(e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setMode('view')}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-bold hover:bg-slate-50 transition-colors">
+                Voltar
+              </button>
+              <button onClick={handleReschedule} disabled={loading}
+                className="flex-1 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-bold hover:bg-violet-700 transition-colors disabled:opacity-50">
+                {loading ? 'Salvando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
