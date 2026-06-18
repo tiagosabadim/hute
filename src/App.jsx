@@ -1756,9 +1756,9 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
   const selectedProf = profissionals.find(p => p.id === selectedProfId) || null;
   useEffect(() => {
     setActiveSlot(null);
-    // Always try Google Calendar for any selected professional — agendaTipo not required.
-    // The backend checks prof_cals and returns googleSync: false if not connected.
-    if (!selectedProfId) { setGoogleFreeSlots(null); setGoogleEvents([]); return; }
+    if (!selectedProfId || selectedProf?.agendaTipo !== 'google') {
+      setGoogleFreeSlots(null); setGoogleEvents([]); setGoogleLoading(false); return;
+    }
 
     setGoogleLoading(true);
     setGoogleFreeSlots(null);
@@ -1935,7 +1935,7 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
 
   // Fetch Google Calendar events for all 7 days of the current week (desktop week view)
   useEffect(() => {
-    if (!selectedProfId) { setWeekGCalEvents({}); return; }
+    if (!selectedProfId || selectedProf?.agendaTipo !== 'google') { setWeekGCalEvents({}); return; }
     const dates = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(weekStart);
       d.setDate(d.getDate() + i);
@@ -2344,12 +2344,28 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                             if (wPausa && seg.start >= wPausa.inicio && seg.start < wPausa.fim) return null;
                             const isPast = nowMin >= 0 && seg.end <= nowMin;
                             const isGray = isDayPast || isPast;
+                            const slotKey = `${dayStr}|${toStr(seg.start)}`;
+                            const isActive = activeSlot === slotKey;
+                            const slotH = Math.max(12, rawH);
                             return (
-                              <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: Math.max(12, rawH), zIndex: isDayPast ? 4 : undefined }}>
+                              <div key={si} className="absolute left-0 right-0 px-0.5" style={{ top, height: slotH, zIndex: isActive ? 20 : (isDayPast ? 4 : 1) }}>
                                 <button
-                                  onClick={() => { setSelectedDate(day); setPreHora(toStr(seg.start)); setShowNewAppt(true); }}
-                                  className={`w-full h-full rounded border border-dashed transition-all ${isGray ? 'border-slate-300 bg-slate-100/60 hover:bg-slate-200/60' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
+                                  onClick={() => { setSelectedDate(day); setActiveSlot(isActive ? null : slotKey); }}
+                                  className={`w-full h-full rounded border border-dashed transition-all ${isActive ? 'border-violet-400 bg-violet-50' : isGray ? 'border-slate-300 bg-slate-100/60 hover:bg-slate-200/60' : 'border-emerald-200 hover:border-emerald-400 hover:bg-emerald-50/60'}`}
                                 />
+                                {isActive && (
+                                  <div className="absolute left-0 right-0 bg-white rounded-lg shadow-lg border border-slate-200 p-1.5 flex flex-col gap-1" style={{ top: slotH + 2, zIndex: 30 }}>
+                                    <p className="text-[9px] font-bold text-slate-500 text-center">{toStr(seg.start)}</p>
+                                    <button onClick={e => { e.stopPropagation(); setSelectedDate(day); setPreHora(toStr(seg.start)); setActiveSlot(null); setShowNewAppt(true); }}
+                                      className="w-full py-1 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded text-[10px] flex items-center justify-center gap-1 transition-colors">
+                                      <Plus className="w-2.5 h-2.5" />Agendar
+                                    </button>
+                                    <button onClick={e => { e.stopPropagation(); setSelectedDate(day); setPreHora(toStr(seg.start)); setActiveSlot(null); setShowBlockModal(true); }}
+                                      className="w-full py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded text-[10px] flex items-center justify-center gap-1 border border-red-100 transition-colors">
+                                      <Clock className="w-2.5 h-2.5" />Bloquear
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             );
                           }
@@ -2876,6 +2892,10 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
           onClose={() => setReagendarAppt(null)}
           onSaved={() => setReagendarAppt(null)}
         />
+      )}
+      {/* Dismiss desktop slot popup when clicking outside */}
+      {activeSlot && activeSlot.includes('|') && (
+        <div className="fixed inset-0 z-10" onClick={() => setActiveSlot(null)} />
       )}
       {detailAppt && (
         <AppointmentDetailModal
