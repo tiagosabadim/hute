@@ -2668,10 +2668,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                   const h = rawH;
                   const isActive = activeSlot === toStr(seg.start);
                   if (isPast) return (
-                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 1 }}>
+                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, minHeight: h, height: isActive ? 'auto' : h, zIndex: isActive ? 10 : 1 }}>
                       <button
                         onClick={() => setActiveSlot(isActive ? null : toStr(seg.start))}
-                        className={`w-full h-full rounded-xl border-2 border-dashed transition-all flex flex-col justify-center px-3 gap-1 ${isActive ? 'border-slate-400 bg-slate-200' : 'border-slate-300 bg-slate-100 hover:border-slate-400 hover:bg-slate-150'}`}>
+                        className={`w-full rounded-xl border-2 border-dashed transition-all flex flex-col justify-center px-3 gap-1 ${isActive ? 'border-slate-400 bg-slate-200' : 'border-slate-300 bg-slate-100 hover:border-slate-400 hover:bg-slate-150'}`}
+                        style={{ minHeight: h }}>
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full bg-slate-300 flex-shrink-0" />
                           <span className="text-xs font-bold text-slate-400">
@@ -2680,13 +2681,13 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           </span>
                         </div>
                         {isActive && (
-                          <div className="flex gap-2 mt-1">
+                          <div className="flex gap-2 mt-2 pb-1">
                             <button onClick={e => { e.stopPropagation(); openNewAppt(toStr(seg.start)); setActiveSlot(null); }}
-                              className="flex-1 py-1.5 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-[10px] flex items-center justify-center gap-1 transition-colors">
+                              className="flex-1 py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 transition-colors">
                               <Plus className="w-3 h-3" />Agendar
                             </button>
                             <button onClick={e => { e.stopPropagation(); openBlock(toStr(seg.start)); setActiveSlot(null); }}
-                              className="flex-1 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold rounded-lg text-[10px] flex items-center justify-center gap-1 border border-slate-200 transition-colors">
+                              className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 border border-slate-200 transition-colors">
                               <Clock className="w-3 h-3" />Bloquear
                             </button>
                           </div>
@@ -2695,10 +2696,11 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                     </div>
                   );
                   return (
-                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, height: h, zIndex: 1 }}>
+                    <div key={i} className="absolute left-0 right-0 px-1.5" style={{ top, minHeight: h, height: isActive ? 'auto' : h, zIndex: isActive ? 10 : 1 }}>
                       <button
                         onClick={() => setActiveSlot(isActive ? null : toStr(seg.start))}
-                        className={`w-full h-full rounded-xl border-2 border-dashed transition-all flex flex-col justify-center px-3 gap-1 ${isActive ? 'border-violet-400 bg-violet-50' : 'border-emerald-200 bg-emerald-50/30 hover:border-emerald-400 hover:bg-emerald-50'}`}>
+                        className={`w-full rounded-xl border-2 border-dashed transition-all flex flex-col justify-center px-3 gap-1 ${isActive ? 'border-violet-400 bg-violet-50' : 'border-emerald-200 bg-emerald-50/30 hover:border-emerald-400 hover:bg-emerald-50'}`}
+                        style={{ minHeight: h }}>
                         <div className="flex items-center gap-2">
                           <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
                           <span className="text-xs font-bold text-emerald-700">
@@ -2707,13 +2709,13 @@ function AdminAgenda({ user, lojaId, filterProfId, profile, newApptTrigger = 0 }
                           </span>
                         </div>
                         {isActive && (
-                          <div className="flex gap-2 mt-1">
+                          <div className="flex gap-2 mt-2 pb-1">
                             <button onClick={e => { e.stopPropagation(); openNewAppt(toStr(seg.start)); setActiveSlot(null); }}
-                              className="flex-1 py-1.5 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-lg text-[10px] flex items-center justify-center gap-1 transition-colors">
+                              className="flex-1 py-2 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 transition-colors">
                               <Plus className="w-3 h-3" />Agendar
                             </button>
                             <button onClick={e => { e.stopPropagation(); openBlock(toStr(seg.start)); setActiveSlot(null); }}
-                              className="flex-1 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-lg text-[10px] flex items-center justify-center gap-1 border border-red-100 transition-colors">
+                              className="flex-1 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-lg text-[11px] flex items-center justify-center gap-1 border border-red-100 transition-colors">
                               <Clock className="w-3 h-3" />Bloquear
                             </button>
                           </div>
